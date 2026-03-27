@@ -2,7 +2,7 @@
   "version": 1,
   "items": [
     {
-      "id": "model.xifan.dolphin-base-ctc-multilang-int8",
+      "id": "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "model.xifan.sense-voice-zh-en-int8",
+      "id": "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
@@ -48,7 +48,7 @@
       }
     },
     {
-      "id": "model.xifan.sense-voice-funasr-nano-int8",
+      "id": "model.sherpa-onnx.sense-voice-funasr-nano-int8",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2",
@@ -72,7 +72,7 @@
       }
     },
     {
-      "id": "model.xifan.paraformer-zh-small",
+      "id": "model.sherpa-onnx.paraformer-zh-small",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
@@ -96,7 +96,7 @@
       }
     },
     {
-      "id": "model.xifan.paraformer-zh-2023-09-14",
+      "id": "model.sherpa-onnx.paraformer-zh-2023-09-14",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2",
@@ -120,7 +120,7 @@
       }
     },
     {
-      "id": "model.xifan.paraformer-zh-int8-2025-10-07",
+      "id": "model.sherpa-onnx.paraformer-zh-int8-2025-10-07",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
@@ -144,7 +144,7 @@
       }
     },
     {
-      "id": "model.xifan.zipformer-multi-zh-hans",
+      "id": "model.sherpa-onnx.zipformer-multi-zh-hans",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-multi-zh-hans-2023-9-2.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-multi-zh-hans-2023-9-2.tar.bz2",
@@ -171,7 +171,7 @@
       }
     },
     {
-      "id": "model.xifan.zipformer-zh-en",
+      "id": "model.sherpa-onnx.zipformer-zh-en",
       "urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
         "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
