@@ -22,5 +22,7 @@
   "model.sherpa-onnx.zipformer-multi-zh-hans.title": "Zipformer 多中文方言 (int8)",
   "model.sherpa-onnx.zipformer-multi-zh-hans.description": "多中文方言 Zipformer Transducer 模型，支持普通话及多种汉语方言，支持热词。",
   "model.sherpa-onnx.zipformer-zh-en.title": "Zipformer 中英双语",
-  "model.sherpa-onnx.zipformer-zh-en.description": "中英双语 Zipformer Transducer 模型，单模型同时支持中英文，支持热词。"
+  "model.sherpa-onnx.zipformer-zh-en.description": "中英双语 Zipformer Transducer 模型，单模型同时支持中英文，支持热词。",
+  "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.title": "流式 Zipformer 英文 20M",
+  "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.description": "小体积 sherpa-onnx 英文流式 Zipformer Transducer 模型，用于 backend 与前端交互联调测试。"
 }

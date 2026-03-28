@@ -22,5 +22,7 @@
   "model.sherpa-onnx.zipformer-multi-zh-hans.title": "Zipformer Multi-Chinese Dialects (int8)",
   "model.sherpa-onnx.zipformer-multi-zh-hans.description": "Zipformer transducer model for Mandarin and multiple Chinese dialects, with hotword support.",
   "model.sherpa-onnx.zipformer-zh-en.title": "Zipformer Chinese-English Bilingual",
-  "model.sherpa-onnx.zipformer-zh-en.description": "Bilingual Zipformer transducer model for both Chinese and English, with hotword support."
+  "model.sherpa-onnx.zipformer-zh-en.description": "Bilingual Zipformer transducer model for both Chinese and English, with hotword support.",
+  "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.title": "Streaming Zipformer English 20M",
+  "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.description": "Small sherpa-onnx English streaming Zipformer transducer model for backend and interaction testing."
 }
