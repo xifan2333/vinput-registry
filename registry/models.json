@@ -496,6 +496,68 @@
       }
     },
     {
+      "id": "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2"
+      ],
+      "sha256": "5a2832047ea1f97dd0dc595b816c230c4bafad65cfc0341fa57517cadc50afd0",
+      "size_bytes": 132634597,
+      "language": "zh",
+      "vinput_model": {
+        "backend": "sherpa-streaming",
+        "language": "zh",
+        "size_bytes": 132634597,
+        "supports_hotwords": true,
+        "runtime": "online",
+        "family": "transducer",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "enable_endpoint": 0,
+          "rule1_min_trailing_silence": 2.4,
+          "rule2_min_trailing_silence": 1.2,
+          "rule3_min_utterance_length": 20.0,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "ctc_fst_decoder_config": {
+            "graph": "",
+            "max_active": 3000
+          },
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hotwords_buf": "",
+          "hotwords_buf_size": 0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "tokens.txt",
+          "num_threads": 1,
+          "provider": "cpu",
+          "debug": 0,
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "tokens_buf": "",
+          "tokens_buf_size": 0,
+          "transducer": {
+            "encoder": "encoder.int8.onnx",
+            "decoder": "decoder.onnx",
+            "joiner": "joiner.int8.onnx"
+          }
+        }
+      }
+    },
+    {
       "id": "model.vosk.small-en-us-0.15",
       "urls": [
         "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"

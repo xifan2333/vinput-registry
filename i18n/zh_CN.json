@@ -25,6 +25,8 @@
   "model.sherpa-onnx.zipformer-zh-en.description": "中英双语 Zipformer Transducer 模型，单模型同时支持中英文，支持热词。",
   "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.title": "流式 Zipformer 英文 20M",
   "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17.description": "小体积 sherpa-onnx 英文流式 Zipformer Transducer 模型，用于 backend 与前端交互联调测试。",
+  "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30.title": "流式 Zipformer 中文 (int8, 2025-06-30)",
+  "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30.description": "官方 sherpa-onnx 中文流式 Zipformer Transducer 模型，encoder 与 joiner 为 int8，适合本地中文流式 ASR 测试。",
   "model.vosk.small-en-us-0.15.title": "Vosk 英文小模型 US 0.15",
   "model.vosk.small-en-us-0.15.description": "Vosk 官方英文小模型压缩包，约 39MB，适合轻量级本地流式识别。",
   "model.vosk.small-cn-0.22.title": "Vosk 中文小模型 0.22",
