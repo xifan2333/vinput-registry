@@ -42,6 +42,35 @@
       ]
     },
     {
+      "id": "providers.elevenlabs.streaming",
+      "short_id": "11labs-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/elevenlabs/streaming/README.md",
+      "envs": [
+        { "name": "ELEVENLABS_API_KEY", "required": true },
+        { "name": "ELEVENLABS_MODEL_ID", "required": false },
+        { "name": "ELEVENLABS_LANGUAGE", "required": false },
+        { "name": "ELEVENLABS_STREAM_URL", "required": false },
+        { "name": "ELEVENLABS_AUDIO_FORMAT", "required": false },
+        { "name": "ELEVENLABS_INCLUDE_TIMESTAMPS", "required": false },
+        { "name": "ELEVENLABS_INCLUDE_LANGUAGE_DETECTION", "required": false },
+        { "name": "ELEVENLABS_COMMIT_STRATEGY", "required": false },
+        { "name": "ELEVENLABS_VAD_SILENCE_THRESHOLD_SECS", "required": false },
+        { "name": "ELEVENLABS_VAD_THRESHOLD", "required": false },
+        { "name": "ELEVENLABS_MIN_SPEECH_DURATION_MS", "required": false },
+        { "name": "ELEVENLABS_MIN_SILENCE_DURATION_MS", "required": false },
+        { "name": "ELEVENLABS_ENABLE_LOGGING", "required": false },
+        { "name": "ELEVENLABS_TIMEOUT", "required": false },
+        { "name": "ELEVENLABS_FINISH_GRACE_SECS", "required": false }
+      ]
+    },
+    {
       "id": "providers.openai-compatible.batch",
       "short_id": "oai-batch",
       "stream": false,

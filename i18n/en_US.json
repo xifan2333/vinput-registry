@@ -3,6 +3,8 @@
   "providers.doubao.batch.description": "Use the Doubao / Volcengine fast file recognition API for cloud ASR.",
   "providers.elevenlabs.batch.title": "ElevenLabs Speech to Text",
   "providers.elevenlabs.batch.description": "Use the ElevenLabs speech-to-text API for cloud ASR.",
+  "providers.elevenlabs.streaming.title": "ElevenLabs Realtime Speech to Text",
+  "providers.elevenlabs.streaming.description": "Use the ElevenLabs realtime speech-to-text API for streaming cloud ASR.",
   "providers.openai-compatible.batch.title": "OpenAI-Compatible Speech to Text",
   "providers.openai-compatible.batch.description": "Use an OpenAI-compatible /v1/audio/transcriptions endpoint for cloud ASR.",
   "adapters.mtranserver.proxy.title": "MTranServer Proxy",

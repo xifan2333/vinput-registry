@@ -3,6 +3,8 @@
   "providers.doubao.batch.description": "通过豆包语音 / 火山引擎录音文件极速版接口调用云端 ASR。",
   "providers.elevenlabs.batch.title": "ElevenLabs Speech to Text",
   "providers.elevenlabs.batch.description": "通过 ElevenLabs speech-to-text API 调用云端 ASR。",
+  "providers.elevenlabs.streaming.title": "ElevenLabs Realtime Speech to Text",
+  "providers.elevenlabs.streaming.description": "通过 ElevenLabs realtime speech-to-text API 调用流式云端 ASR。",
   "providers.openai-compatible.batch.title": "OpenAI-Compatible Speech to Text",
   "providers.openai-compatible.batch.description": "通过兼容 OpenAI 的 /v1/audio/transcriptions 接口调用云端 ASR。",
   "adapters.mtranserver.proxy.title": "MTranServer Proxy",
