@@ -30,5 +30,9 @@
   "model.vosk.small-en-us-0.15.title": "Vosk Small English US 0.15",
   "model.vosk.small-en-us-0.15.description": "Compact official Vosk English model archive at about 39 MB, suitable for lightweight local streaming recognition.",
   "model.vosk.small-cn-0.22.title": "Vosk Small Chinese 0.22",
-  "model.vosk.small-cn-0.22.description": "Compact official Vosk Chinese model archive at about 42 MB, suitable for lightweight local streaming recognition and testing."
+  "model.vosk.small-cn-0.22.description": "Compact official Vosk Chinese model archive at about 42 MB, suitable for lightweight local streaming recognition and testing.",
+  "model.vosk.offline.small-en-us-0.15.title": "Vosk Offline Small English US 0.15",
+  "model.vosk.offline.small-en-us-0.15.description": "Compact official Vosk English model archive at about 39 MB, packaged for lightweight local offline recognition.",
+  "model.vosk.offline.small-cn-0.22.title": "Vosk Offline Small Chinese 0.22",
+  "model.vosk.offline.small-cn-0.22.description": "Compact official Vosk Chinese model archive at about 42 MB, packaged for lightweight local offline recognition and testing."
 }

@@ -612,6 +612,62 @@
           }
         }
       }
+    },
+    {
+      "id": "model.vosk.offline.small-en-us-0.15",
+      "urls": [
+        "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+      ],
+      "sha256": "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498",
+      "size_bytes": 41205931,
+      "language": "en",
+      "vinput_model": {
+        "backend": "vosk-offline",
+        "language": "en",
+        "size_bytes": 41205931,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "vosk",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          }
+        },
+        "model": {
+          "vosk": {
+            "model": "."
+          }
+        }
+      }
+    },
+    {
+      "id": "model.vosk.offline.small-cn-0.22",
+      "urls": [
+        "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+      ],
+      "sha256": "3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba",
+      "size_bytes": 43898754,
+      "language": "zh",
+      "vinput_model": {
+        "backend": "vosk-offline",
+        "language": "zh",
+        "size_bytes": 43898754,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "vosk",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          }
+        },
+        "model": {
+          "vosk": {
+            "model": "."
+          }
+        }
+      }
     }
   ]
 }

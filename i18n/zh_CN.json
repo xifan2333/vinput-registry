@@ -30,5 +30,9 @@
   "model.vosk.small-en-us-0.15.title": "Vosk 英文小模型 US 0.15",
   "model.vosk.small-en-us-0.15.description": "Vosk 官方英文小模型压缩包，约 39MB，适合轻量级本地流式识别。",
   "model.vosk.small-cn-0.22.title": "Vosk 中文小模型 0.22",
-  "model.vosk.small-cn-0.22.description": "Vosk 官方中文小模型压缩包，约 42MB，适合轻量级本地流式识别与测试。"
+  "model.vosk.small-cn-0.22.description": "Vosk 官方中文小模型压缩包，约 42MB，适合轻量级本地流式识别与测试。",
+  "model.vosk.offline.small-en-us-0.15.title": "Vosk 离线英文小模型 US 0.15",
+  "model.vosk.offline.small-en-us-0.15.description": "Vosk 官方英文小模型压缩包，约 39MB，适合轻量级本地离线识别。",
+  "model.vosk.offline.small-cn-0.22.title": "Vosk 离线中文小模型 0.22",
+  "model.vosk.offline.small-cn-0.22.description": "Vosk 官方中文小模型压缩包，约 42MB，适合轻量级本地离线识别与测试。"
 }
