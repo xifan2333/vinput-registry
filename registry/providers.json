@@ -160,6 +160,122 @@
       ]
     },
     {
+      "id": "providers.bailian.streaming",
+      "short_id": "bailian-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_PROMPT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_VAD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_THRESHOLD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "providers.doubao.streaming",
+      "short_id": "doubao-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubao/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_RESOURCE_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_RESULT_TYPE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_VAD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_THRESHOLD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "providers.openai-compatible.batch",
       "short_id": "oai-batch",
       "stream": false,
@@ -177,10 +293,6 @@
         },
         {
           "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_BASE_URL",
           "required": false
         },
         {
@@ -205,6 +317,72 @@
         },
         {
           "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "providers.openai-compatible.streaming",
+      "short_id": "oai-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/openai-compatible/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_PROMPT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_BASE_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TARGET_SAMPLE_RATE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_VAD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_THRESHOLD",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
           "required": false
         }
       ]
