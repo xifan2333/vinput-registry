@@ -10,6 +10,7 @@ import ssl
 import struct
 import sys
 import threading
+import re
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -30,6 +31,25 @@ def write_stdout(event: Dict[str, Any]) -> None:
 def write_stderr(message: str) -> None:
     sys.stderr.write(message + "\n")
     sys.stderr.flush()
+
+
+def normalize_transcript_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def combine_transcript(committed_text: str, current_text: str) -> str:
+    committed = normalize_transcript_text(committed_text)
+    current = normalize_transcript_text(current_text)
+
+    if not committed:
+        return current
+    if not current:
+        return committed
+    if current == committed or current.startswith(committed):
+        return current
+    if committed.endswith(current):
+        return committed
+    return committed + " " + current
 
 
 def get_required_env(name: str) -> str:
@@ -327,17 +347,48 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if message_type == "partial_transcript":
-        write_stdout({"type": "partial", "text": str(message.get("text", ""))})
+        segment_text = str(message.get("text", ""))
+        state["partial_text"] = normalize_transcript_text(segment_text)
+        write_stdout(
+            {
+                "type": "partial",
+                "text": combine_transcript(
+                    str(state.get("confirmed_text", "")),
+                    str(state.get("partial_text", "")),
+                ),
+            }
+        )
         return
 
     if message_type == "committed_transcript":
-        write_stdout({"type": "final", "text": str(message.get("text", ""))})
+        segment_text = str(message.get("text", ""))
+        full_text = combine_transcript(
+            str(state.get("confirmed_text", "")),
+            segment_text,
+        )
+        state["confirmed_text"] = full_text
+        state["partial_text"] = ""
+        write_stdout(
+            {
+                "type": "final",
+                "text": full_text,
+                "segment_final": True,
+            }
+        )
         return
 
     if message_type == "committed_transcript_with_timestamps":
+        segment_text = str(message.get("text", ""))
+        full_text = combine_transcript(
+            str(state.get("confirmed_text", "")),
+            segment_text,
+        )
+        state["confirmed_text"] = full_text
+        state["partial_text"] = ""
         event: Dict[str, Any] = {
             "type": "final_timestamps",
-            "text": str(message.get("text", "")),
+            "text": full_text,
+            "segment_final": True,
             "words": message.get("words", []),
         }
         language_code = message.get("language_code")
@@ -371,7 +422,13 @@ def run() -> int:
     url = build_url()
 
     client = WebSocketClient(url, {"xi-api-key": api_key}, timeout)
-    state: Dict[str, Any] = {"session_started": False, "error": None, "closed": False}
+    state: Dict[str, Any] = {
+        "session_started": False,
+        "error": None,
+        "closed": False,
+        "confirmed_text": "",
+        "partial_text": "",
+    }
     stop_event = threading.Event()
 
     def reader() -> None:

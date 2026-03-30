@@ -32,6 +32,13 @@ Cloud ASR provider script for the ElevenLabs realtime speech-to-text API.
 - `{"type":"error","message":"..."}`
 - `{"type":"closed"}`
 
+Normalized transcript semantics used by this script:
+
+- `partial.text` is the full user-visible transcript at the current moment.
+- `final.text` is the full confirmed transcript at the current moment.
+- The script accumulates committed segments locally before emitting output.
+- `segment_final: true` is included on committed transcript events.
+
 ## Environment Variables
 
 - `ELEVENLABS_API_KEY` required
