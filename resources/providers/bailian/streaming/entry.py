@@ -113,6 +113,10 @@ def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> 
     return True
 
 
+def has_usable_final(state: Dict[str, Any]) -> bool:
+    return bool(normalize_transcript_text(str(state.get("last_final_text", ""))))
+
+
 class WebSocketClient:
     def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
@@ -425,7 +429,10 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if message_type == "conversation.item.input_audio_transcription.failed":
-        emit_fallback_final(state)
+        if has_usable_final(state):
+            return
+        if emit_fallback_final(state):
+            return
         error = message.get("error")
         error_message = "Input audio transcription failed."
         if isinstance(error, dict):
@@ -441,7 +448,10 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if message_type == "error":
-        emit_fallback_final(state)
+        if has_usable_final(state):
+            return
+        if emit_fallback_final(state):
+            return
         error = message.get("error")
         error_message = "Unknown Bailian error."
         if isinstance(error, dict):
