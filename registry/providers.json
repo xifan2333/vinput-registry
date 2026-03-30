@@ -14,31 +14,31 @@
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubao/batch/README.md",
       "envs": [
         {
-          "name": "DOUBAO_ASR_APP_ID",
+          "name": "VINPUT_ASR_APP_ID",
           "required": true
         },
         {
-          "name": "DOUBAO_ASR_ACCESS_TOKEN",
+          "name": "VINPUT_ASR_ACCESS_TOKEN",
           "required": true
         },
         {
-          "name": "DOUBAO_ASR_URL",
+          "name": "VINPUT_ASR_URL",
           "required": false
         },
         {
-          "name": "DOUBAO_ASR_RESOURCE_ID",
+          "name": "VINPUT_ASR_RESOURCE_ID",
           "required": false
         },
         {
-          "name": "DOUBAO_ASR_MODEL_NAME",
+          "name": "VINPUT_ASR_MODEL",
           "required": false
         },
         {
-          "name": "DOUBAO_ASR_USER_ID",
+          "name": "VINPUT_ASR_USER_ID",
           "required": false
         },
         {
-          "name": "DOUBAO_ASR_TIMEOUT",
+          "name": "VINPUT_ASR_TIMEOUT",
           "required": false
         }
       ]

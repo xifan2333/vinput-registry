@@ -138,17 +138,17 @@ def transcribe(
 
 def main() -> int:
     try:
-        app_id = get_required_env("DOUBAO_ASR_APP_ID")
-        access_token = get_required_env("DOUBAO_ASR_ACCESS_TOKEN")
-        endpoint = get_optional_env("DOUBAO_ASR_URL", DEFAULT_URL)
+        app_id = get_required_env("VINPUT_ASR_APP_ID")
+        access_token = get_required_env("VINPUT_ASR_ACCESS_TOKEN")
+        endpoint = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
         resource_id = get_optional_env(
-            "DOUBAO_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID
+            "VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID
         )
         model_name = get_optional_env(
-            "DOUBAO_ASR_MODEL_NAME", DEFAULT_MODEL_NAME
+            "VINPUT_ASR_MODEL", DEFAULT_MODEL_NAME
         )
-        user_id = get_optional_env("DOUBAO_ASR_USER_ID", app_id)
-        timeout = get_optional_int_env("DOUBAO_ASR_TIMEOUT", DEFAULT_TIMEOUT)
+        user_id = get_optional_env("VINPUT_ASR_USER_ID", app_id)
+        timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
         pcm_audio = read_audio_input()
 
         text = transcribe(

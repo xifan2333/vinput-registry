@@ -14,13 +14,13 @@ Cloud ASR provider script for Doubao / Volcengine fast file recognition.
 
 ## Environment Variables
 
-- `DOUBAO_ASR_APP_ID` required
-- `DOUBAO_ASR_ACCESS_TOKEN` required
-- `DOUBAO_ASR_URL` optional
-- `DOUBAO_ASR_RESOURCE_ID` optional
-- `DOUBAO_ASR_MODEL_NAME` optional
-- `DOUBAO_ASR_USER_ID` optional
-- `DOUBAO_ASR_TIMEOUT` optional
+- `VINPUT_ASR_APP_ID` required
+- `VINPUT_ASR_ACCESS_TOKEN` required
+- `VINPUT_ASR_URL` optional
+- `VINPUT_ASR_RESOURCE_ID` optional
+- `VINPUT_ASR_MODEL` optional
+- `VINPUT_ASR_USER_ID` optional
+- `VINPUT_ASR_TIMEOUT` optional
 
 ## Notes
 
