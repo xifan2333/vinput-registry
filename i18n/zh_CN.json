@@ -11,6 +11,8 @@
   "providers.bailian.streaming.description": "通过百炼 Qwen-ASR-Realtime API 调用流式云端 ASR。",
   "providers.doubao.streaming.title": "豆包（流式）",
   "providers.doubao.streaming.description": "通过火山引擎 AI Gateway 的 Doubao ASR Realtime API 调用流式云端 ASR。",
+  "providers.doubaoime.streaming.title": "豆包输入法（流式）",
+  "providers.doubaoime.streaming.description": "通过非官方的豆包输入法实时语音识别协议调用流式云端 ASR。",
   "providers.openai-compatible.batch.title": "OpenAI 兼容（非流式）",
   "providers.openai-compatible.batch.description": "通过兼容 OpenAI 的 /v1/audio/transcriptions 接口调用云端 ASR。",
   "providers.openai-compatible.streaming.title": "OpenAI 兼容（流式）",

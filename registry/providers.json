@@ -322,6 +322,68 @@
       ]
     },
     {
+      "id": "providers.doubaoime.streaming",
+      "short_id": "doubaoime-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_AID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_CREDENTIAL_PATH",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_DEVICE_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TOKEN",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_PUNCTUATION",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_SPEECH_REJECTION",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_ASR_TWOPASS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_ASR_THREEPASS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_APP_NAME",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "providers.openai-compatible.batch",
       "short_id": "oai-batch",
       "stream": false,

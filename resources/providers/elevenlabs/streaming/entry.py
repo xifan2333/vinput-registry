@@ -11,6 +11,7 @@ import struct
 import sys
 import threading
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -85,36 +86,65 @@ def get_optional_bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> bool:
-    visible_text = normalize_transcript_text(
-        combine_transcript(
-            str(state.get("confirmed_text", "")),
-            str(state.get("partial_text", "")),
-        )
-    )
-    if not visible_text:
-        return False
+@dataclass
+class SessionState:
+    session_started: bool = False
+    error: Optional[str] = None
+    closed: bool = False
+    confirmed_text: str = ""
+    partial_text: str = ""
+    last_final_text: str = ""
 
-    last_final_text = normalize_transcript_text(str(state.get("last_final_text", "")))
-    if visible_text == last_final_text:
+    def get_last_final_text(self) -> str:
+        return normalize_transcript_text(self.last_final_text)
+
+    def has_usable_final(self) -> bool:
+        return bool(self.get_last_final_text())
+
+    def get_visible_text(self) -> str:
+        return normalize_transcript_text(
+            combine_transcript(self.confirmed_text, self.partial_text)
+        )
+
+    def record_final_text(self, text: str) -> str:
+        final_text = normalize_transcript_text(text)
+        self.confirmed_text = final_text
+        self.partial_text = ""
+        self.last_final_text = final_text
+        return final_text
+
+
+def emit_final_text(
+    state: SessionState,
+    text: str,
+    *,
+    event_type: str = "final",
+    utterance_final: bool = False,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> bool:
+    final_text = normalize_transcript_text(text)
+    if not final_text or final_text == state.get_last_final_text():
         return False
 
     event: Dict[str, Any] = {
-        "type": "final",
-        "text": visible_text,
+        "type": event_type,
+        "text": state.record_final_text(final_text),
         "segment_final": True,
     }
     if utterance_final:
         event["utterance_final"] = True
+    if extra_fields:
+        event.update(extra_fields)
     write_stdout(event)
-    state["confirmed_text"] = visible_text
-    state["partial_text"] = ""
-    state["last_final_text"] = visible_text
     return True
 
 
-def has_usable_final(state: Dict[str, Any]) -> bool:
-    return bool(normalize_transcript_text(str(state.get("last_final_text", ""))))
+def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> bool:
+    return emit_final_text(
+        state,
+        state.get_visible_text(),
+        utterance_final=utterance_final,
+    )
 
 
 class WebSocketClient:
@@ -364,11 +394,11 @@ def build_url() -> str:
     return base_url + separator + urlencode(params)
 
 
-def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> None:
+def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
     message_type = str(message.get("message_type", "")).strip()
 
     if message_type == "session_started":
-        state["session_started"] = True
+        state.session_started = True
         write_stdout(
             {
                 "type": "session_started",
@@ -380,13 +410,13 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
 
     if message_type == "partial_transcript":
         segment_text = str(message.get("text", ""))
-        state["partial_text"] = normalize_transcript_text(segment_text)
+        state.partial_text = normalize_transcript_text(segment_text)
         write_stdout(
             {
                 "type": "partial",
                 "text": combine_transcript(
-                    str(state.get("confirmed_text", "")),
-                    str(state.get("partial_text", "")),
+                    state.confirmed_text,
+                    state.partial_text,
                 ),
             }
         )
@@ -395,44 +425,27 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
     if message_type == "committed_transcript":
         segment_text = str(message.get("text", ""))
         full_text = combine_transcript(
-            str(state.get("confirmed_text", "")),
+            state.confirmed_text,
             segment_text,
         )
-        state["confirmed_text"] = full_text
-        state["partial_text"] = ""
-        state["last_final_text"] = full_text
-        write_stdout(
-            {
-                "type": "final",
-                "text": full_text,
-                "segment_final": True,
-            }
-        )
+        emit_final_text(state, full_text)
         return
 
     if message_type == "committed_transcript_with_timestamps":
         segment_text = str(message.get("text", ""))
         full_text = combine_transcript(
-            str(state.get("confirmed_text", "")),
+            state.confirmed_text,
             segment_text,
         )
-        state["confirmed_text"] = full_text
-        state["partial_text"] = ""
-        state["last_final_text"] = full_text
-        event: Dict[str, Any] = {
-            "type": "final_timestamps",
-            "text": full_text,
-            "segment_final": True,
-            "words": message.get("words", []),
-        }
+        event: Dict[str, Any] = {"words": message.get("words", [])}
         language_code = message.get("language_code")
         if language_code is not None:
             event["language_code"] = language_code
-        write_stdout(event)
+        emit_final_text(state, full_text, event_type="final_timestamps", extra_fields=event)
         return
 
     if message_type.endswith("error") or message_type == "error":
-        if has_usable_final(state):
+        if state.has_usable_final():
             return
         if emit_fallback_final(state):
             return
@@ -445,7 +458,7 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         if "code" in message:
             event["code"] = message["code"]
         write_stdout(event)
-        state["error"] = error_text
+        state.error = error_text
         return
 
     write_stderr("Ignoring ElevenLabs message: " + json.dumps(message, ensure_ascii=False))
@@ -460,14 +473,7 @@ def run() -> int:
     url = build_url()
 
     client = WebSocketClient(url, {"xi-api-key": api_key}, timeout)
-    state: Dict[str, Any] = {
-        "session_started": False,
-        "error": None,
-        "closed": False,
-        "confirmed_text": "",
-        "partial_text": "",
-        "last_final_text": "",
-    }
+    state = SessionState()
     stop_event = threading.Event()
 
     def reader() -> None:
@@ -479,7 +485,7 @@ def run() -> int:
                 handle_server_message(message, state)
         except Exception as exc:
             if not stop_event.is_set():
-                state["error"] = str(exc)
+                state.error = str(exc)
                 write_stdout({"type": "error", "message": str(exc)})
         finally:
             stop_event.set()
@@ -536,11 +542,11 @@ def run() -> int:
         stop_event.set()
         client.close()
         thread.join(timeout=1.0)
-        if not state["closed"]:
+        if not state.closed:
             write_stdout({"type": "closed"})
-            state["closed"] = True
+            state.closed = True
 
-    if state.get("error"):
+    if state.error:
         return EXIT_RUNTIME_ERROR
     return 0
 

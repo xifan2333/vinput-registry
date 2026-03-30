@@ -11,6 +11,7 @@ import struct
 import sys
 import threading
 import uuid
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -89,32 +90,67 @@ def new_event_id() -> str:
     return "event_" + uuid.uuid4().hex
 
 
-def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> bool:
-    visible_text = normalize_transcript_text(str(state.get("latest_partial_text", "")))
-    if not visible_text:
-        return False
+@dataclass
+class SessionState:
+    session_started: bool = False
+    error: Optional[str] = None
+    closed: bool = False
+    confirmed_text: str = ""
+    latest_partial_text: str = ""
+    last_final_text: str = ""
+    last_item_id: str = ""
+    partials: Dict[str, str] = field(default_factory=dict)
+    pending_audio_since_commit: bool = False
+    server_finished: bool = False
 
-    last_final_text = normalize_transcript_text(str(state.get("last_final_text", "")))
-    if visible_text == last_final_text:
+    def get_last_final_text(self) -> str:
+        return normalize_transcript_text(self.last_final_text)
+
+    def has_usable_final(self) -> bool:
+        return bool(self.get_last_final_text())
+
+    def clear_partial_state(self) -> None:
+        self.latest_partial_text = ""
+        self.partials.clear()
+
+    def record_final_text(self, text: str) -> str:
+        final_text = normalize_transcript_text(text)
+        self.last_final_text = final_text
+        self.confirmed_text = final_text
+        self.clear_partial_state()
+        return final_text
+
+
+def emit_final_text(
+    state: SessionState,
+    text: str,
+    *,
+    utterance_final: bool = False,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> bool:
+    final_text = normalize_transcript_text(text)
+    if not final_text or final_text == state.get_last_final_text():
         return False
 
     event: Dict[str, Any] = {
         "type": "final",
-        "text": visible_text,
+        "text": state.record_final_text(final_text),
         "segment_final": True,
     }
     if utterance_final:
         event["utterance_final"] = True
+    if extra_fields:
+        event.update(extra_fields)
     write_stdout(event)
-    state["last_final_text"] = visible_text
-    state["confirmed_text"] = visible_text
-    state["latest_partial_text"] = ""
-    state["partials"].clear()
     return True
 
 
-def has_usable_final(state: Dict[str, Any]) -> bool:
-    return bool(normalize_transcript_text(str(state.get("last_final_text", ""))))
+def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> bool:
+    return emit_final_text(
+        state,
+        state.latest_partial_text,
+        utterance_final=utterance_final,
+    )
 
 
 class WebSocketClient:
@@ -369,7 +405,7 @@ def build_session_update_event() -> Dict[str, Any]:
     }
 
 
-def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> None:
+def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
     message_type = str(message.get("type", "")).strip()
 
     if message_type in {"session.created", "session.updated"}:
@@ -377,7 +413,7 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         session_id = ""
         if isinstance(session, dict):
             session_id = str(session.get("id", ""))
-        if not state.get("session_started"):
+        if not state.session_started:
             write_stdout(
                 {
                     "type": "session_started",
@@ -385,51 +421,48 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
                     "config": session if isinstance(session, dict) else {},
                 }
             )
-        state["session_started"] = True
+        state.session_started = True
         return
 
     if message_type == "input_audio_buffer.committed":
         item_id = str(message.get("item_id", "")).strip()
         if item_id:
-            state["last_item_id"] = item_id
+            state.last_item_id = item_id
         return
 
     if message_type == "conversation.item.input_audio_transcription.text":
         item_id = str(message.get("item_id", "")).strip() or str(
-            state.get("last_item_id", "")
+            state.last_item_id
         ).strip()
         preview_text = str(message.get("text", "")) + str(message.get("stash", ""))
         if item_id:
-            state["partials"][item_id] = preview_text
+            state.partials[item_id] = preview_text
         visible_text = combine_transcript(
-            str(state.get("confirmed_text", "")),
+            state.confirmed_text,
             preview_text,
         )
-        state["latest_partial_text"] = visible_text
+        state.latest_partial_text = visible_text
         write_stdout({"type": "partial", "text": visible_text})
         return
 
     if message_type == "conversation.item.input_audio_transcription.completed":
         item_id = str(message.get("item_id", "")).strip()
         transcript = str(message.get("transcript", "")).strip()
-        full_text = combine_transcript(str(state.get("confirmed_text", "")), transcript)
-        state["confirmed_text"] = full_text
-        state["latest_partial_text"] = ""
-        state["last_final_text"] = full_text
+        full_text = combine_transcript(state.confirmed_text, transcript)
         if item_id:
-            state["partials"].pop(item_id, None)
-        event: Dict[str, Any] = {"type": "final", "text": full_text, "segment_final": True}
+            state.partials.pop(item_id, None)
+        event: Dict[str, Any] = {}
         language = message.get("language")
         if language is not None:
             event["language"] = language
         emotion = message.get("emotion")
         if emotion is not None:
             event["emotion"] = emotion
-        write_stdout(event)
+        emit_final_text(state, full_text, extra_fields=event)
         return
 
     if message_type == "conversation.item.input_audio_transcription.failed":
-        if has_usable_final(state):
+        if state.has_usable_final():
             return
         if emit_fallback_final(state):
             return
@@ -440,15 +473,15 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
             if isinstance(candidate, str) and candidate.strip():
                 error_message = candidate.strip()
         write_stdout({"type": "error", "message": error_message})
-        state["error"] = error_message
+        state.error = error_message
         return
 
     if message_type == "session.finished":
-        state["server_finished"] = True
+        state.server_finished = True
         return
 
     if message_type == "error":
-        if has_usable_final(state):
+        if state.has_usable_final():
             return
         if emit_fallback_final(state):
             return
@@ -459,7 +492,7 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
             if isinstance(candidate, str) and candidate.strip():
                 error_message = candidate.strip()
         write_stdout({"type": "error", "message": error_message})
-        state["error"] = error_message
+        state.error = error_message
         return
 
 
@@ -475,18 +508,7 @@ def run() -> int:
     client = WebSocketClient(url, {"Authorization": f"Bearer {api_key}"}, timeout)
     client.send_json(build_session_update_event())
 
-    state: Dict[str, Any] = {
-        "session_started": False,
-        "error": None,
-        "closed": False,
-        "confirmed_text": "",
-        "latest_partial_text": "",
-        "last_final_text": "",
-        "last_item_id": "",
-        "partials": {},
-        "pending_audio_since_commit": False,
-        "server_finished": False,
-    }
+    state = SessionState()
     stop_event = threading.Event()
 
     def reader() -> None:
@@ -496,11 +518,11 @@ def run() -> int:
                 if message is None:
                     break
                 handle_server_message(message, state)
-                if state.get("server_finished"):
+                if state.server_finished:
                     break
         except Exception as exc:
             if not stop_event.is_set():
-                state["error"] = str(exc)
+                state.error = str(exc)
                 write_stdout({"type": "error", "message": str(exc)})
         finally:
             stop_event.set()
@@ -536,16 +558,16 @@ def run() -> int:
                         "audio": audio_base64,
                     }
                 )
-                state["pending_audio_since_commit"] = True
+                state.pending_audio_since_commit = True
                 if bool(event.get("commit", False)):
-                    if state.get("pending_audio_since_commit"):
+                    if state.pending_audio_since_commit:
                         client.send_json(
                             {
                                 "event_id": new_event_id(),
                                 "type": "input_audio_buffer.commit",
                             }
                         )
-                        state["pending_audio_since_commit"] = False
+                        state.pending_audio_since_commit = False
                 continue
 
             if event_type == "finish":
@@ -565,11 +587,11 @@ def run() -> int:
         stop_event.set()
         client.close()
         thread.join(timeout=1.0)
-        if not state["closed"]:
+        if not state.closed:
             write_stdout({"type": "closed"})
-            state["closed"] = True
+            state.closed = True
 
-    if state.get("error"):
+    if state.error:
         return EXIT_RUNTIME_ERROR
     return 0
 
