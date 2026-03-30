@@ -15,6 +15,8 @@
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "阿里 FunASR SenseVoice 多语言模型，支持中英日韩粤五种语言，int8 量化，推荐首选。",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.title": "SenseVoice FunASR Nano (int8)",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.description": "阿里 FunASR Nano 语音大模型，支持 31 种语言及中文 7 大方言 26 种口音，远场高噪优化。",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B (int8)",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.description": "适用于 sherpa-onnx 的 Qwen3-ASR 0.6B 多语言离线语音识别模型，encoder 与 decoder 为 int8 量化。",
   "model.sherpa-onnx.paraformer-zh-small.title": "Paraformer 中文 Small (int8)",
   "model.sherpa-onnx.paraformer-zh-small.description": "阿里 Paraformer 中文小模型，仅 78MB，适合资源受限场景。",
   "model.sherpa-onnx.paraformer-zh-2023-09-14.title": "Paraformer 中文 (2023-09-14)",

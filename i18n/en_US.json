@@ -15,6 +15,8 @@
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "Alibaba FunASR SenseVoice multilingual model with Chinese, English, Japanese, Korean, and Cantonese support, quantized to int8.",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.title": "SenseVoice FunASR Nano (int8)",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.description": "Alibaba FunASR Nano speech model with broad multilingual and dialect coverage, optimized for far-field and noisy input.",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B (int8)",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.description": "Qwen3-ASR 0.6B multilingual offline speech recognition model for sherpa-onnx, packaged with int8 encoder and decoder.",
   "model.sherpa-onnx.paraformer-zh-small.title": "Paraformer Chinese Small (int8)",
   "model.sherpa-onnx.paraformer-zh-small.description": "Compact Alibaba Paraformer Chinese model at about 78 MB, suitable for resource-constrained setups.",
   "model.sherpa-onnx.paraformer-zh-2023-09-14.title": "Paraformer Chinese (2023-09-14)",

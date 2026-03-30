@@ -168,6 +168,68 @@
       }
     },
     {
+      "id": "model.sherpa-onnx.qwen3-asr-0.6b-int8",
+      "short_id": "onnx-qwen3-0.6b-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"
+      ],
+      "sha256": "b65827d22f9fe335dcdd669c5737d39f770a65a6c638fba24a5403efe8b177c7",
+      "size_bytes": 867395494,
+      "language": "multilingual",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "multilingual",
+        "size_bytes": 867395494,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "qwen3_asr",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "qwen3_asr": {
+            "conv_frontend": "conv_frontend.onnx",
+            "encoder": "encoder.int8.onnx",
+            "decoder": "decoder.int8.onnx",
+            "tokenizer": "tokenizer",
+            "max_total_len": 4096,
+            "max_new_tokens": 1024,
+            "temperature": 1.0,
+            "top_p": 0.9,
+            "seed": 0
+          }
+        }
+      }
+    },
+    {
       "id": "model.sherpa-onnx.paraformer-zh-small",
       "short_id": "onnx-pf-zh-sm-off",
       "urls": [
