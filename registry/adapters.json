@@ -2,7 +2,7 @@
   "version": 1,
   "items": [
     {
-      "id": "adapters.mtranserver.proxy",
+      "id": "adapter.mtranserver.proxy",
       "short_id": "mtran-proxy",
       "command": "python3",
       "script_urls": [

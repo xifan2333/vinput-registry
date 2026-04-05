@@ -2,7 +2,7 @@
   "version": 1,
   "items": [
     {
-      "id": "providers.doubao.batch",
+      "id": "provider.doubao.batch",
       "short_id": "doubao-batch",
       "stream": false,
       "command": "python3",
@@ -44,7 +44,7 @@
       ]
     },
     {
-      "id": "providers.elevenlabs.batch",
+      "id": "provider.elevenlabs.batch",
       "short_id": "11labs-batch",
       "stream": false,
       "command": "python3",
@@ -86,7 +86,7 @@
       ]
     },
     {
-      "id": "providers.elevenlabs.streaming",
+      "id": "provider.elevenlabs.streaming",
       "short_id": "11labs-stream",
       "stream": true,
       "command": "python3",
@@ -160,7 +160,7 @@
       ]
     },
     {
-      "id": "providers.bailian.batch",
+      "id": "provider.bailian.batch",
       "short_id": "bailian-batch",
       "stream": false,
       "command": "python3",
@@ -206,7 +206,7 @@
       ]
     },
     {
-      "id": "providers.bailian.streaming",
+      "id": "provider.bailian.streaming",
       "short_id": "bailian-stream",
       "stream": true,
       "command": "python3",
@@ -264,7 +264,7 @@
       ]
     },
     {
-      "id": "providers.doubao.streaming",
+      "id": "provider.doubao.streaming",
       "short_id": "doubao-stream",
       "stream": true,
       "command": "python3",
@@ -322,7 +322,7 @@
       ]
     },
     {
-      "id": "providers.doubaoime.streaming",
+      "id": "provider.doubaoime.streaming",
       "short_id": "doubaoime-stream",
       "stream": true,
       "command": "python3",
@@ -384,7 +384,7 @@
       ]
     },
     {
-      "id": "providers.openai-compatible.batch",
+      "id": "provider.openai-compatible.batch",
       "short_id": "oai-batch",
       "stream": false,
       "command": "python3",
@@ -430,7 +430,7 @@
       ]
     },
     {
-      "id": "providers.openai-compatible.streaming",
+      "id": "provider.openai-compatible.streaming",
       "short_id": "oai-stream",
       "stream": true,
       "command": "python3",
