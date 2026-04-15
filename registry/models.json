@@ -628,6 +628,63 @@
           }
         }
       }
+    },
+    {
+      "id": "model.sherpa-onnx.moonshine-tiny-en-int8",
+      "short_id": "onnx-moonshine-tiny-en-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2"
+      ],
+      "sha256": "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2",
+      "size_bytes": 107600538,
+      "language": "en",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "en",
+        "size_bytes": 107600538,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "moonshine",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "tokens.txt",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "moonshine": {
+            "preprocessor": "preprocess.onnx",
+            "encoder": "encode.int8.onnx",
+            "uncached_decoder": "uncached_decode.int8.onnx",
+            "cached_decoder": "cached_decode.int8.onnx"
+          }
+        }
+      }
     }
   ]
 }
