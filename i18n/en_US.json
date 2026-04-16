@@ -10,7 +10,7 @@
   "provider.bailian.streaming.title": "Bailian (Streaming)",
   "provider.bailian.streaming.description": "Use the Bailian Qwen-ASR-Realtime API for streaming cloud ASR.",
   "provider.doubao.streaming.title": "Doubao (Streaming)",
-  "provider.doubao.streaming.description": "Use the Doubao ASR Realtime API on Volcengine AI Gateway for streaming cloud ASR.",
+  "provider.doubao.streaming.description": "Use the official Volcengine OpenSpeech bigmodel streaming ASR API for streaming cloud ASR.",
   "provider.doubaoime.streaming.title": "Doubao IME (Streaming)",
   "provider.doubaoime.streaming.description": "Use the unofficial Doubao IME realtime ASR protocol for streaming cloud ASR.",
   "provider.openai-compatible.batch.title": "OpenAI-Compatible (Batch)",

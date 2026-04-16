@@ -276,8 +276,16 @@
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubao/streaming/README.md",
       "envs": [
         {
-          "name": "VINPUT_ASR_API_KEY",
+          "name": "VINPUT_ASR_APP_ID",
           "required": true
+        },
+        {
+          "name": "VINPUT_ASR_ACCESS_TOKEN",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": false
         },
         {
           "name": "VINPUT_ASR_URL",
@@ -288,15 +296,35 @@
           "required": false
         },
         {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
-        },
-        {
           "name": "VINPUT_ASR_RESOURCE_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_USER_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_REQUEST_JSON",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_NONSTREAM",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_ITN",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_PUNC",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_DDC",
           "required": false
         },
         {
@@ -304,19 +332,27 @@
           "required": false
         },
         {
-          "name": "VINPUT_ASR_ENABLE_VAD",
+          "name": "VINPUT_ASR_SHOW_UTTERANCES",
           "required": false
         },
         {
-          "name": "VINPUT_ASR_VAD_THRESHOLD",
+          "name": "VINPUT_ASR_END_WINDOW_SIZE",
           "required": false
         },
         {
-          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
+          "name": "VINPUT_ASR_VAD_SEGMENT_DURATION",
           "required": false
         },
         {
-          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
+          "name": "VINPUT_ASR_FORCE_TO_SPEECH_TIME",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
           "required": false
         }
       ]

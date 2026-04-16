@@ -10,7 +10,7 @@
   "provider.bailian.streaming.title": "阿里百炼（流式）",
   "provider.bailian.streaming.description": "通过百炼 Qwen-ASR-Realtime API 调用流式云端 ASR。",
   "provider.doubao.streaming.title": "豆包（流式）",
-  "provider.doubao.streaming.description": "通过火山引擎 AI Gateway 的 Doubao ASR Realtime API 调用流式云端 ASR。",
+  "provider.doubao.streaming.description": "通过火山引擎 OpenSpeech 官方大模型流式语音识别 API 调用流式云端 ASR。",
   "provider.doubaoime.streaming.title": "豆包输入法（流式）",
   "provider.doubaoime.streaming.description": "通过非官方的豆包输入法实时语音识别协议调用流式云端 ASR。",
   "provider.openai-compatible.batch.title": "OpenAI 兼容（非流式）",
