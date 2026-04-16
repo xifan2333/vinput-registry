@@ -47,6 +47,11 @@ streaming ASR API.
   `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel`.
 - `VINPUT_ASR_RESOURCE_ID` optional
   Official OpenSpeech resource id. Defaults to `volc.bigasr.sauc.duration`.
+  Common values:
+  `volc.bigasr.sauc.duration`, `volc.bigasr.sauc.concurrent`,
+  `volc.seedasr.sauc.duration`, `volc.seedasr.sauc.concurrent`.
+  If this does not match the service you activated, websocket upgrade may fail
+  with `403 Forbidden`.
 - `VINPUT_ASR_MODEL` optional
   Upstream `request.model_name`. Defaults to `bigmodel`.
 - `VINPUT_ASR_USER_ID` optional

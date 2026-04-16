@@ -22,23 +22,7 @@
           "required": true
         },
         {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
           "name": "VINPUT_ASR_RESOURCE_ID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_MODEL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_USER_ID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
           "required": false
         }
       ]
@@ -66,22 +50,6 @@
         {
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
-        },
-        {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_LOGGING",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TAG_AUDIO_EVENTS",
-          "required": false
         }
       ]
     },
@@ -108,54 +76,6 @@
         {
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
-        },
-        {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_AUDIO_FORMAT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_INCLUDE_TIMESTAMPS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_INCLUDE_LANGUAGE_DETECTION",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_COMMIT_STRATEGY",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_SILENCE_THRESHOLD_SECS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_THRESHOLD",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_MIN_SPEECH_DURATION_MS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_MIN_SILENCE_DURATION_MS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_LOGGING",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
         }
       ]
     },
@@ -176,31 +96,11 @@
           "required": true
         },
         {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_BASE_URL",
-          "required": false
-        },
-        {
           "name": "VINPUT_ASR_MODEL",
           "required": false
         },
         {
           "name": "VINPUT_ASR_LANGUAGE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_PROMPT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_ITN",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
           "required": false
         }
       ]

@@ -514,10 +514,6 @@ class WebSocketClient:
     def _validate_handshake(self, response: bytes, key: str) -> None:
         header_blob = response.decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
-        if not lines or "101" not in lines[0]:
-            raise RuntimeError(
-                f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}"
-            )
 
         headers: Dict[str, str] = {}
         for line in lines[1:]:
@@ -525,6 +521,23 @@ class WebSocketClient:
                 continue
             name, value = line.split(":", 1)
             headers[name.strip().lower()] = value.strip()
+
+        if not lines or "101" not in lines[0]:
+            status_line = lines[0] if lines else "invalid response"
+            details = [f"WebSocket handshake failed: {status_line}"]
+            log_id = headers.get("x-tt-logid")
+            if log_id:
+                details.append(f"log_id={log_id}")
+            connect_id = headers.get("x-api-connect-id")
+            if connect_id:
+                details.append(f"connect_id={connect_id}")
+            if " 403" in f" {status_line} ":
+                details.append(
+                    "check VINPUT_ASR_APP_ID / VINPUT_ASR_ACCESS_TOKEN and "
+                    "make sure VINPUT_ASR_RESOURCE_ID matches an activated "
+                    "OpenSpeech streaming ASR resource"
+                )
+            raise RuntimeError(", ".join(details))
 
         accept = headers.get("sec-websocket-accept")
         expected = base64.b64encode(
