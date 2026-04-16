@@ -122,43 +122,11 @@
           "required": true
         },
         {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
           "name": "VINPUT_ASR_MODEL",
           "required": false
         },
         {
           "name": "VINPUT_ASR_LANGUAGE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_PROMPT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_VAD",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_THRESHOLD",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
           "required": false
         }
       ]
@@ -184,75 +152,7 @@
           "required": true
         },
         {
-          "name": "VINPUT_ASR_API_KEY",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_MODEL",
-          "required": false
-        },
-        {
           "name": "VINPUT_ASR_RESOURCE_ID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_USER_ID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_LANGUAGE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_REQUEST_JSON",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_NONSTREAM",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_ITN",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_PUNC",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_DDC",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_RESULT_TYPE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_SHOW_UTTERANCES",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_END_WINDOW_SIZE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_SEGMENT_DURATION",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FORCE_TO_SPEECH_TIME",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
           "required": false
         }
       ]
@@ -268,56 +168,7 @@
         "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
-      "envs": [
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_AID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_CREDENTIAL_PATH",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_DEVICE_ID",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TOKEN",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_PUNCTUATION",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_SPEECH_REJECTION",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_ASR_TWOPASS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_ASR_THREEPASS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_APP_NAME",
-          "required": false
-        }
-      ]
+      "envs": []
     },
     {
       "id": "provider.openai-compatible.batch",
@@ -341,26 +192,6 @@
         },
         {
           "name": "VINPUT_ASR_MODEL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_LANGUAGE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_PROMPT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_RESPONSE_FORMAT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TEMPERATURE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
           "required": false
         }
       ]
@@ -387,46 +218,6 @@
         },
         {
           "name": "VINPUT_ASR_MODEL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_LANGUAGE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_PROMPT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_BASE_URL",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TARGET_SAMPLE_RATE",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_ENABLE_VAD",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_THRESHOLD",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_PREFIX_PADDING_MS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
           "required": false
         }
       ]
