@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-DEFAULT_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
+DEFAULT_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
 DEFAULT_RESOURCE_ID = "volc.seedasr.sauc.duration"
 DEFAULT_MODEL = "bigmodel"
 DEFAULT_RESOURCE_ID = "volc.seedasr.sauc.duration"
