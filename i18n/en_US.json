@@ -42,5 +42,7 @@
   "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30.title": "Streaming Zipformer ZH",
   "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30.description": "Chinese streaming Zipformer model for local realtime recognition.",
   "model.sherpa-onnx.moonshine-tiny-en-int8.title": "Moonshine Tiny EN",
-  "model.sherpa-onnx.moonshine-tiny-en-int8.description": "Compact English Moonshine model for offline local speech recognition."
+  "model.sherpa-onnx.moonshine-tiny-en-int8.description": "Compact English Moonshine model for offline local speech recognition.",
+  "model.sherpa-onnx.moonshine-base-en-int8.title": "Moonshine Base EN",
+  "model.sherpa-onnx.moonshine-base-en-int8.description": "Larger English Moonshine model for offline local speech recognition."
 }
