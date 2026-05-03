@@ -291,19 +291,27 @@ class SessionState:
 
 class OpusEncoder:
     def __init__(self, sample_rate: int, channels: int) -> None:
-        candidates = []
-        discovered = ctypes.util.find_library("opus")
-        if discovered:
-            candidates.append(discovered)
-        candidates.extend(["libopus.so.0", "libopus.so"])
-
         self.lib = None
-        for candidate in candidates:
+        env_path = get_optional_env("VINPUT_ASR_LIBOPUS_PATH")
+        if env_path:
             try:
-                self.lib = ctypes.CDLL(candidate)
-                break
-            except OSError:
-                continue
+                self.lib = ctypes.CDLL(env_path)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}"
+                ) from exc
+        else:
+            candidates = []
+            discovered = ctypes.util.find_library("opus")
+            if discovered:
+                candidates.append(discovered)
+            candidates.extend(["libopus.so.0", "libopus.so"])
+            for candidate in candidates:
+                try:
+                    self.lib = ctypes.CDLL(candidate)
+                    break
+                except OSError:
+                    continue
         if self.lib is None:
             raise RuntimeError("Failed to locate system libopus.")
         self.lib.opus_encoder_create.argtypes = [

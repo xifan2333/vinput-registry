@@ -12,7 +12,7 @@ Cloud ASR provider script for the unofficial `doubaoime-asr` protocol path used 
 - input: JSONL via stdin
 - output: JSONL via stdout
 - diagnostics: stderr only
-- dependencies: system `libopus`
+- dependencies: system `libopus` (override path with `VINPUT_ASR_LIBOPUS_PATH`)
 
 ## Input Protocol
 
@@ -58,6 +58,8 @@ Cloud ASR provider script for the unofficial `doubaoime-asr` protocol path used 
   Enables upstream three-pass decoding.
 - `VINPUT_ASR_APP_NAME` optional
   App name forwarded in session config.
+- `VINPUT_ASR_LIBOPUS_PATH` optional
+  Path to `libopus` shared library (e.g. `/opt/lib/libopus.so`). When set, the script loads this file directly instead of searching the system.
 
 ## Notes
 
