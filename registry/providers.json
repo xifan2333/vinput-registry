@@ -168,7 +168,16 @@
         "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
-      "envs": []
+      "envs": [
+        {
+          "name": "VINPUT_ASR_LIBOPUS_PATH",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_CREDENTIAL_PATH",
+          "required": true
+        }
+      ]
     },
     {
       "id": "provider.openai-compatible.batch",
