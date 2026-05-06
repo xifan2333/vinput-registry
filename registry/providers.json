@@ -180,6 +180,32 @@
       ]
     },
     {
+      "id": "provider.vinput.remote.streaming",
+      "short_id": "remote",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vinput/remote.streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vinput/remote.streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vinput/remote.streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/vinput/remote.streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_PORT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_DEBOUNCE_MS",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "provider.openai-compatible.batch",
       "short_id": "oai-batch",
       "stream": false,

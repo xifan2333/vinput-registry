@@ -13,6 +13,8 @@
   "provider.doubao.streaming.description": "Use the official Volcengine OpenSpeech bigmodel streaming ASR API for streaming cloud ASR.",
   "provider.doubaoime.streaming.title": "Doubao IME (Streaming)",
   "provider.doubaoime.streaming.description": "Use the unofficial Doubao IME realtime ASR protocol for streaming cloud ASR.",
+  "provider.vinput.remote.streaming.title": "VInput Remote (Streaming)",
+  "provider.vinput.remote.streaming.description": "Use the built-in VInput LAN text input service as a pseudo streaming ASR provider.",
   "provider.openai-compatible.batch.title": "OpenAI-Compatible (Batch)",
   "provider.openai-compatible.batch.description": "Use an OpenAI-compatible /v1/audio/transcriptions endpoint for cloud ASR.",
   "provider.openai-compatible.streaming.title": "OpenAI-Compatible (Streaming)",
