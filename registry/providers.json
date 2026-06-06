@@ -254,6 +254,10 @@
         {
           "name": "VINPUT_ASR_MODEL",
           "required": false
+        },
+        {
+          "name": "VINPUT_ASR_SESSION_MODEL",
+          "required": false
         }
       ]
     }
