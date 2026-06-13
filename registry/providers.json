@@ -50,6 +50,10 @@
         {
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ELEVENLABS_NO_VERBATIM",
+          "required": false
         }
       ]
     },
@@ -75,6 +79,10 @@
         },
         {
           "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ELEVENLABS_NO_VERBATIM",
           "required": false
         }
       ]
