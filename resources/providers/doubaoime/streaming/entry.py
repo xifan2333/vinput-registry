@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import queue
 import secrets
 import socket
 import ssl
@@ -1071,6 +1072,16 @@ def send_audio_frame(
 
 
 def run() -> int:
+    # Use a separate thread to read stdin lines to avoid blocking the vinput-daemon event loop, 
+    # which could cause first several seconds of audio to be dropped.
+    input_queue: queue.Queue = queue.Queue()
+    def read_stdin() -> None:
+        try:
+            for raw_line in sys.stdin:
+                input_queue.put(raw_line)
+        finally:
+            input_queue.put(None)
+    threading.Thread(target=read_stdin, daemon=True).start()
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
     finish_grace_secs = get_optional_float_env(
         "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
@@ -1126,6 +1137,7 @@ def run() -> int:
                 write_stderr(f"Doubao IME terminal exception ignored after final result: {exc}")
         finally:
             stop_event.set()
+            input_queue.put(None)
 
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
@@ -1172,7 +1184,7 @@ def run() -> int:
         finish_requested = True
 
     try:
-        for raw_line in sys.stdin:
+        for raw_line in iter(input_queue.get, None):
             if stop_event.is_set():
                 break
 
