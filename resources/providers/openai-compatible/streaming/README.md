@@ -39,7 +39,9 @@ explicitly sets `sample_rate`.
 - `VINPUT_ASR_URL` optional
   Full realtime websocket URL. Overrides the default endpoint.
 - `VINPUT_ASR_MODEL` optional
-  Realtime transcription model id.
+  Transcription model id forwarded as `audio.input.transcription.model`.
+- `VINPUT_ASR_SESSION_MODEL` optional
+  Realtime websocket `model`. Defaults to `VINPUT_ASR_MODEL`.
 - `VINPUT_ASR_LANGUAGE` optional
   Language hint forwarded to the upstream transcription session.
 - `VINPUT_ASR_PROMPT` optional
@@ -69,3 +71,5 @@ explicitly sets `sample_rate`.
 - The script uses OpenAI-style realtime transcription events such as `session.update`,
   `input_audio_buffer.append`, `conversation.item.input_audio_transcription.delta`,
   and `conversation.item.input_audio_transcription.completed`.
+- For OpenAI official Realtime transcription, use `VINPUT_ASR_SESSION_MODEL=gpt-realtime`,
+  `VINPUT_ASR_MODEL=gpt-realtime-whisper`, and set `VINPUT_ASR_FINISH_GRACE_SECS=2`.
