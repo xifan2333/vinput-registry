@@ -49,6 +49,10 @@ Normalized transcript semantics used by this script:
 - `VINPUT_ASR_INCLUDE_TIMESTAMPS` optional
 - `VINPUT_ASR_INCLUDE_LANGUAGE_DETECTION` optional
 - `VINPUT_ASR_COMMIT_STRATEGY` optional
+- `VINPUT_ASR_ELEVENLABS_NO_VERBATIM` optional
+  Set to `true` to ask ElevenLabs to remove filler words, false starts,
+  non-speech sounds, and disfluencies. Supported by ElevenLabs Scribe v2
+  models. Defaults to `false`.
 - `VINPUT_ASR_VAD_SILENCE_THRESHOLD_SECS` optional
 - `VINPUT_ASR_VAD_THRESHOLD` optional
 - `VINPUT_ASR_MIN_SPEECH_DURATION_MS` optional

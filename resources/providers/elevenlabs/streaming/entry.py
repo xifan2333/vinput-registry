@@ -81,7 +81,7 @@ def get_optional_float_env(name: str, default: float) -> float:
 
 def get_optional_bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
-    if value is None:
+    if value is None or not value.strip():
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
@@ -367,6 +367,9 @@ def build_url() -> str:
         ).lower(),
         "audio_format": get_optional_env("VINPUT_ASR_AUDIO_FORMAT", "pcm_16000"),
         "commit_strategy": get_optional_env("VINPUT_ASR_COMMIT_STRATEGY", "manual"),
+        "no_verbatim": str(
+            get_optional_bool_env("VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False)
+        ).lower(),
         "enable_logging": str(
             get_optional_bool_env("VINPUT_ASR_ENABLE_LOGGING", True)
         ).lower(),
