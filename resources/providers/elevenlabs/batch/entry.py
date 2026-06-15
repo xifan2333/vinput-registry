@@ -37,7 +37,7 @@ def get_optional_int_env(name: str, default: int) -> int:
 
 def get_optional_bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
-    if value is None:
+    if value is None or not value.strip():
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
@@ -113,6 +113,7 @@ def transcribe(
     endpoint: str,
     enable_logging: bool,
     tag_audio_events: bool,
+    no_verbatim: bool,
 ) -> str:
     query = urlencode({"enable_logging": str(enable_logging).lower()})
     url = endpoint
@@ -123,6 +124,7 @@ def transcribe(
         ("model_id", model_id),
         ("file_format", "pcm_s16le_16"),
         ("tag_audio_events", str(tag_audio_events).lower()),
+        ("no_verbatim", str(no_verbatim).lower()),
     ]
     if language_code:
         fields.append(("language_code", language_code))
@@ -163,6 +165,9 @@ def main() -> int:
         tag_audio_events = get_optional_bool_env(
             "VINPUT_ASR_TAG_AUDIO_EVENTS", False
         )
+        no_verbatim = get_optional_bool_env(
+            "VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False
+        )
         pcm_audio = read_audio_input()
 
         text = transcribe(
@@ -174,6 +179,7 @@ def main() -> int:
             endpoint=endpoint,
             enable_logging=enable_logging,
             tag_audio_events=tag_audio_events,
+            no_verbatim=no_verbatim,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)

@@ -18,6 +18,10 @@ Cloud ASR provider script for the ElevenLabs speech-to-text API.
 - `VINPUT_ASR_MODEL` optional
 - `VINPUT_ASR_LANGUAGE` optional
 - `VINPUT_ASR_URL` optional
+- `VINPUT_ASR_ELEVENLABS_NO_VERBATIM` optional
+  Set to `true` to ask ElevenLabs to remove filler words, false starts,
+  non-speech sounds, and disfluencies. Supported by ElevenLabs Scribe v2
+  models. Defaults to `false`.
 - `VINPUT_ASR_TIMEOUT` optional
 
 ## Notes
