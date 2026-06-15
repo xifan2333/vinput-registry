@@ -343,7 +343,7 @@ class WebSocketClient:
         return data
 
 
-def build_url(model: str) -> str:
+def build_url(session_model: str) -> str:
     explicit_url = get_optional_env("VINPUT_ASR_URL")
     if explicit_url:
         base_url = explicit_url
@@ -362,13 +362,15 @@ def build_url(model: str) -> str:
 
     parsed = urlparse(base_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.setdefault("model", model)
+    query.setdefault("model", session_model)
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
-def build_session_update_event(model: str, target_sample_rate: int) -> Dict[str, Any]:
+def build_session_update_event(
+    transcription_model: str, target_sample_rate: int, session_type: str
+) -> Dict[str, Any]:
     session: Dict[str, Any] = {
-        "type": "transcription",
+        "type": session_type,
         "audio": {
             "input": {
                 "format": {
@@ -376,7 +378,7 @@ def build_session_update_event(model: str, target_sample_rate: int) -> Dict[str,
                     "rate": target_sample_rate,
                 },
                 "transcription": {
-                    "model": model,
+                    "model": transcription_model,
                 },
             }
         },
@@ -488,7 +490,9 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
 
 def run() -> int:
     api_key = get_required_env("VINPUT_ASR_API_KEY")
-    model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
+    transcription_model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
+    session_model = get_optional_env("VINPUT_ASR_SESSION_MODEL", transcription_model)
+    session_type = "realtime" if session_model != transcription_model else "transcription"
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
     finish_grace_secs = get_optional_float_env(
         "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
@@ -496,11 +500,13 @@ def run() -> int:
     target_sample_rate = get_optional_int_env(
         "VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE
     )
-    url = build_url(model)
+    url = build_url(session_model)
 
     headers = {"Authorization": f"Bearer {api_key}"}
     client = WebSocketClient(url, headers, timeout)
-    client.send_json(build_session_update_event(model, target_sample_rate))
+    client.send_json(
+        build_session_update_event(transcription_model, target_sample_rate, session_type)
+    )
 
     state: Dict[str, Any] = {
         "session_started": False,
