@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import base64
+import ctypes
+import ctypes.util
 import hashlib
 import json
 import os
@@ -72,6 +74,8 @@ DEFAULT_DEVICE_CONFIG = {
 FRAME_STATE_FIRST = 1
 FRAME_STATE_MIDDLE = 3
 FRAME_STATE_LAST = 9
+OPUS_APPLICATION_AUDIO = 2049
+OPUS_MAX_PACKET_SIZE = 4000
 
 
 def write_stdout(event: Dict[str, Any]) -> None:
@@ -242,8 +246,9 @@ class DeviceCredentials:
     openudid: str = ""
     clientudid: str = ""
     token: str = ""
+    route_healthy: bool = False
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "device_id": self.device_id,
             "install_id": self.install_id,
@@ -251,6 +256,7 @@ class DeviceCredentials:
             "openudid": self.openudid,
             "clientudid": self.clientudid,
             "token": self.token,
+            "route_healthy": self.route_healthy,
         }
 
 
@@ -284,6 +290,84 @@ class SessionState:
         self.current_partial_text = ""
         self.last_final_text = full_text
         return full_text
+
+
+class OpusEncoder:
+    def __init__(self, sample_rate: int, channels: int) -> None:
+        self.lib = None
+        env_path = get_optional_env("VINPUT_ASR_LIBOPUS_PATH")
+        if env_path:
+            try:
+                self.lib = ctypes.CDLL(env_path)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}"
+                ) from exc
+        else:
+            candidates = []
+            discovered = ctypes.util.find_library("opus")
+            if discovered:
+                candidates.append(discovered)
+            candidates.extend(["libopus.so.0", "libopus.so"])
+            for candidate in candidates:
+                try:
+                    self.lib = ctypes.CDLL(candidate)
+                    break
+                except OSError:
+                    continue
+        if self.lib is None:
+            raise RuntimeError("Failed to locate system libopus.")
+
+        self.lib.opus_encoder_create.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        self.lib.opus_encoder_create.restype = ctypes.c_void_p
+        self.lib.opus_encode.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int16),
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_ubyte),
+            ctypes.c_int32,
+        ]
+        self.lib.opus_encode.restype = ctypes.c_int32
+        self.lib.opus_encoder_destroy.argtypes = [ctypes.c_void_p]
+        self.lib.opus_encoder_destroy.restype = None
+
+        error = ctypes.c_int()
+        self.encoder = self.lib.opus_encoder_create(
+            sample_rate,
+            channels,
+            OPUS_APPLICATION_AUDIO,
+            ctypes.byref(error),
+        )
+        if not self.encoder or error.value != 0:
+            raise RuntimeError(f"libopus encoder init failed: {error.value}")
+
+    def encode(self, pcm_frame: bytes, samples_per_frame: int) -> bytes:
+        pcm_array = (ctypes.c_int16 * samples_per_frame).from_buffer_copy(pcm_frame)
+        output = (ctypes.c_ubyte * OPUS_MAX_PACKET_SIZE)()
+        encoded_size = self.lib.opus_encode(
+            self.encoder,
+            pcm_array,
+            samples_per_frame,
+            output,
+            OPUS_MAX_PACKET_SIZE,
+        )
+        if encoded_size < 0:
+            raise RuntimeError(f"libopus encode failed: {encoded_size}")
+        return bytes(output[:encoded_size])
+
+    def __del__(self) -> None:
+        encoder = getattr(self, "encoder", None)
+        lib = getattr(self, "lib", None)
+        if encoder and lib:
+            try:
+                lib.opus_encoder_destroy(encoder)
+            except Exception:
+                pass
 
 
 class WebSocketClient:
@@ -546,6 +630,7 @@ def load_credentials(path: Path) -> Optional[DeviceCredentials]:
         openudid=str(data.get("openudid", "")),
         clientudid=str(data.get("clientudid", "")),
         token=str(data.get("token", "")),
+        route_healthy=data.get("route_healthy") is True,
     )
 
 
@@ -725,7 +810,11 @@ def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
         write_stderr(f"Doubao IME probe websocket connect failed: {exc}")
         return False
 
-    silent_frame = b"\x00" * (DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000 * 2)
+    samples_per_frame = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000
+    silent_pcm = b"\x00" * (samples_per_frame * 2)
+    silent_frame = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS).encode(
+        silent_pcm, samples_per_frame
+    )
 
     try:
         client.send_binary(build_start_task(request_id, credentials.token))
@@ -785,7 +874,11 @@ def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCre
     pinned = _credentials_pinned_by_env()
     for attempt in range(1, max_attempts + 1):
         credentials = ensure_credentials(timeout)
+        if credentials.route_healthy and not pinned:
+            return credentials
         if _probe_device_healthy(credentials, timeout):
+            credentials.route_healthy = True
+            save_credentials(credential_path, credentials)
             return credentials
         if pinned:
             raise RuntimeError(
@@ -803,6 +896,16 @@ def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCre
     raise RuntimeError(
         f"Doubao IME failed to register a healthy device after {max_attempts} attempts."
     )
+
+
+def _invalidate_credentials_after_route_failure(message: str) -> None:
+    if _credentials_pinned_by_env() or "service discovery failure" not in message.lower():
+        return
+    try:
+        _resolve_credential_path().unlink()
+        write_stderr("Doubao IME route failed; cached credentials invalidated.")
+    except FileNotFoundError:
+        pass
 
 
 def build_websocket_url(device_id: str) -> str:
@@ -874,7 +977,7 @@ def build_session_config(device_id: str) -> str:
     config = {
         "audio_info": {
             "channel": DEFAULT_CHANNELS,
-            "format": "speech_pcm",
+            "format": "speech_opus",
             "sample_rate": DEFAULT_SAMPLE_RATE,
         },
         "enable_punctuation": get_optional_bool_env("VINPUT_ASR_ENABLE_PUNCTUATION", True),
@@ -1060,14 +1163,17 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
 
 def send_audio_frame(
     client: WebSocketClient,
+    encoder: OpusEncoder,
     request_id: str,
     pcm_frame: bytes,
     frame_state: int,
     frame_index: int,
+    samples_per_frame: int,
     start_timestamp_ms: int,
 ) -> int:
+    opus_frame = encoder.encode(pcm_frame, samples_per_frame)
     timestamp_ms = start_timestamp_ms + frame_index * DEFAULT_FRAME_DURATION_MS
-    client.send_binary(build_asr_request(pcm_frame, request_id, frame_state, timestamp_ms))
+    client.send_binary(build_asr_request(opus_frame, request_id, frame_state, timestamp_ms))
     return frame_index + 1
 
 
@@ -1116,6 +1222,7 @@ def run() -> int:
         raise RuntimeError("Doubao IME websocket closed before session start.")
     handle_server_message(start_session_response, state, request_id)
     if state.error:
+        _invalidate_credentials_after_route_failure(state.error)
         return EXIT_RUNTIME_ERROR
 
     stop_event = threading.Event()
@@ -1142,6 +1249,7 @@ def run() -> int:
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
 
+    encoder = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS)
     samples_per_frame = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000
     bytes_per_frame = samples_per_frame * 2
     pcm_buffer = bytearray()
@@ -1161,10 +1269,12 @@ def run() -> int:
             frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_LAST
             frame_index = send_audio_frame(
                 client,
+                encoder,
                 request_id,
                 padded,
                 frame_state,
                 frame_index,
+                samples_per_frame,
                 start_timestamp_ms,
             )
             pcm_buffer.clear()
@@ -1174,10 +1284,12 @@ def run() -> int:
             frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_LAST
             frame_index = send_audio_frame(
                 client,
+                encoder,
                 request_id,
                 silent,
                 frame_state,
                 frame_index,
+                samples_per_frame,
                 start_timestamp_ms,
             )
         client.send_binary(build_finish_session(request_id, token))
@@ -1211,10 +1323,12 @@ def run() -> int:
                     frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_MIDDLE
                     frame_index = send_audio_frame(
                         client,
+                        encoder,
                         request_id,
                         frame,
                         frame_state,
                         frame_index,
+                        samples_per_frame,
                         start_timestamp_ms,
                     )
                     sent_audio = True
@@ -1244,6 +1358,7 @@ def run() -> int:
             state.closed = True
 
     if state.error:
+        _invalidate_credentials_after_route_failure(state.error)
         return EXIT_RUNTIME_ERROR
     return 0
 
