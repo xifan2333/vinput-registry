@@ -46,5 +46,7 @@
   "model.sherpa-onnx.moonshine-tiny-en-int8.title": "Moonshine Tiny 英文",
   "model.sherpa-onnx.moonshine-tiny-en-int8.description": "Moonshine Tiny 英文离线模型，适合本地语音识别。",
   "model.sherpa-onnx.moonshine-base-en-int8.title": "Moonshine Base 英文",
-  "model.sherpa-onnx.moonshine-base-en-int8.description": "Moonshine Base 英文离线模型，适合更高准确度的本地语音识别。"
+  "model.sherpa-onnx.moonshine-base-en-int8.description": "Moonshine Base 英文离线模型，适合更高准确度的本地语音识别。",
+  "provider.mimo.batch.title": "小米 MiMo（非流式）",
+  "provider.mimo.batch.description": "通过小米 MiMo ASR OpenAI 兼容 chat completions 接口调用云端 ASR。"
 }
