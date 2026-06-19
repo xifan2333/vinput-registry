@@ -268,6 +268,32 @@
           "required": false
         }
       ]
+    },
+    {
+      "id": "provider.mimo.batch",
+      "short_id": "mimo-batch",
+      "stream": false,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/mimo/batch/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        }
+      ]
     }
   ]
 }
