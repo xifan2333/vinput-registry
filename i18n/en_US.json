@@ -46,5 +46,7 @@
   "model.sherpa-onnx.moonshine-tiny-en-int8.title": "Moonshine Tiny EN",
   "model.sherpa-onnx.moonshine-tiny-en-int8.description": "Compact English Moonshine model for offline local speech recognition.",
   "model.sherpa-onnx.moonshine-base-en-int8.title": "Moonshine Base EN",
-  "model.sherpa-onnx.moonshine-base-en-int8.description": "Larger English Moonshine model for offline local speech recognition."
+  "model.sherpa-onnx.moonshine-base-en-int8.description": "Larger English Moonshine model for offline local speech recognition.",
+  "provider.mimo.batch.title": "Xiaomi MiMo (Batch)",
+  "provider.mimo.batch.description": "Use Xiaomi MiMo ASR through the OpenAI-compatible chat completions API for cloud ASR."
 }
