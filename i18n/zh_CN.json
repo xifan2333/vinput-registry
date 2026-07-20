@@ -33,8 +33,8 @@
   "model.sherpa-onnx.streaming-zipformer-small-ctc-zh-int8.description": "流式/中文/不支持标点/不支持热词",
   "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-punct-int8.title": "X-ASR 中英 标点",
   "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-punct-int8.description": "非流/中英/支持标点/支持热词",
-  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8.title": "X-ASR 中英 480ms 标点",
-  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "流式/中英/支持标点/支持热词",
   "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B",
-  "model.sherpa-onnx.qwen3-asr-0.6b-int8.description": "非流/多语言/支持标点/不支持热词"
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.description": "非流/多语言/支持标点/不支持热词",
+  "model.sherpa-onnx.x-asr-160ms-streaming-zipformer-transducer-zh-en-punct-int8.title": "X-ASR 中英 160ms 标点",
+  "model.sherpa-onnx.x-asr-160ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "流式/中英/支持标点/支持热词"
 }
