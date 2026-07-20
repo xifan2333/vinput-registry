@@ -34,5 +34,7 @@
   "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-punct-int8.title": "X-ASR Zh-En Punct",
   "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-punct-int8.description": "Offline/Chinese+English/Punctuation/Hotwords",
   "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8.title": "X-ASR Zh-En 480ms Punct",
-  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "Streaming/Chinese+English/Punctuation/Hotwords"
+  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "Streaming/Chinese+English/Punctuation/Hotwords",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B",
+  "model.sherpa-onnx.qwen3-asr-0.6b-int8.description": "Offline/Multilingual/Punctuation/No hotwords"
 }
