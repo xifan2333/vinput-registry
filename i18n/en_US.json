@@ -48,5 +48,17 @@
   "model.sherpa-onnx.moonshine-base-en-int8.title": "Moonshine Base EN",
   "model.sherpa-onnx.moonshine-base-en-int8.description": "Larger English Moonshine model for offline local speech recognition.",
   "provider.mimo.batch.title": "Xiaomi MiMo (Batch)",
-  "provider.mimo.batch.description": "Use Xiaomi MiMo ASR through the OpenAI-compatible chat completions API for cloud ASR."
+  "provider.mimo.batch.description": "Use Xiaomi MiMo ASR through the OpenAI-compatible chat completions API for cloud ASR.",
+  "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-int8.title": "X-ASR Zh-En",
+  "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-int8.description": "X-ASR Zipformer bilingual offline int8 model (~131MB) with hotword support.",
+  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-int8.title": "Streaming X-ASR Zh-En 480ms",
+  "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-int8.description": "X-ASR bilingual streaming int8 model with 480ms chunk size for local realtime recognition.",
+  "model.sherpa-onnx.zipformer-ctc-small-zh-int8.title": "Zipformer CTC Small ZH",
+  "model.sherpa-onnx.zipformer-ctc-small-zh-int8.description": "Ultra-compact Chinese offline Zipformer CTC int8 model (~48MB).",
+  "model.sherpa-onnx.streaming-zipformer-multi-zh-hans-int8.title": "Streaming Zipformer Dialects int8",
+  "model.sherpa-onnx.streaming-zipformer-multi-zh-hans-int8.description": "Compact Chinese dialect streaming Zipformer int8 model (~59MB) with hotword support.",
+  "model.sherpa-onnx.streaming-zipformer-small-ctc-zh-int8.title": "Streaming Zipformer CTC Small ZH",
+  "model.sherpa-onnx.streaming-zipformer-small-ctc-zh-int8.description": "Ultra-compact Chinese streaming Zipformer CTC int8 model (~20MB).",
+  "model.sherpa-onnx.moonshine-base-zh-quantized.title": "Moonshine Base ZH",
+  "model.sherpa-onnx.moonshine-base-zh-quantized.description": "Moonshine v2 Base Chinese quantized offline model (~95MB)."
 }
