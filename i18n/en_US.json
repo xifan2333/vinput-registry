@@ -24,7 +24,7 @@
   "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8.title": "Dolphin Multilingual",
   "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8.description": "Offline/Multilingual/Punctuation/No hotwords",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.title": "SenseVoice Five-Lang",
-  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "Offline/Zh/En/Ja/Ko/Yue/Punctuation/No hotwords",
+  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "Offline/Zh/En/Ja/Ko/Yue/No punctuation/No hotwords",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.title": "SenseVoice Nano",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.description": "Offline/Multilingual/Punctuation/No hotwords",
   "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B",

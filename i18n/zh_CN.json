@@ -24,7 +24,7 @@
   "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8.title": "Dolphin 多语言",
   "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8.description": "非流/多语言/支持标点/不支持热词",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.title": "SenseVoice 五语",
-  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "非流/中英日韩粤/支持标点/不支持热词",
+  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "非流/中英日韩粤/不支持标点/不支持热词",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.title": "SenseVoice Nano",
   "model.sherpa-onnx.sense-voice-funasr-nano-int8.description": "非流/多语言/支持标点/不支持热词",
   "model.sherpa-onnx.qwen3-asr-0.6b-int8.title": "Qwen3-ASR 0.6B",
