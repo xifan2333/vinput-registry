@@ -58,20 +58,20 @@
       }
     },
     {
-      "id": "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8",
-      "short_id": "onnx-xasr-zh-en-480ms-punct-stream",
+      "id": "model.sherpa-onnx.x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8",
+      "short_id": "onnx-xasr-zh-en-960ms-punct-stream",
       "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2"
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2"
       ],
-      "sha256": "fa5f63d618e5a01526e275a358bb7772e403f84808a4769fba52cffd8160bf74",
-      "size_bytes": 133895136,
+      "sha256": "0a92b798bd6801c333c7ce8aebf5ba769bfe7f3f3511699a67837b2288428603",
+      "size_bytes": 133895831,
       "language": "zh_en",
       "vinput_model": {
         "backend": "sherpa-streaming",
         "language": "zh_en",
-        "size_bytes": 133895136,
+        "size_bytes": 133895831,
         "supports_hotwords": true,
         "runtime": "online",
         "family": "transducer",
