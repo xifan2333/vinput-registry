@@ -2,867 +2,6 @@
   "version": 2,
   "items": [
     {
-      "id": "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8",
-      "short_id": "onnx-dolphin-multi-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2"
-      ],
-      "sha256": "6f23da2303c3c2e5fa6445c450fa2a7133cd57e3da070ae5f97ab9e0dfbb4a54",
-      "size_bytes": 80671385,
-      "language": "multilingual",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "multilingual",
-        "size_bytes": 80671385,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "dolphin",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "dolphin": {
-            "model": "model.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8",
-      "short_id": "onnx-sv-zh-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2"
-      ],
-      "sha256": "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
-      "size_bytes": 165675008,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 165675008,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "sense_voice",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "sense_voice": {
-            "model": "model.int8.onnx",
-            "language": "zh",
-            "use_itn": true
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.sense-voice-funasr-nano-int8",
-      "short_id": "onnx-sv-multi-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17.tar.bz2"
-      ],
-      "sha256": "257936ea9a64cbe33200274e6367fc26d373ff6ca58b996b15108ffd6b9f6148",
-      "size_bytes": 187693225,
-      "language": "multilingual",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "multilingual",
-        "size_bytes": 187693225,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "sense_voice",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "sense_voice": {
-            "model": "model.int8.onnx",
-            "language": "auto",
-            "use_itn": true
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.qwen3-asr-0.6b-int8",
-      "short_id": "onnx-qwen3-0.6b-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"
-      ],
-      "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
-      "size_bytes": 867395494,
-      "language": "multilingual",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "multilingual",
-        "size_bytes": 867395494,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "qwen3_asr",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "qwen3_asr": {
-            "conv_frontend": "conv_frontend.onnx",
-            "encoder": "encoder.int8.onnx",
-            "decoder": "decoder.int8.onnx",
-            "tokenizer": "tokenizer",
-            "max_total_len": 4096,
-            "max_new_tokens": 1024,
-            "temperature": 1.0,
-            "top_p": 0.9,
-            "seed": 0
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.paraformer-zh-small",
-      "short_id": "onnx-pf-zh-sm-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
-      ],
-      "sha256": "da92b3db5218c5be53aad53e57d1b6e63e7fc98a0e054fbdd6dbe18e9c6b1450",
-      "size_bytes": 77920048,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 77920048,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "paraformer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "cjkchar",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "paraformer": {
-            "model": "model.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.paraformer-zh-2023-09-14",
-      "short_id": "onnx-pf-zh-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2"
-      ],
-      "sha256": "9c49fd9c6fb63de8e18c1054cf3d100f804741b7e608e187923cd8ff09fa9f03",
-      "size_bytes": 234051698,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 234051698,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "paraformer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "cjkchar",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "paraformer": {
-            "model": "model.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.paraformer-zh-int8-2025-10-07",
-      "short_id": "onnx-pf-zh-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2"
-      ],
-      "sha256": "a071ee5419e14adb34d7f970ab98105a45e6608018b168f023ca2e4810744abe",
-      "size_bytes": 228262632,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 228262632,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "paraformer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "cjkchar",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "paraformer": {
-            "model": "model.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.zipformer-multi-zh-hans",
-      "short_id": "onnx-zf-zh-multi-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-multi-zh-hans-2023-9-2.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-multi-zh-hans-2023-9-2.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-multi-zh-hans-2023-9-2.tar.bz2"
-      ],
-      "sha256": "c4925a6b0f998800d16f80caf90d2decff7b7a8c156d044c6cffdf141c847d94",
-      "size_bytes": 309195644,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 309195644,
-        "supports_hotwords": true,
-        "runtime": "offline",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "modified_beam_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "transducer": {
-            "encoder": "encoder-epoch-20-avg-1.int8.onnx",
-            "decoder": "decoder-epoch-20-avg-1.int8.onnx",
-            "joiner": "joiner-epoch-20-avg-1.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.zipformer-zh-en",
-      "short_id": "onnx-zf-zh-en-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2"
-      ],
-      "sha256": "0c3f2b9c884335a6931b8ccee6ede30e8dd3f89efc289ff64cd79d530a3bcf91",
-      "size_bytes": 311427072,
-      "language": "zh_en",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh_en",
-        "size_bytes": 311427072,
-        "supports_hotwords": true,
-        "runtime": "offline",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "modified_beam_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "transducer": {
-            "encoder": "encoder-epoch-34-avg-19.onnx",
-            "decoder": "decoder-epoch-34-avg-19.onnx",
-            "joiner": "joiner-epoch-34-avg-19.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17",
-      "short_id": "onnx-zf-en-20m-stream",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17.tar.bz2"
-      ],
-      "sha256": "9c559283e8498d3fe95913c79ca1cb454bb26281ac2b102b41306c7d752765d9",
-      "size_bytes": 127887156,
-      "language": "en",
-      "vinput_model": {
-        "backend": "sherpa-streaming",
-        "language": "en",
-        "size_bytes": 127887156,
-        "supports_hotwords": true,
-        "runtime": "online",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "enable_endpoint": 0,
-          "rule1_min_trailing_silence": 2.4,
-          "rule2_min_trailing_silence": 1.2,
-          "rule3_min_utterance_length": 20.0,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "ctc_fst_decoder_config": {
-            "graph": "",
-            "max_active": 3000
-          },
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hotwords_buf": "",
-          "hotwords_buf_size": 0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "provider": "cpu",
-          "debug": 0,
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "tokens_buf": "",
-          "tokens_buf_size": 0,
-          "transducer": {
-            "encoder": "encoder-epoch-99-avg-1.int8.onnx",
-            "decoder": "decoder-epoch-99-avg-1.onnx",
-            "joiner": "joiner-epoch-99-avg-1.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30",
-      "short_id": "onnx-zf-zh-int8-stream",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2"
-      ],
-      "sha256": "5a2832047ea1f97dd0dc595b816c230c4bafad65cfc0341fa57517cadc50afd0",
-      "size_bytes": 132634597,
-      "language": "zh",
-      "vinput_model": {
-        "backend": "sherpa-streaming",
-        "language": "zh",
-        "size_bytes": 132634597,
-        "supports_hotwords": true,
-        "runtime": "online",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "enable_endpoint": 0,
-          "rule1_min_trailing_silence": 2.4,
-          "rule2_min_trailing_silence": 1.2,
-          "rule3_min_utterance_length": 20.0,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "ctc_fst_decoder_config": {
-            "graph": "",
-            "max_active": 3000
-          },
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hotwords_buf": "",
-          "hotwords_buf_size": 0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "provider": "cpu",
-          "debug": 0,
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "tokens_buf": "",
-          "tokens_buf_size": 0,
-          "transducer": {
-            "encoder": "encoder.int8.onnx",
-            "decoder": "decoder.onnx",
-            "joiner": "joiner.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.moonshine-tiny-en-int8",
-      "short_id": "onnx-ms-tiny-en-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2"
-      ],
-      "sha256": "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2",
-      "size_bytes": 107600538,
-      "language": "en",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "en",
-        "size_bytes": 107600538,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "moonshine",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "moonshine": {
-            "preprocessor": "preprocess.onnx",
-            "encoder": "encode.int8.onnx",
-            "uncached_decoder": "uncached_decode.int8.onnx",
-            "cached_decoder": "cached_decode.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.moonshine-base-en-int8",
-      "short_id": "onnx-ms-base-en-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2"
-      ],
-      "sha256": "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e",
-      "size_bytes": 250807309,
-      "language": "en",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "en",
-        "size_bytes": 250807309,
-        "supports_hotwords": false,
-        "runtime": "offline",
-        "family": "moonshine",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "moonshine": {
-            "preprocessor": "preprocess.onnx",
-            "encoder": "encode.int8.onnx",
-            "uncached_decoder": "uncached_decode.int8.onnx",
-            "cached_decoder": "cached_decode.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-int8",
-      "short_id": "onnx-xasr-zh-en-int8-off",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2"
-      ],
-      "sha256": "7592d1a1e9bc1e034c39fbaab9b0db8af46429d95d64c6e2a69593934af10e9c",
-      "size_bytes": 136902463,
-      "language": "zh_en",
-      "vinput_model": {
-        "backend": "sherpa-offline",
-        "language": "zh_en",
-        "size_bytes": 136902463,
-        "supports_hotwords": true,
-        "runtime": "offline",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "lm_config": {
-            "model": "",
-            "scale": 0.0
-          },
-          "decoding_method": "modified_beam_search",
-          "max_active_paths": 4,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "debug": 0,
-          "provider": "cpu",
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "telespeech_ctc": "",
-          "transducer": {
-            "encoder": "encoder-epoch-99-avg-1.int8.onnx",
-            "decoder": "decoder-epoch-99-avg-1.onnx",
-            "joiner": "joiner-epoch-99-avg-1.int8.onnx"
-          }
-        }
-      }
-    },
-    {
-      "id": "model.sherpa-onnx.x-asr-480ms-streaming-zipformer-transducer-zh-en-int8",
-      "short_id": "onnx-xasr-zh-en-480ms-stream",
-      "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2"
-      ],
-      "sha256": "14919f03b74d9001fc8f2689c2ab1ea42c436db269e8c809144492f41612bfff",
-      "size_bytes": 134369642,
-      "language": "zh_en",
-      "vinput_model": {
-        "backend": "sherpa-streaming",
-        "language": "zh_en",
-        "size_bytes": 134369642,
-        "supports_hotwords": true,
-        "runtime": "online",
-        "family": "transducer",
-        "recognizer": {
-          "feat_config": {
-            "sample_rate": 16000,
-            "feature_dim": 80
-          },
-          "decoding_method": "greedy_search",
-          "max_active_paths": 4,
-          "enable_endpoint": 0,
-          "rule1_min_trailing_silence": 2.4,
-          "rule2_min_trailing_silence": 1.2,
-          "rule3_min_utterance_length": 20.0,
-          "hotwords_file": "",
-          "hotwords_score": 1.5,
-          "ctc_fst_decoder_config": {
-            "graph": "",
-            "max_active": 3000
-          },
-          "rule_fsts": "",
-          "rule_fars": "",
-          "blank_penalty": 0.0,
-          "hotwords_buf": "",
-          "hotwords_buf_size": 0,
-          "hr": {
-            "lexicon": "",
-            "rule_fsts": ""
-          }
-        },
-        "model": {
-          "tokens": "tokens.txt",
-          "num_threads": 1,
-          "provider": "cpu",
-          "debug": 0,
-          "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
-          "tokens_buf": "",
-          "tokens_buf_size": 0,
-          "transducer": {
-            "encoder": "encoder.int8.onnx",
-            "decoder": "decoder.onnx",
-            "joiner": "joiner.int8.onnx"
-          }
-        }
-      }
-    },
-    {
       "id": "model.sherpa-onnx.x-asr-zipformer-transducer-zh-en-punct-int8",
       "short_id": "onnx-xasr-zh-en-punct-int8-off",
       "urls": [
@@ -982,23 +121,23 @@
       }
     },
     {
-      "id": "model.sherpa-onnx.zipformer-ctc-small-zh-int8",
-      "short_id": "onnx-zf-ctc-zh-sm-int8-off",
+      "id": "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8",
+      "short_id": "onnx-sv-zh-int8-off",
       "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ctc-small-zh-int8-2025-07-16.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ctc-small-zh-int8-2025-07-16.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ctc-small-zh-int8-2025-07-16.tar.bz2"
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2"
       ],
-      "sha256": "6a71c0cc442ba85ac1455ca23e4561e2a1ef18e55269a184a649d54e9cd0524c",
-      "size_bytes": 50536402,
+      "sha256": "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
+      "size_bytes": 165675008,
       "language": "zh",
       "vinput_model": {
         "backend": "sherpa-offline",
         "language": "zh",
-        "size_bytes": 50536402,
+        "size_bytes": 165675008,
         "supports_hotwords": false,
         "runtime": "offline",
-        "family": "zipformer_ctc",
+        "family": "sense_voice",
         "recognizer": {
           "feat_config": {
             "sample_rate": 16000,
@@ -1029,27 +168,83 @@
           "modeling_unit": "",
           "bpe_vocab": "",
           "telespeech_ctc": "",
-          "zipformer_ctc": {
+          "sense_voice": {
+            "model": "model.int8.onnx",
+            "language": "zh",
+            "use_itn": true
+          }
+        }
+      }
+    },
+    {
+      "id": "model.sherpa-onnx.paraformer-zh-int8-2025-10-07",
+      "short_id": "onnx-pf-zh-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2"
+      ],
+      "sha256": "a071ee5419e14adb34d7f970ab98105a45e6608018b168f023ca2e4810744abe",
+      "size_bytes": 228262632,
+      "language": "zh",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "zh",
+        "size_bytes": 228262632,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "paraformer",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "tokens.txt",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "cjkchar",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "paraformer": {
             "model": "model.int8.onnx"
           }
         }
       }
     },
     {
-      "id": "model.sherpa-onnx.streaming-zipformer-multi-zh-hans-int8",
-      "short_id": "onnx-zf-zh-multi-int8-stream",
+      "id": "model.sherpa-onnx.streaming-zipformer-zh-int8-2025-06-30",
+      "short_id": "onnx-zf-zh-int8-stream",
       "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-multi-zh-hans-int8-2023-12-13.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-multi-zh-hans-int8-2023-12-13.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-multi-zh-hans-int8-2023-12-13.tar.bz2"
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2"
       ],
-      "sha256": "1a6a02447bc3e7904ff285e40446ca8f368a951f0c64ae435d389a3592faaea1",
-      "size_bytes": 62041550,
+      "sha256": "5a2832047ea1f97dd0dc595b816c230c4bafad65cfc0341fa57517cadc50afd0",
+      "size_bytes": 132634597,
       "language": "zh",
       "vinput_model": {
         "backend": "sherpa-streaming",
         "language": "zh",
-        "size_bytes": 62041550,
+        "size_bytes": 132634597,
         "supports_hotwords": true,
         "runtime": "online",
         "family": "transducer",
@@ -1091,9 +286,9 @@
           "tokens_buf": "",
           "tokens_buf_size": 0,
           "transducer": {
-            "encoder": "encoder-epoch-20-avg-1-chunk-16-left-128.int8.onnx",
-            "decoder": "decoder-epoch-20-avg-1-chunk-16-left-128.onnx",
-            "joiner": "joiner-epoch-20-avg-1-chunk-16-left-128.int8.onnx"
+            "encoder": "encoder.int8.onnx",
+            "decoder": "decoder.onnx",
+            "joiner": "joiner.int8.onnx"
           }
         }
       }
@@ -1160,20 +355,136 @@
       }
     },
     {
-      "id": "model.sherpa-onnx.moonshine-base-zh-quantized",
-      "short_id": "onnx-ms-base-zh-q-off",
+      "id": "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8",
+      "short_id": "onnx-dolphin-multi-int8-off",
       "urls": [
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-zh-quantized-2026-02-27.tar.bz2",
-        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-zh-quantized-2026-02-27.tar.bz2",
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-zh-quantized-2026-02-27.tar.bz2"
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2"
       ],
-      "sha256": "6495d4240f66bcdd2bbbbfefaa687c463150d467854001270934e88940b733c1",
-      "size_bytes": 99905420,
-      "language": "zh",
+      "sha256": "6f23da2303c3c2e5fa6445c450fa2a7133cd57e3da070ae5f97ab9e0dfbb4a54",
+      "size_bytes": 80671385,
+      "language": "multilingual",
       "vinput_model": {
         "backend": "sherpa-offline",
-        "language": "zh",
-        "size_bytes": 99905420,
+        "language": "multilingual",
+        "size_bytes": 80671385,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "dolphin",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "tokens.txt",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "dolphin": {
+            "model": "model.int8.onnx"
+          }
+        }
+      }
+    },
+    {
+      "id": "model.sherpa-onnx.qwen3-asr-0.6b-int8",
+      "short_id": "onnx-qwen3-0.6b-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"
+      ],
+      "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+      "size_bytes": 867395494,
+      "language": "multilingual",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "multilingual",
+        "size_bytes": 867395494,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "qwen3_asr",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "qwen3_asr": {
+            "conv_frontend": "conv_frontend.onnx",
+            "encoder": "encoder.int8.onnx",
+            "decoder": "decoder.int8.onnx",
+            "tokenizer": "tokenizer",
+            "max_total_len": 4096,
+            "max_new_tokens": 1024,
+            "temperature": 1.0,
+            "top_p": 0.9,
+            "seed": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "model.sherpa-onnx.moonshine-tiny-en-int8",
+      "short_id": "onnx-ms-tiny-en-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2"
+      ],
+      "sha256": "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d17cad88086f2",
+      "size_bytes": 107600538,
+      "language": "en",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "en",
+        "size_bytes": 107600538,
         "supports_hotwords": false,
         "runtime": "offline",
         "family": "moonshine",
@@ -1208,8 +519,67 @@
           "bpe_vocab": "",
           "telespeech_ctc": "",
           "moonshine": {
-            "encoder": "encoder_model.ort",
-            "merged_decoder": "decoder_model_merged.ort"
+            "preprocessor": "preprocess.onnx",
+            "encoder": "encode.int8.onnx",
+            "uncached_decoder": "uncached_decode.int8.onnx",
+            "cached_decoder": "cached_decode.int8.onnx"
+          }
+        }
+      }
+    },
+    {
+      "id": "model.sherpa-onnx.moonshine-base-en-int8",
+      "short_id": "onnx-ms-base-en-int8-off",
+      "urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2",
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2"
+      ],
+      "sha256": "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e",
+      "size_bytes": 250807309,
+      "language": "en",
+      "vinput_model": {
+        "backend": "sherpa-offline",
+        "language": "en",
+        "size_bytes": 250807309,
+        "supports_hotwords": false,
+        "runtime": "offline",
+        "family": "moonshine",
+        "recognizer": {
+          "feat_config": {
+            "sample_rate": 16000,
+            "feature_dim": 80
+          },
+          "lm_config": {
+            "model": "",
+            "scale": 0.0
+          },
+          "decoding_method": "greedy_search",
+          "max_active_paths": 4,
+          "hotwords_file": "",
+          "hotwords_score": 1.5,
+          "rule_fsts": "",
+          "rule_fars": "",
+          "blank_penalty": 0.0,
+          "hr": {
+            "lexicon": "",
+            "rule_fsts": ""
+          }
+        },
+        "model": {
+          "tokens": "tokens.txt",
+          "num_threads": 1,
+          "debug": 0,
+          "provider": "cpu",
+          "model_type": "",
+          "modeling_unit": "",
+          "bpe_vocab": "",
+          "telespeech_ctc": "",
+          "moonshine": {
+            "preprocessor": "preprocess.onnx",
+            "encoder": "encode.int8.onnx",
+            "uncached_decoder": "uncached_decode.int8.onnx",
+            "cached_decoder": "cached_decode.int8.onnx"
           }
         }
       }
