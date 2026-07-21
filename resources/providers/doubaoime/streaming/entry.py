@@ -32,6 +32,7 @@ DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
 DEFAULT_APP_NAME = "com.android.chrome"
 DEFAULT_CREDENTIAL_PATH = "~/.cache/vinput/doubaoime-asr/credentials.json"
+SEGMENT_START_ADVANCE_SECS = 3.0
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
@@ -104,7 +105,18 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
         return current
     if committed.endswith(current):
         return committed
-    return committed + " " + current
+
+    # Chinese text normally has no spaces between server-side segments. Keep a
+    # separator only where concatenating ASCII words would join them together.
+    separator = (
+        " "
+        if committed[-1].isascii()
+        and committed[-1].isalnum()
+        and current[0].isascii()
+        and current[0].isalnum()
+        else ""
+    )
+    return committed + separator + current
 
 
 def get_optional_env(name: str, default: str = "") -> str:
@@ -268,6 +280,7 @@ class SessionState:
     finished: bool = False
     committed_text: str = ""
     current_partial_text: str = ""
+    current_partial_start_time: Optional[float] = None
     last_final_text: str = ""
 
     def has_usable_final(self) -> bool:
@@ -278,8 +291,30 @@ class SessionState:
             combine_transcript(self.committed_text, self.current_partial_text)
         )
 
-    def record_partial(self, text: str) -> str:
-        self.current_partial_text = normalize_transcript_text(text)
+    def record_partial(self, text: str, start_time: Optional[float] = None) -> str:
+        normalized = normalize_transcript_text(text)
+        starts_new_segment = False
+
+        # Doubao IME periodically starts a new result segment during long speech,
+        # while still marking it as interim. The new segment has a clearly
+        # advanced start_time and its text no longer contains the earlier
+        # hypothesis. Preserve the preceding hypothesis before replacing the
+        # current partial, otherwise the eventual final contains only the tail.
+        if (
+            self.current_partial_text
+            and start_time is not None
+            and self.current_partial_start_time is not None
+            and start_time
+            > self.current_partial_start_time + SEGMENT_START_ADVANCE_SECS
+        ):
+            starts_new_segment = True
+            self.committed_text = combine_transcript(
+                self.committed_text, self.current_partial_text
+            )
+
+        self.current_partial_text = normalized
+        if self.current_partial_start_time is None or starts_new_segment:
+            self.current_partial_start_time = start_time
         return self.get_visible_text()
 
     def record_final(self, text: str) -> str:
@@ -288,6 +323,7 @@ class SessionState:
         )
         self.committed_text = full_text
         self.current_partial_text = ""
+        self.current_partial_start_time = None
         self.last_final_text = full_text
         return full_text
 
@@ -1134,6 +1170,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         return
 
     text = ""
+    text_start_time: Optional[float] = None
     is_interim = True
     vad_finished = False
     nonstream_result = False
@@ -1143,6 +1180,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         candidate_text = item.get("text")
         if isinstance(candidate_text, str) and candidate_text.strip():
             text = candidate_text
+            text_start_time = item["start_time"]
         if item.get("is_interim") is False:
             is_interim = False
         if item.get("is_vad_finished"):
@@ -1158,7 +1196,12 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         emit_final_text(state, text, words=extract_words(results))
         return
 
-    write_stdout({"type": "partial", "text": state.record_partial(text)})
+    write_stdout(
+        {
+            "type": "partial",
+            "text": state.record_partial(text, start_time=text_start_time),
+        }
+    )
 
 
 def send_audio_frame(
