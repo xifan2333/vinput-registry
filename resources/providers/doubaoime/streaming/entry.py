@@ -1349,11 +1349,15 @@ def run() -> int:
                 break
 
             if event_type == "cancel":
-                stop_event.set()
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
+        if state.session_started and not state.finished:
+            try:
+                finish_session()
+            except Exception:
+                pass
         if finish_requested and not stop_event.is_set():
             thread.join(timeout=finish_grace_secs)
         stop_event.set()
