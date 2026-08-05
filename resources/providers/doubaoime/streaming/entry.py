@@ -35,6 +35,7 @@ DEFAULT_CREDENTIAL_PATH = "~/.cache/vinput/doubaoime-asr/credentials.json"
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
+CONCURRENCY_QUOTA_STATUS_CODE = 40200011
 
 USER_AGENT = (
     "com.bytedance.android.doubaoime/100102018 "
@@ -264,6 +265,7 @@ class DeviceCredentials:
 class SessionState:
     session_started: bool = False
     error: Optional[str] = None
+    error_code: int = 0
     closed: bool = False
     finished: bool = False
     committed_text: str = ""
@@ -898,8 +900,11 @@ def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCre
     )
 
 
-def _invalidate_credentials_after_route_failure(message: str) -> None:
-    if _credentials_pinned_by_env() or "service discovery failure" not in message.lower():
+def _invalidate_credentials_after_route_failure(state: SessionState) -> None:
+    if _credentials_pinned_by_env() or not (
+        state.error_code == CONCURRENCY_QUOTA_STATUS_CODE
+        or "service discovery failure" in (state.error or "").lower()
+    ):
         return
     try:
         _resolve_credential_path().unlink()
@@ -1122,6 +1127,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
             state.finished = True
             return
         state.error = error_message
+        state.error_code = parsed["status_code"]
         write_stdout({"type": "error", "message": error_message})
         state.finished = True
         return
@@ -1213,6 +1219,9 @@ def run() -> int:
 
     state = SessionState()
     handle_server_message(start_task_response, state, request_id)
+    if state.error:
+        _invalidate_credentials_after_route_failure(state)
+        return EXIT_RUNTIME_ERROR
 
     client.send_binary(
         build_start_session(request_id, token, build_session_config(credentials.device_id))
@@ -1222,7 +1231,7 @@ def run() -> int:
         raise RuntimeError("Doubao IME websocket closed before session start.")
     handle_server_message(start_session_response, state, request_id)
     if state.error:
-        _invalidate_credentials_after_route_failure(state.error)
+        _invalidate_credentials_after_route_failure(state)
         return EXIT_RUNTIME_ERROR
 
     stop_event = threading.Event()
@@ -1358,7 +1367,7 @@ def run() -> int:
             state.closed = True
 
     if state.error:
-        _invalidate_credentials_after_route_failure(state.error)
+        _invalidate_credentials_after_route_failure(state)
         return EXIT_RUNTIME_ERROR
     return 0
 
