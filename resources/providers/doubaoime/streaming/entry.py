@@ -770,7 +770,7 @@ def ensure_credentials(timeout: int) -> DeviceCredentials:
         credentials.cdid = generate_uuid()
     if env_token:
         credentials.token = env_token
-    else:
+    elif not credentials.token:
         credentials.token = get_asr_token(credentials.device_id, credentials.cdid, timeout)
 
     save_credentials(credential_path, credentials)
