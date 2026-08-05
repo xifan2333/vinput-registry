@@ -398,7 +398,11 @@ class WebSocketClient:
 
         if self.scheme == "wss":
             context = ssl.create_default_context()
+            try:
             sock = context.wrap_socket(raw_sock, server_hostname=self.host)
+            except Exception:
+                raw_sock.close()
+                raise
         else:
             sock = raw_sock
 
@@ -420,10 +424,13 @@ class WebSocketClient:
         for name, value in self.headers.items():
             lines.append(f"{name}: {value}")
         request = "\r\n".join(lines) + "\r\n\r\n"
+        try:
         sock.sendall(request.encode("utf-8"))
-
         response = self._read_http_response(sock)
         self._validate_handshake(response, key)
+        except Exception:
+            sock.close()
+            raise
         return sock
 
     def _read_http_response(self, sock: socket.socket) -> bytes:
