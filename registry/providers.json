@@ -294,6 +294,40 @@
           "required": false
         }
       ]
+    },
+    {
+      "id": "provider.soniox.streaming",
+      "short_id": "soniox-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/soniox/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE_HINTS_STRICT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_ENDPOINT_DETECTION",
+          "required": false
+        }
+      ]
     }
   ]
 }
