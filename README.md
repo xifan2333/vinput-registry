@@ -64,9 +64,7 @@ prefix and should be listed after the shared envs in `registry/providers.json`.
 
 ## Current Scope
 
-- `models.json`: legacy v2 local ASR models
-- `v3/models.json`: v3 local ASR models for clients that provision declared
-  model assets such as `bpe_vocab`
+- `models.json`: local ASR models
 - `providers.json`: cloud ASR provider scripts
 - `adapters.json`: managed local LLM adapter scripts
 

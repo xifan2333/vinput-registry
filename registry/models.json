@@ -46,8 +46,9 @@
           "debug": 0,
           "provider": "cpu",
           "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
+          "modeling_unit": "bpe",
+          "bpe_vocab": "bpe.vocab",
+          "bpe_model": "bpe.model",
           "telespeech_ctc": "",
           "transducer": {
             "encoder": "encoder-epoch-99-avg-1.int8.onnx",
@@ -108,8 +109,9 @@
           "provider": "cpu",
           "debug": 0,
           "model_type": "",
-          "modeling_unit": "",
-          "bpe_vocab": "",
+          "modeling_unit": "bpe",
+          "bpe_vocab": "bpe.vocab",
+          "bpe_model": "bpe.model",
           "tokens_buf": "",
           "tokens_buf_size": 0,
           "transducer": {
