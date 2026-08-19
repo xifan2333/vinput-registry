@@ -38,5 +38,5 @@
   "model.sherpa-onnx.x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8.title": "X-ASR Zh-En 960ms Punct",
   "model.sherpa-onnx.x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "Streaming/Chinese+English/Punctuation/Hotwords",
   "provider.soniox.streaming.title": "Soniox (Streaming)",
-  "provider.soniox.streaming.description": "Use the Soniox real-time speech-to-text API for streaming cloud ASR."
+  "provider.soniox.streaming.description": "Use the Soniox realtime API for streaming cloud ASR."
 }

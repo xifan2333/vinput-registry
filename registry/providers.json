@@ -312,6 +312,10 @@
           "required": true
         },
         {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
           "name": "VINPUT_ASR_MODEL",
           "required": false
         },
@@ -320,7 +324,15 @@
           "required": false
         },
         {
+          "name": "VINPUT_ASR_PROMPT",
+          "required": false
+        },
+        {
           "name": "VINPUT_ASR_LANGUAGE_HINTS_STRICT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_CONTEXT_TERMS",
           "required": false
         },
         {

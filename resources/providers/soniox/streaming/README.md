@@ -1,6 +1,6 @@
 # providers.soniox.streaming
 
-Cloud ASR provider script for Soniox Real-time Speech-to-Text.
+Cloud ASR provider script for the Soniox realtime transcription API.
 
 ## Entry
 

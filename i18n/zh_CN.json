@@ -38,5 +38,5 @@
   "model.sherpa-onnx.x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8.title": "X-ASR 中英 960ms 标点",
   "model.sherpa-onnx.x-asr-960ms-streaming-zipformer-transducer-zh-en-punct-int8.description": "流式/中英/支持标点/支持热词",
   "provider.soniox.streaming.title": "Soniox（流式）",
-  "provider.soniox.streaming.description": "通过 Soniox Real-time STT API 调用流式云端 ASR。"
+  "provider.soniox.streaming.description": "通过 Soniox 实时语音识别 API 调用流式云端 ASR。"
 }
