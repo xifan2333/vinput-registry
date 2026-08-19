@@ -120,6 +120,19 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
     return committed + separator + current
 
 
+def coerce_optional_float(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def get_optional_env(name: str, default: str = "") -> str:
     value = os.getenv(name, "").strip()
     return value or default
@@ -1193,7 +1206,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         candidate_text = item.get("text")
         if isinstance(candidate_text, str) and candidate_text.strip():
             text = candidate_text
-            text_start_time = item["start_time"]
+            text_start_time = coerce_optional_float(item.get("start_time"))
         if item.get("is_interim") is False:
             is_interim = False
         if item.get("is_vad_finished"):
