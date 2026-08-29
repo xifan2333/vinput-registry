@@ -6,6 +6,11 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
+      since:
+        description: 'Baseline date for new updates (e.g. today, 7d, 30d, or YYYY-MM-DD)'
+        required: false
+        default: 'today'
+        type: string
       repo:
         description: 'Upstream GitHub repository to monitor (owner/repo)'
         required: false
@@ -48,6 +53,7 @@ jobs:
         run: |
           REPO="${{ inputs.repo || 'k2-fsa/sherpa-onnx' }}"
           TAGS="${{ inputs.tags || 'asr-models' }}"
+          SINCE="${{ inputs.since || 'today' }}"
           CREATE_ISSUE_FLAG=""
           if [ "${{ inputs.create_issue != false }}" = "true" ]; then
             CREATE_ISSUE_FLAG="--create-issue"
@@ -57,6 +63,7 @@ jobs:
             --registry registry/models.json \
             --repo "$REPO" \
             --tags "$TAGS" \
+            --since "$SINCE" \
             --token "$GITHUB_TOKEN" \
             --output-dir output_report \
             $CREATE_ISSUE_FLAG

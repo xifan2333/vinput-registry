@@ -3,13 +3,14 @@
 Upstream Model Monitor for vinput-registry.
 
 Monitors upstream model releases (e.g. k2-fsa/sherpa-onnx tag: asr-models)
-for PC-compatible (x86 & ARM CPU) ASR models.
-Provides dual-perspective reporting:
-1. Timeline view: Recent updates & newly released models (sorted by date descending)
-2. Size Tiers view: Capacity tiers <100MB, 100-300MB, >300MB (sorted by size ascending)
+for PC-compatible (x86 & ARM CPU) ASR models released after a baseline date (--since).
+Only alerts when genuine new models or version updates are published.
 
-Produces Markdown reports, JSON summaries, and draft configurations without
-modifying any repository code.
+Provides:
+- Real update detection since baseline date
+- Dual perspective (Timeline of changes + Size-sorted candidate list)
+- Draft configuration generation for new models
+- Zero mutation to repository code
 """
 
 from __future__ import annotations
@@ -168,6 +169,28 @@ def parse_date_version(stem: str) -> Tuple[str, str]:
         base = stem[: m2.start()]
         return base, date_str
     return stem, ""
+
+
+def resolve_since_date(since_input: Optional[str]) -> str:
+    """
+    Resolve --since date string into YYYY-MM-DD.
+    Accepts 'today', 'YYYY-MM-DD', 'Nd' (e.g. '7d', '30d'), or defaults to today's date.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if not since_input or since_input.strip() == "" or since_input == "today":
+        return now.strftime("%Y-%m-%d")
+
+    val = since_input.strip().lower()
+    if val.endswith("d") and val[:-1].isdigit():
+        days = int(val[:-1])
+        return (now - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+
+    # Match YYYY-MM-DD
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})", val)
+    if m:
+        return m.group(1)
+
+    return now.strftime("%Y-%m-%d")
 
 
 def infer_model_metadata(filename: str, size_bytes: int) -> Dict[str, Any]:
@@ -394,11 +417,27 @@ def normalize_base_name(name: str) -> str:
     return n
 
 
+def get_asset_effective_date(asset: UpstreamAsset) -> str:
+    """Get the effective date for an upstream asset (from version tag or upload date)."""
+    if asset.date_version:
+        return asset.date_version
+    if asset.created_at:
+        return asset.created_at[:10]
+    if asset.updated_at:
+        return asset.updated_at[:10]
+    return ""
+
+
 def compare_models(
     local_models: List[LocalModel],
     upstream_assets: List[UpstreamAsset],
+    since_date: str = "",
 ) -> List[ModelDiffItem]:
-    """Compare upstream assets against local models."""
+    """
+    Compare upstream assets against local models.
+    Filters out historical models published before `since_date` to only report
+    real recent updates and newly published models.
+    """
     diff_items: List[ModelDiffItem] = []
 
     exact_filenames = {m.filename: m for m in local_models if m.filename}
@@ -412,7 +451,9 @@ def compare_models(
             normalized_map[normalize_base_name(m.base_name)] = m
 
     for asset in upstream_assets:
-        # 1. Exact filename match (same version date)
+        eff_date = get_asset_effective_date(asset)
+
+        # 1. Exact filename match
         if asset.name in exact_filenames:
             m = exact_filenames[asset.name]
             diff_items.append(
@@ -437,40 +478,62 @@ def compare_models(
         if matched_local:
             if asset.date_version and matched_local.date_version:
                 if asset.date_version > matched_local.date_version:
+                    # Genuine version update
                     reason = (
                         f"Upstream has newer version: {asset.date_version} "
                         f"(Local: {matched_local.date_version})"
                     )
-                    status = "updated"
-                elif asset.date_version < matched_local.date_version:
-                    reason = (
-                        f"Upstream asset date ({asset.date_version}) is older than "
-                        f"local ({matched_local.date_version})."
+                    diff_items.append(
+                        ModelDiffItem(
+                            asset=asset,
+                            local_match=matched_local,
+                            status="updated",
+                            reason=reason,
+                        )
                     )
-                    status = "up_to_date"
                 else:
-                    reason = f"Same date version ({asset.date_version}), but filename/hash differs."
-                    status = "updated"
+                    # Older or same date
+                    diff_items.append(
+                        ModelDiffItem(
+                            asset=asset,
+                            local_match=matched_local,
+                            status="up_to_date",
+                            reason="Local version is up to date or newer.",
+                        )
+                    )
             else:
-                reason = f"Matching model base found ({matched_local.id}), candidate update."
-                status = "updated"
-
-            diff_items.append(
-                ModelDiffItem(
-                    asset=asset,
-                    local_match=matched_local,
-                    status=status,
-                    reason=reason,
-                )
-            )
+                # No explicit date tag: if released after since_date, report as update
+                if since_date and eff_date and eff_date < since_date:
+                    diff_items.append(
+                        ModelDiffItem(
+                            asset=asset,
+                            local_match=matched_local,
+                            status="up_to_date",
+                            reason="Historical asset prior to baseline date.",
+                        )
+                    )
+                else:
+                    diff_items.append(
+                        ModelDiffItem(
+                            asset=asset,
+                            local_match=matched_local,
+                            status="updated",
+                            reason=f"Matching model base found ({matched_local.id}), candidate update.",
+                        )
+                    )
         else:
-            # 3. Completely new model
+            # 3. Model not in local registry
+            # Only treat as a NEW update if published after since_date
+            if since_date and eff_date and eff_date < since_date:
+                # Historical asset prior to baseline date - ignore from active updates
+                continue
+
             diff_items.append(
                 ModelDiffItem(
                     asset=asset,
                     local_match=None,
                     status="new",
-                    reason="New model asset not present in local registry.",
+                    reason="New model asset published after baseline date.",
                 )
             )
 
@@ -585,160 +648,119 @@ def generate_markdown_report(
     local_models_count: int,
     upstream_repos: List[str],
     tags: List[str],
+    since_date: str,
+    total_scanned_count: int,
 ) -> str:
-    """
-    Generate comprehensive dual-perspective Markdown report:
-    1. Timeline of changes (sorted by release date descending)
-    2. Size tiers (<100MB, 100-300MB, >300MB, sorted by size ascending)
-    """
+    """Generate Markdown report focused strictly on new updates since baseline."""
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     new_items = [d for d in diff_items if d.status == "new"]
     updated_items = [d for d in diff_items if d.status == "updated"]
     up_to_date_items = [d for d in diff_items if d.status == "up_to_date"]
 
-    # --- View 1: Timeline changes (sorted by created_at or date_version descending) ---
+    has_real_updates = bool(new_items or updated_items)
+
     changed_items = sorted(
         new_items + updated_items,
         key=lambda x: (x.asset.date_version or x.asset.created_at[:10], x.asset.size_bytes),
         reverse=True,
     )
 
-    # --- View 2: Size Tiers ---
-    # Tier 1: Ultra Lightweight (< 100 MB)
-    tier_small = sorted(
-        [d for d in diff_items if d.asset.size_bytes < 100 * 1024 * 1024],
-        key=lambda x: x.asset.size_bytes,
-    )
-    # Tier 2: Balanced Standard (100 MB ~ 300 MB)
-    tier_mid = sorted(
-        [d for d in diff_items if 100 * 1024 * 1024 <= d.asset.size_bytes <= 300 * 1024 * 1024],
-        key=lambda x: x.asset.size_bytes,
-    )
-    # Tier 3: Large / High Precision (> 300 MB)
-    tier_large = sorted(
-        [d for d in diff_items if d.asset.size_bytes > 300 * 1024 * 1024],
-        key=lambda x: x.asset.size_bytes,
-    )
+    # Sort all changed items by size ascending for tier table
+    changed_by_size = sorted(new_items + updated_items, key=lambda x: x.asset.size_bytes)
 
     lines: List[str] = [
-        "# 🔍 上游 PC 模型更新与选型参考 (Upstream PC Models Monitor)",
+        "# 🔍 上游 PC 模型更新监控报告 (Upstream PC Models Monitor)",
         "",
         f"> 🕒 **检查时间**: `{now_str}`  ",
         f"> 📦 **监控源**: `{', '.join(upstream_repos)}` (Tag: `{', '.join(tags)}`)  ",
         f"> 💻 **运行平台**: 标准 PC (x86 & ARM CPU 支持)  ",
-        f"> 📚 **本地已收录**: `{local_models_count}` 个模型 | 🆕 **未收录新模型**: `{len(new_items)}` | 🔄 **现有更新**: `{len(updated_items)}`  ",
-        f"> ℹ️ **说明**: 本任务仅提供参考对比与选型指引，**不改动当前项目仓库代码**。",
+        f"> 📅 **监控基准日期**: `{since_date}` 之后的更新  ",
+        f"> 📚 **本地已收录**: `{local_models_count}` 个模型 (上游共扫描 `{total_scanned_count}` 个 PC 资产)  ",
+        f"> ℹ️ **说明**: 仅监控基准日期之后发布的新增模型或版本更新，**不改动当前项目仓库代码**。",
         "",
         "---",
         "",
-        "## 📊 概览统计 (Overview)",
-        "",
-        "| 类别 | 数量 | 状态速览 |",
-        "| :--- | :--- | :--- |",
-        f"| 🆕 **未收录新模型** | **{len(new_items)}** | {'🔔 发现未收录新模型' if new_items else '✅ 无新模型'} |",
-        f"| 🔄 **现有模型新版本** | **{len(updated_items)}** | {'⚡ 发现版本更新' if updated_items else '✅ 已是最新'} |",
-        f"| ✅ **已收录且最新** | **{len(up_to_date_items)}** | 正常保持 |",
+        "## 📊 本次检查结果 (Check Status)",
         "",
     ]
 
-    # ==========================================
-    # 视角一：最新发布与更新时间线 (看更新)
-    # ==========================================
-    lines.extend([
-        "---",
-        "",
-        "## ⏱️ 视角一：最新变动动态 (按发布时间从新到旧，看最新更新)",
-        "> 第一时间呈现上游最新的变动：包括发布了哪些新模型、已有模型是否有新构建版本。",
-        "",
-    ])
-
-    if changed_items:
+    if not has_real_updates:
         lines.extend([
-            "| 发布日期 | 变动类型 | 模型文件名 / 标识 | 体积大小 | 语言 | 模式 / 架构 | 量化 | 资源链接 |",
-            "| :---: | :---: | :--- | :---: | :---: | :--- | :---: | :--- |",
+            f"### ✅ 暂无新更新 (Up to date)",
+            f"",
+            f"自基准日期 **`{since_date}`** 以来，上游未发布任何新的 PC ASR 模型或现有模型构建更新。",
+            f"当前本地模型库与上游最新发布保持同步，无需做任何变更。",
+            "",
+            "<details>",
+            f"<summary><b>点击展开已收录模型状态 ({len(up_to_date_items)} 个)</b></summary>",
+            "",
+            "| 模型 ID | 当前收录文件 | 体积大小 | 状态 |",
+            "| :--- | :--- | :---: | :--- |",
         ])
-        for d in changed_items:
-            a = d.asset
-            date_str = a.date_version or (a.created_at[:10] if a.created_at else "-")
-            status_badge = "🆕 **全新模型**" if d.status == "new" else "🔄 **版本升级**"
-            name_col = f"`{a.name}`"
-            if d.status == "updated" and d.local_match:
-                local_ver = d.local_match.date_version or "本地旧版"
-                name_col += f"<br><sub>(本地: `{local_ver}` ➔ 上游: `{a.date_version}`)</sub>"
-
-            lines.append(
-                f"| **{date_str}** | {status_badge} | {name_col} | **{format_size(a.size_bytes)}** | `{a.language}` | `{a.runtime}` / `{a.family}` | `{a.quantization}` | [🔗 下载链接]({a.download_url}) |"
-            )
-        lines.append("")
-    else:
+        for d in sorted(up_to_date_items, key=lambda x: x.asset.size_bytes):
+            m_id = d.local_match.id if d.local_match else d.asset.name
+            lines.append(f"| `{m_id}` | `{d.asset.name}` | {format_size(d.asset.size_bytes)} | ✅ 最新 |")
         lines.extend([
-            "_✅ 近期暂无未收录的新模型或版本更新，本地库与上游完全同步。_",
+            "",
+            "</details>",
             "",
         ])
+        return "\n".join(lines)
 
-    # ==========================================
-    # 视角二：按体积梯队选型表 (看大小)
-    # ==========================================
+    # If there are genuine updates:
+    lines.extend([
+        "| 类别 | 数量 | 状态速览 |",
+        "| :--- | :--- | :--- |",
+        f"| 🆕 **新增发布模型** | **{len(new_items)}** | {'🔔 发现新发布模型' if new_items else '✅ 无'} |",
+        f"| 🔄 **现有模型新构建** | **{len(updated_items)}** | {'⚡ 发现版本更新' if updated_items else '✅ 无'} |",
+        "",
+        "---",
+        "",
+        f"## ⏱️ 视角一：最新发布与更新时间线 (自 `{since_date}` 以来)",
+        "",
+        "| 发布日期 | 变动类型 | 模型文件名 / 标识 | 体积大小 | 语言 | 模式 / 架构 | 量化 | 资源链接 |",
+        "| :---: | :---: | :--- | :---: | :---: | :--- | :---: | :--- |",
+    ])
+    for d in changed_items:
+        a = d.asset
+        date_str = a.date_version or (a.created_at[:10] if a.created_at else "-")
+        status_badge = "🆕 **全新发布**" if d.status == "new" else "🔄 **版本升级**"
+        name_col = f"`{a.name}`"
+        if d.status == "updated" and d.local_match:
+            local_ver = d.local_match.date_version or "本地旧版"
+            name_col += f"<br><sub>(本地: `{local_ver}` ➔ 上游: `{a.date_version}`)</sub>"
+
+        lines.append(
+            f"| **{date_str}** | {status_badge} | {name_col} | **{format_size(a.size_bytes)}** | `{a.language}` | `{a.runtime}` / `{a.family}` | `{a.quantization}` | [🔗 下载链接]({a.download_url}) |"
+        )
+    lines.append("")
+
     lines.extend([
         "---",
         "",
-        "## 📦 视角二：体积梯队选型清单 (按体积从小到大，看规格选型)",
-        "> 划分容量梯队，各梯队内按体积升序排列，方便根据桌面端内存与性能要求挑选模型。",
+        "## 📦 视角二：本次更新模型体积排序 (从小到大)",
         "",
+        "| 模型文件名 | 体积大小 | 变动类型 | 语言 | 运行模式 | 模型结构 | 量化 | 下载链接 |",
+        "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |",
     ])
+    for d in changed_by_size:
+        a = d.asset
+        status_text = "🆕 全新发布" if d.status == "new" else "🔄 版本升级"
+        lines.append(
+            f"| `{a.name}` | **{format_size(a.size_bytes)}** | {status_text} | `{a.language}` | `{a.runtime}` | `{a.family}` | `{a.quantization}` | [🔗 下载]({a.download_url}) |"
+        )
+    lines.append("")
 
-    def render_tier_table(items: List[ModelDiffItem]) -> List[str]:
-        if not items:
-            return ["_该梯队暂无模型_", ""]
-        t_lines = [
-            "| 模型文件名 | 体积大小 | 状态 | 语言 | 模式 | 架构 | 量化 | 发布日期 | 下载链接 |",
-            "| :--- | :---: | :---: | :---: | :---: | :--- | :---: | :---: | :--- |",
-        ]
-        for d in items:
-            a = d.asset
-            status_icon = "🆕 未收录" if d.status == "new" else ("🔄 有新版" if d.status == "updated" else "✅ 已收录")
-            date_str = a.date_version or (a.created_at[:10] if a.created_at else "-")
-            t_lines.append(
-                f"| `{a.name}` | **{format_size(a.size_bytes)}** | {status_icon} | `{a.language}` | `{a.runtime}` | `{a.family}` | `{a.quantization}` | {date_str} | [🔗 下载]({a.download_url}) |"
-            )
-        t_lines.append("")
-        return t_lines
-
-    # Tier 1
-    lines.extend([
-        f"### ⚡ 梯队一：超轻量级 `< 100 MB` ({len(tier_small)} 个)",
-        "> 极致低资源占用，适合秒开、极低内存消耗的日常输入场景。",
-        "",
-    ])
-    lines.extend(render_tier_table(tier_small))
-
-    # Tier 2
-    lines.extend([
-        f"### ⚖️ 梯队二：标准平衡级 `100 MB ~ 300 MB` ({len(tier_mid)} 个)",
-        "> 兼顾识别准确率与响应速度，主流桌面 ASR 首选梯队（包含 SenseVoice / Moonshine / Zipformer 等）。",
-        "",
-    ])
-    lines.extend(render_tier_table(tier_mid))
-
-    # Tier 3
-    lines.extend([
-        f"### 🎯 梯队三：高精度 / 大参数级 `> 300 MB` ({len(tier_large)} 个)",
-        "> 强抗噪、多语言转写、专业长文本识别，适合具备充足内存的 PC 设备（包含 Qwen3-ASR / FireRedASR 等）。",
-        "",
-    ])
-    lines.extend(render_tier_table(tier_large))
-
-    # Next steps
     lines.extend([
         "---",
         "",
-        "## 💡 如何将选中的模型引入本地？",
+        "## 💡 如何将选中的新模型引入本地？",
         "",
-        "1. **选型评估**: 先在【视角一】看是否有近期更新，或在【视角二】按体积梯队选定目标模型。",
-        "2. **下载与哈希计算**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>` 获取哈希校验值。",
-        "3. **应用配置草稿**: 直接在 Workflow Artifacts 中的 `new_models_draft.json` 复制预生成的 JSON 块粘贴到 `registry/models.json`。",
-        "4. **添加国际化文案**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 补齐 `<id>.title` 与 `<id>.description`。",
+        "1. **评估选型**: 查看上方更新列表中的体积大小、语言和模型结构。",
+        "2. **下载与哈希计算**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>` 获取哈希值。",
+        "3. **使用预生成草稿**: 在 Workflow Artifacts 的 `new_models_draft.json` 中直接复制对应配置到 `registry/models.json`。",
+        "4. **补齐翻译**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 中补充对应 title 和 description。",
         "",
     ])
 
@@ -751,6 +773,7 @@ def manage_tracking_issue(
     title: str,
     body: str,
     has_updates: bool,
+    since_date: str,
 ) -> None:
     """Create or update a tracking GitHub Issue."""
     headers = {
@@ -765,10 +788,9 @@ def manage_tracking_issue(
     if len(safe_body) > 60000:
         safe_body = (
             safe_body[:59000]
-            + "\n\n---\n> ⚠️ **提示**: 候选模型条目较多，Issue 正文已自动截断以符合 GitHub 长度限制。完整清单及配置草稿（Draft JSON）请查看当前 Action 的 **Run Summary** 或下载 **Artifacts** 附件。"
+            + "\n\n---\n> ⚠️ **提示**: 候选模型条目较多，Issue 正文已自动截断以符合 GitHub 长度限制。完整清单及配置草稿请查看当前 Action 的 **Run Summary** 或下载 **Artifacts** 附件。"
         )
 
-    # Find existing open issue with the same title or label
     search_url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page=50"
     req = urllib.request.Request(search_url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -796,15 +818,27 @@ def manage_tracking_issue(
         with urllib.request.urlopen(patch_req, timeout=30) as resp:
             print(f"Successfully updated issue #{issue_number}.")
     else:
-        if has_updates:
-            print("No existing tracking issue found. Creating a new one...")
-            create_url = f"https://api.github.com/repos/{repo}/issues"
-            payload_data: Dict[str, Any] = {
-                "title": title,
-                "body": safe_body,
-            }
-            try:
-                payload = json.dumps({**payload_data, "labels": ["upstream-monitor"]}).encode("utf-8")
+        print("Creating a new tracking issue...")
+        create_url = f"https://api.github.com/repos/{repo}/issues"
+        payload_data: Dict[str, Any] = {
+            "title": title,
+            "body": safe_body,
+        }
+        try:
+            payload = json.dumps({**payload_data, "labels": ["upstream-monitor"]}).encode("utf-8")
+            post_req = urllib.request.Request(
+                create_url,
+                data=payload,
+                headers={**headers, "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(post_req, timeout=30) as resp:
+                created = json.loads(resp.read().decode("utf-8"))
+                print(f"Successfully created tracking issue #{created.get('number')}.")
+        except urllib.error.HTTPError as e:
+            if e.code == 422:
+                print("Retrying issue creation without custom label...")
+                payload = json.dumps(payload_data).encode("utf-8")
                 post_req = urllib.request.Request(
                     create_url,
                     data=payload,
@@ -814,23 +848,8 @@ def manage_tracking_issue(
                 with urllib.request.urlopen(post_req, timeout=30) as resp:
                     created = json.loads(resp.read().decode("utf-8"))
                     print(f"Successfully created tracking issue #{created.get('number')}.")
-            except urllib.error.HTTPError as e:
-                if e.code == 422:
-                    print("Retrying issue creation without custom label...")
-                    payload = json.dumps(payload_data).encode("utf-8")
-                    post_req = urllib.request.Request(
-                        create_url,
-                        data=payload,
-                        headers={**headers, "Content-Type": "application/json"},
-                        method="POST",
-                    )
-                    with urllib.request.urlopen(post_req, timeout=30) as resp:
-                        created = json.loads(resp.read().decode("utf-8"))
-                        print(f"Successfully created tracking issue #{created.get('number')}.")
-                else:
-                    raise
-        else:
-            print("No updates detected and no existing issue. Skipping issue creation.")
+            else:
+                raise
 
 
 def main() -> None:
@@ -852,6 +871,12 @@ def main() -> None:
         type=str,
         default="asr-models",
         help="Release tag(s) to monitor (default: asr-models)",
+    )
+    parser.add_argument(
+        "--since",
+        type=str,
+        default="today",
+        help="Only report models released after this date (YYYY-MM-DD, 'today', or 'Nd' like '7d'). Default: today",
     )
     parser.add_argument(
         "--token",
@@ -886,6 +911,8 @@ def main() -> None:
     args = parser.parse_args()
 
     tags_list = [t.strip() for t in args.tags.split(",") if t.strip()]
+    since_date = resolve_since_date(args.since)
+    print(f"Monitoring updates strictly after baseline date: {since_date}")
 
     # 1. Load local models
     local_models = load_local_registry(args.registry)
@@ -931,45 +958,49 @@ def main() -> None:
 
     print(f"Fetched {len(upstream_assets)} PC-compatible upstream assets.")
 
-    # 3. Compare models
-    diff_items = compare_models(local_models, upstream_assets)
+    # 3. Compare models with since_date filter
+    diff_items = compare_models(local_models, upstream_assets, since_date=since_date)
 
     new_count = sum(1 for d in diff_items if d.status == "new")
     updated_count = sum(1 for d in diff_items if d.status == "updated")
     up_to_date_count = sum(1 for d in diff_items if d.status == "up_to_date")
 
-    print(f"Analysis complete: {new_count} new, {updated_count} updated, {up_to_date_count} up-to-date.")
+    print(
+        f"Analysis complete (since {since_date}): {new_count} new, {updated_count} updated, {up_to_date_count} up-to-date."
+    )
 
     # 4. Generate outputs
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Markdown report (Dual view)
+    # Markdown report
     md_report = generate_markdown_report(
         diff_items=diff_items,
         local_models_count=len(local_models),
         upstream_repos=[args.repo],
         tags=tags_list,
+        since_date=since_date,
+        total_scanned_count=len(upstream_assets),
     )
     report_md_path = args.output_dir / "summary.md"
     with open(report_md_path, "w", encoding="utf-8") as f:
         f.write(md_report)
     print(f"Written Markdown report to {report_md_path}")
 
-    # JSON summary (Dual structured index: by date & by size)
+    # JSON summary
     sorted_by_size = sorted(diff_items, key=lambda d: d.asset.size_bytes)
     sorted_by_date = sorted(diff_items, key=lambda d: (d.asset.date_version or d.asset.created_at[:10]), reverse=True)
 
     json_summary = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "baseline_since_date": since_date,
         "upstream_repo": args.repo,
         "tags": tags_list,
         "platform": "pc_x86_arm",
         "counts": {
             "local_models": len(local_models),
-            "upstream_assets": len(upstream_assets),
-            "new_models": new_count,
-            "updated_models": updated_count,
-            "up_to_date_models": up_to_date_count,
+            "upstream_assets_scanned": len(upstream_assets),
+            "new_models_since_baseline": new_count,
+            "updated_models_since_baseline": updated_count,
         },
         "recent_changes": [
             {
@@ -981,22 +1012,13 @@ def main() -> None:
             for d in sorted_by_date
             if d.status in ("new", "updated")
         ],
-        "size_tiers": {
-            "under_100mb": [asdict(d.asset) for d in sorted_by_size if d.asset.size_bytes < 100 * 1024 * 1024],
-            "100mb_to_300mb": [
-                asdict(d.asset)
-                for d in sorted_by_size
-                if 100 * 1024 * 1024 <= d.asset.size_bytes <= 300 * 1024 * 1024
-            ],
-            "over_300mb": [asdict(d.asset) for d in sorted_by_size if d.asset.size_bytes > 300 * 1024 * 1024],
-        },
     }
     report_json_path = args.output_dir / "summary.json"
     with open(report_json_path, "w", encoding="utf-8") as f:
         json.dump(json_summary, f, indent=2, ensure_ascii=False)
     print(f"Written JSON summary to {report_json_path}")
 
-    # Draft configurations for new models (sorted by size ascending)
+    # Draft configurations for new models (only for real new models)
     new_drafts = [build_draft_model_json(d.asset) for d in sorted_by_size if d.status == "new"]
     drafts_path = args.output_dir / "new_models_draft.json"
     with open(drafts_path, "w", encoding="utf-8") as f:
@@ -1010,7 +1032,6 @@ def main() -> None:
             f.write(f"has_updates={'true' if (new_count > 0 or updated_count > 0) else 'false'}\n")
             f.write(f"new_count={new_count}\n")
             f.write(f"updated_count={updated_count}\n")
-            f.write(f"up_to_date_count={up_to_date_count}\n")
 
     # Set Step Summary if running in GH Actions
     gh_step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -1030,6 +1051,7 @@ def main() -> None:
                 title=args.issue_title,
                 body=md_report,
                 has_updates=(new_count > 0 or updated_count > 0),
+                since_date=since_date,
             )
         except Exception as e:
             print(f"Warning: Failed to manage tracking issue: {e}", file=sys.stderr)
