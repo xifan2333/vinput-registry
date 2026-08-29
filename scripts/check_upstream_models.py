@@ -5,12 +5,6 @@ Upstream Model Monitor for vinput-registry.
 Monitors upstream model releases (e.g. k2-fsa/sherpa-onnx tag: asr-models)
 for PC-compatible (x86 & ARM CPU) ASR models released after a baseline date (--since).
 Only alerts when genuine new models or version updates are published.
-
-Provides:
-- Real update detection since baseline date
-- Dual perspective (Timeline of changes + Size-sorted candidate list)
-- Draft configuration generation for new models
-- Zero mutation to repository code
 """
 
 from __future__ import annotations
@@ -185,7 +179,6 @@ def resolve_since_date(since_input: Optional[str]) -> str:
         days = int(val[:-1])
         return (now - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
 
-    # Match YYYY-MM-DD
     m = re.match(r"^(\d{4}-\d{2}-\d{2})", val)
     if m:
         return m.group(1)
@@ -435,8 +428,7 @@ def compare_models(
 ) -> List[ModelDiffItem]:
     """
     Compare upstream assets against local models.
-    Filters out historical models published before `since_date` to only report
-    real recent updates and newly published models.
+    Filters out historical models published before `since_date`.
     """
     diff_items: List[ModelDiffItem] = []
 
@@ -478,7 +470,6 @@ def compare_models(
         if matched_local:
             if asset.date_version and matched_local.date_version:
                 if asset.date_version > matched_local.date_version:
-                    # Genuine version update
                     reason = (
                         f"Upstream has newer version: {asset.date_version} "
                         f"(Local: {matched_local.date_version})"
@@ -492,7 +483,6 @@ def compare_models(
                         )
                     )
                 else:
-                    # Older or same date
                     diff_items.append(
                         ModelDiffItem(
                             asset=asset,
@@ -502,7 +492,6 @@ def compare_models(
                         )
                     )
             else:
-                # No explicit date tag: if released after since_date, report as update
                 if since_date and eff_date and eff_date < since_date:
                     diff_items.append(
                         ModelDiffItem(
@@ -523,9 +512,7 @@ def compare_models(
                     )
         else:
             # 3. Model not in local registry
-            # Only treat as a NEW update if published after since_date
             if since_date and eff_date and eff_date < since_date:
-                # Historical asset prior to baseline date - ignore from active updates
                 continue
 
             diff_items.append(
@@ -651,7 +638,7 @@ def generate_markdown_report(
     since_date: str,
     total_scanned_count: int,
 ) -> str:
-    """Generate Markdown report focused strictly on new updates since baseline."""
+    """Generate clean Markdown report with zero emojis."""
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     new_items = [d for d in diff_items if d.status == "new"]
@@ -665,42 +652,33 @@ def generate_markdown_report(
         key=lambda x: (x.asset.date_version or x.asset.created_at[:10], x.asset.size_bytes),
         reverse=True,
     )
-
-    # Sort all changed items by size ascending for tier table
     changed_by_size = sorted(new_items + updated_items, key=lambda x: x.asset.size_bytes)
 
     lines: List[str] = [
-        "# 🔍 上游 PC 模型更新监控报告 (Upstream PC Models Monitor)",
+        "# 上游模型监控报告 (Upstream Models Monitor)",
         "",
-        f"> 🕒 **检查时间**: `{now_str}`  ",
-        f"> 📦 **监控源**: `{', '.join(upstream_repos)}` (Tag: `{', '.join(tags)}`)  ",
-        f"> 💻 **运行平台**: 标准 PC (x86 & ARM CPU 支持)  ",
-        f"> 📅 **监控基准日期**: `{since_date}` 之后的更新  ",
-        f"> 📚 **本地已收录**: `{local_models_count}` 个模型 (上游共扫描 `{total_scanned_count}` 个 PC 资产)  ",
-        f"> ℹ️ **说明**: 仅监控基准日期之后发布的新增模型或版本更新，**不改动当前项目仓库代码**。",
+        f"> 检查时间: `{now_str}` | 基准日期: `{since_date}` | 上游: `{', '.join(upstream_repos)}` (`{', '.join(tags)}`) | 平台: PC (x86/ARM)",
         "",
         "---",
         "",
-        "## 📊 本次检查结果 (Check Status)",
+        "## 检查结果",
         "",
     ]
 
     if not has_real_updates:
         lines.extend([
-            f"### ✅ 暂无新更新 (Up to date)",
-            f"",
-            f"自基准日期 **`{since_date}`** 以来，上游未发布任何新的 PC ASR 模型或现有模型构建更新。",
-            f"当前本地模型库与上游最新发布保持同步，无需做任何变更。",
+            f"**暂无新更新**: 自基准日期 `{since_date}` 以来，上游未发布新的 PC ASR 模型或现有模型更新构建。",
+            f"本地收录模型（共 {local_models_count} 个）与上游保持同步。",
             "",
             "<details>",
-            f"<summary><b>点击展开已收录模型状态 ({len(up_to_date_items)} 个)</b></summary>",
+            f"<summary>已收录模型状态 ({len(up_to_date_items)} 个)</summary>",
             "",
             "| 模型 ID | 当前收录文件 | 体积大小 | 状态 |",
-            "| :--- | :--- | :---: | :--- |",
+            "| :--- | :--- | :---: | :---: |",
         ])
         for d in sorted(up_to_date_items, key=lambda x: x.asset.size_bytes):
             m_id = d.local_match.id if d.local_match else d.asset.name
-            lines.append(f"| `{m_id}` | `{d.asset.name}` | {format_size(d.asset.size_bytes)} | ✅ 最新 |")
+            lines.append(f"| `{m_id}` | `{d.asset.name}` | {format_size(d.asset.size_bytes)} | 最新 |")
         lines.extend([
             "",
             "</details>",
@@ -708,16 +686,15 @@ def generate_markdown_report(
         ])
         return "\n".join(lines)
 
-    # If there are genuine updates:
     lines.extend([
-        "| 类别 | 数量 | 状态速览 |",
-        "| :--- | :--- | :--- |",
-        f"| 🆕 **新增发布模型** | **{len(new_items)}** | {'🔔 发现新发布模型' if new_items else '✅ 无'} |",
-        f"| 🔄 **现有模型新构建** | **{len(updated_items)}** | {'⚡ 发现版本更新' if updated_items else '✅ 无'} |",
+        "| 类别 | 数量 |",
+        "| :--- | :--- |",
+        f"| 新增发布模型 | {len(new_items)} |",
+        f"| 现有模型更新 | {len(updated_items)} |",
         "",
         "---",
         "",
-        f"## ⏱️ 视角一：最新发布与更新时间线 (自 `{since_date}` 以来)",
+        f"### 1. 更新时间线 (自 `{since_date}` 以来)",
         "",
         "| 发布日期 | 变动类型 | 模型文件名 / 标识 | 体积大小 | 语言 | 模式 / 架构 | 量化 | 资源链接 |",
         "| :---: | :---: | :--- | :---: | :---: | :--- | :---: | :--- |",
@@ -725,42 +702,41 @@ def generate_markdown_report(
     for d in changed_items:
         a = d.asset
         date_str = a.date_version or (a.created_at[:10] if a.created_at else "-")
-        status_badge = "🆕 **全新发布**" if d.status == "new" else "🔄 **版本升级**"
+        status_badge = "全新发布" if d.status == "new" else "版本升级"
         name_col = f"`{a.name}`"
         if d.status == "updated" and d.local_match:
             local_ver = d.local_match.date_version or "本地旧版"
-            name_col += f"<br><sub>(本地: `{local_ver}` ➔ 上游: `{a.date_version}`)</sub>"
+            name_col += f"<br><sub>(本地: `{local_ver}` -> 上游: `{a.date_version}`)</sub>"
 
         lines.append(
-            f"| **{date_str}** | {status_badge} | {name_col} | **{format_size(a.size_bytes)}** | `{a.language}` | `{a.runtime}` / `{a.family}` | `{a.quantization}` | [🔗 下载链接]({a.download_url}) |"
+            f"| {date_str} | {status_badge} | {name_col} | {format_size(a.size_bytes)} | `{a.language}` | `{a.runtime}` / `{a.family}` | `{a.quantization}` | [下载]({a.download_url}) |"
         )
     lines.append("")
 
     lines.extend([
         "---",
         "",
-        "## 📦 视角二：本次更新模型体积排序 (从小到大)",
+        "### 2. 候选模型体积排序 (从小到大)",
         "",
         "| 模型文件名 | 体积大小 | 变动类型 | 语言 | 运行模式 | 模型结构 | 量化 | 下载链接 |",
         "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |",
     ])
     for d in changed_by_size:
         a = d.asset
-        status_text = "🆕 全新发布" if d.status == "new" else "🔄 版本升级"
+        status_text = "全新发布" if d.status == "new" else "版本升级"
         lines.append(
-            f"| `{a.name}` | **{format_size(a.size_bytes)}** | {status_text} | `{a.language}` | `{a.runtime}` | `{a.family}` | `{a.quantization}` | [🔗 下载]({a.download_url}) |"
+            f"| `{a.name}` | {format_size(a.size_bytes)} | {status_text} | `{a.language}` | `{a.runtime}` | `{a.family}` | `{a.quantization}` | [下载]({a.download_url}) |"
         )
     lines.append("")
 
     lines.extend([
         "---",
         "",
-        "## 💡 如何将选中的新模型引入本地？",
+        "### 3. 引入说明",
         "",
-        "1. **评估选型**: 查看上方更新列表中的体积大小、语言和模型结构。",
-        "2. **下载与哈希计算**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>` 获取哈希值。",
-        "3. **使用预生成草稿**: 在 Workflow Artifacts 的 `new_models_draft.json` 中直接复制对应配置到 `registry/models.json`。",
-        "4. **补齐翻译**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 中补充对应 title 和 description。",
+        "1. **计算哈希**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>`",
+        "2. **配置草稿**: 参考附件 `new_models_draft.json` 复制到 `registry/models.json`",
+        "3. **补充文案**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 补充对应的 title 与 description",
         "",
     ])
 
@@ -783,12 +759,11 @@ def manage_tracking_issue(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    # GitHub issue body has a limit of 65,536 characters
     safe_body = body
     if len(safe_body) > 60000:
         safe_body = (
             safe_body[:59000]
-            + "\n\n---\n> ⚠️ **提示**: 候选模型条目较多，Issue 正文已自动截断以符合 GitHub 长度限制。完整清单及配置草稿请查看当前 Action 的 **Run Summary** 或下载 **Artifacts** 附件。"
+            + "\n\n---\n> 提示: 候选模型条目较多，已自动截断。完整清单与配置草稿请查看 Action Run Summary 或下载 Artifacts 附件。"
         )
 
     search_url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page=50"
@@ -808,7 +783,7 @@ def manage_tracking_issue(
         issue_number = existing_issue["number"]
         print(f"Found existing tracking issue #{issue_number}. Updating content...")
         update_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
-        payload = json.dumps({"body": safe_body}).encode("utf-8")
+        payload = json.dumps({"title": title, "body": safe_body}).encode("utf-8")
         patch_req = urllib.request.Request(
             update_url,
             data=payload,
@@ -876,13 +851,13 @@ def main() -> None:
         "--since",
         type=str,
         default="today",
-        help="Only report models released after this date (YYYY-MM-DD, 'today', or 'Nd' like '7d'). Default: today",
+        help="Only report models released after this date (YYYY-MM-DD, 'today', or 'Nd'). Default: today",
     )
     parser.add_argument(
         "--token",
         type=str,
         default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub API Token (optional, avoids rate limits)",
+        help="GitHub API Token (optional)",
     )
     parser.add_argument(
         "--output-dir",
@@ -894,12 +869,12 @@ def main() -> None:
         "--mock-file",
         type=Path,
         default=None,
-        help="Path to mock JSON file containing release assets (for offline testing)",
+        help="Path to mock JSON file containing release assets",
     )
     parser.add_argument(
         "--issue-title",
         type=str,
-        default="🤖 上游 PC 模型更新监控报告 (Upstream Models Monitor)",
+        default="Upstream Models Monitor",
         help="Title for tracking issue",
     )
     parser.add_argument(
@@ -1018,14 +993,14 @@ def main() -> None:
         json.dump(json_summary, f, indent=2, ensure_ascii=False)
     print(f"Written JSON summary to {report_json_path}")
 
-    # Draft configurations for new models (only for real new models)
+    # Draft configurations for new models
     new_drafts = [build_draft_model_json(d.asset) for d in sorted_by_size if d.status == "new"]
     drafts_path = args.output_dir / "new_models_draft.json"
     with open(drafts_path, "w", encoding="utf-8") as f:
         json.dump(new_drafts, f, indent=2, ensure_ascii=False)
     print(f"Written {len(new_drafts)} draft model configs to {drafts_path}")
 
-    # Set GitHub Actions output if running in GH Actions
+    # Set GitHub Actions output
     gh_output = os.environ.get("GITHUB_OUTPUT")
     if gh_output:
         with open(gh_output, "a", encoding="utf-8") as f:
@@ -1033,14 +1008,14 @@ def main() -> None:
             f.write(f"new_count={new_count}\n")
             f.write(f"updated_count={updated_count}\n")
 
-    # Set Step Summary if running in GH Actions
+    # Set Step Summary
     gh_step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if gh_step_summary:
         with open(gh_step_summary, "a", encoding="utf-8") as f:
             f.write(md_report)
             f.write("\n")
 
-    # Handle GitHub Issue creation/update if requested
+    # Handle GitHub Issue creation/update
     if args.create_issue and args.token and os.environ.get("GITHUB_REPOSITORY"):
         current_repo = os.environ.get("GITHUB_REPOSITORY")
         print(f"Managing tracking issue on {current_repo}...")

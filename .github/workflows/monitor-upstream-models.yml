@@ -12,17 +12,17 @@ on:
         default: 'today'
         type: string
       repo:
-        description: 'Upstream GitHub repository to monitor (owner/repo)'
+        description: 'Upstream repository'
         required: false
         default: 'k2-fsa/sherpa-onnx'
         type: string
       tags:
-        description: 'Release tag to inspect'
+        description: 'Release tag'
         required: false
         default: 'asr-models'
         type: string
       create_issue:
-        description: 'Create or update a tracking GitHub Issue for reference'
+        description: 'Update tracking issue'
         required: false
         default: true
         type: boolean
@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   check-models:
-    name: Check Upstream PC ASR Models
+    name: Check Upstream Models
     runs-on: ubuntu-latest
 
     steps:
