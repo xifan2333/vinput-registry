@@ -751,7 +751,7 @@ def manage_tracking_issue(
     has_updates: bool,
     since_date: str,
 ) -> None:
-    """Delete old tracking issue and create a fresh one to avoid edit history."""
+    """Create or update a tracking GitHub Issue via PATCH."""
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "vinput-registry-monitor",
@@ -766,8 +766,8 @@ def manage_tracking_issue(
             + "\n\n---\n> 提示: 候选模型条目较多，已自动截断。完整清单与配置草稿请查看 Action Run Summary 或下载 Artifacts 附件。"
         )
 
-    # 1. Search for existing tracking issues (by title or label) and delete them
-    search_url = f"https://api.github.com/repos/{repo}/issues?state=all&per_page=50"
+    # Find existing open tracking issue (by title or label)
+    search_url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page=50"
     req = urllib.request.Request(search_url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -776,51 +776,36 @@ def manage_tracking_issue(
         print(f"Warning: Failed to fetch existing issues: {e}", file=sys.stderr)
         issues = []
 
+    existing_issue = None
     for iss in issues:
         if "pull_request" in iss:
             continue
         if iss.get("title") == title or "upstream-monitor" in [l.get("name") for l in iss.get("labels", [])]:
-            issue_number = iss["number"]
-            print(f"Deleting existing tracking issue #{issue_number} to avoid edit history...")
-            del_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
-            del_req = urllib.request.Request(del_url, headers=headers, method="DELETE")
-            try:
-                with urllib.request.urlopen(del_req, timeout=30):
-                    print(f"Successfully deleted issue #{issue_number}.")
-            except urllib.error.HTTPError as e:
-                # If DELETE is not permitted for the token, fallback to closing
-                print(f"Note: DELETE endpoint returned {e.code}, closing issue #{issue_number} instead.")
-                close_req = urllib.request.Request(
-                    del_url,
-                    data=json.dumps({"state": "closed"}).encode("utf-8"),
-                    headers={**headers, "Content-Type": "application/json"},
-                    method="PATCH",
-                )
-                with urllib.request.urlopen(close_req, timeout=30):
-                    pass
+            existing_issue = iss
+            break
 
-    # 2. Create a clean, fresh issue without edit history
-    print("Creating a fresh tracking issue...")
-    create_url = f"https://api.github.com/repos/{repo}/issues"
-    payload_data: Dict[str, Any] = {
-        "title": title,
-        "body": safe_body,
-    }
-    try:
-        payload = json.dumps({**payload_data, "labels": ["upstream-monitor"]}).encode("utf-8")
-        post_req = urllib.request.Request(
-            create_url,
+    if existing_issue:
+        issue_number = existing_issue["number"]
+        print(f"Found existing tracking issue #{issue_number}. Updating content via PATCH...")
+        update_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
+        payload = json.dumps({"title": title, "body": safe_body}).encode("utf-8")
+        patch_req = urllib.request.Request(
+            update_url,
             data=payload,
             headers={**headers, "Content-Type": "application/json"},
-            method="POST",
+            method="PATCH",
         )
-        with urllib.request.urlopen(post_req, timeout=30) as resp:
-            created = json.loads(resp.read().decode("utf-8"))
-            print(f"Successfully created fresh tracking issue #{created.get('number')}.")
-    except urllib.error.HTTPError as e:
-        if e.code == 422:
-            print("Retrying issue creation without custom label...")
-            payload = json.dumps(payload_data).encode("utf-8")
+        with urllib.request.urlopen(patch_req, timeout=30) as resp:
+            print(f"Successfully updated issue #{issue_number}.")
+    else:
+        print("Creating a new tracking issue...")
+        create_url = f"https://api.github.com/repos/{repo}/issues"
+        payload_data: Dict[str, Any] = {
+            "title": title,
+            "body": safe_body,
+        }
+        try:
+            payload = json.dumps({**payload_data, "labels": ["upstream-monitor"]}).encode("utf-8")
             post_req = urllib.request.Request(
                 create_url,
                 data=payload,
@@ -830,8 +815,21 @@ def manage_tracking_issue(
             with urllib.request.urlopen(post_req, timeout=30) as resp:
                 created = json.loads(resp.read().decode("utf-8"))
                 print(f"Successfully created fresh tracking issue #{created.get('number')}.")
-        else:
-            raise
+        except urllib.error.HTTPError as e:
+            if e.code == 422:
+                print("Retrying issue creation without custom label...")
+                payload = json.dumps(payload_data).encode("utf-8")
+                post_req = urllib.request.Request(
+                    create_url,
+                    data=payload,
+                    headers={**headers, "Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(post_req, timeout=30) as resp:
+                    created = json.loads(resp.read().decode("utf-8"))
+                    print(f"Successfully created fresh tracking issue #{created.get('number')}.")
+            else:
+                raise
 
 
 def main() -> None:
