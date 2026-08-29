@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # Supported model archive extensions
 MODEL_ARCHIVE_EXTENSIONS = (
@@ -95,7 +95,7 @@ class UpstreamAsset:
 class LocalModel:
     id: str
     short_id: str
-    urls: List[str]
+    urls: list[str]
     size_bytes: int
     language: str
     sha256: str
@@ -109,7 +109,7 @@ class LocalModel:
 @dataclass
 class ModelDiffItem:
     asset: UpstreamAsset
-    local_match: Optional[LocalModel] = None
+    local_match: LocalModel | None = None
     status: str = "new"  # 'new' | 'updated' | 'up_to_date'
     reason: str = ""
 
@@ -127,7 +127,7 @@ def format_size(size_bytes: int) -> str:
     return f"{size:.2f} {units[i]}"
 
 
-def strip_archive_extension(filename: str) -> Tuple[str, str]:
+def strip_archive_extension(filename: str) -> tuple[str, str]:
     """Strip known archive extension and return (stem, ext)."""
     for ext in sorted(MODEL_ARCHIVE_EXTENSIONS, key=len, reverse=True):
         if filename.endswith(ext):
@@ -147,7 +147,7 @@ def is_pc_compatible(filename: str) -> bool:
     return True
 
 
-def parse_date_version(stem: str) -> Tuple[str, str]:
+def parse_date_version(stem: str) -> tuple[str, str]:
     """
     Extract date suffix like -2026-06-03 or -20250909 or -2026-03-25.
     Returns (base_name_without_date, date_str).
@@ -165,7 +165,7 @@ def parse_date_version(stem: str) -> Tuple[str, str]:
     return stem, ""
 
 
-def resolve_since_date(since_input: Optional[str]) -> str:
+def resolve_since_date(since_input: str | None) -> str:
     """
     Resolve --since date string into YYYY-MM-DD.
     Accepts 'today', 'YYYY-MM-DD', 'Nd' (e.g. '7d', '30d'), or defaults to today's date.
@@ -186,7 +186,7 @@ def resolve_since_date(since_input: Optional[str]) -> str:
     return now.strftime("%Y-%m-%d")
 
 
-def infer_model_metadata(filename: str, size_bytes: int) -> Dict[str, Any]:
+def infer_model_metadata(filename: str, size_bytes: int) -> dict[str, Any]:
     """Infer metadata from model archive filename."""
     stem, ext = strip_archive_extension(filename)
     base_name, date_version = parse_date_version(stem)
@@ -245,7 +245,7 @@ def infer_model_metadata(filename: str, size_bytes: int) -> Dict[str, Any]:
         short_parts.append(quantization)
     short_parts.append("off" if runtime == "offline" else "stream")
 
-    dedup_parts: List[str] = []
+    dedup_parts: list[str] = []
     for p in short_parts:
         if not dedup_parts or dedup_parts[-1] != p:
             dedup_parts.append(p)
@@ -267,7 +267,7 @@ def infer_model_metadata(filename: str, size_bytes: int) -> Dict[str, Any]:
 
 def fetch_github_api(
     endpoint: str,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> Any:
     """Send GET request to GitHub API."""
     url = f"https://api.github.com{endpoint}" if endpoint.startswith("/") else endpoint
@@ -287,15 +287,15 @@ def fetch_github_api(
 def fetch_release_assets_paginated(
     repo: str,
     tag: str,
-    token: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    token: str | None = None,
+) -> list[dict[str, Any]]:
     """Fetch all release assets with pagination."""
     rel = fetch_github_api(f"/repos/{repo}/releases/tags/{tag}", token=token)
     release_id = rel.get("id")
     if not release_id:
         return rel.get("assets", [])
 
-    all_assets: List[Dict[str, Any]] = []
+    all_assets: list[dict[str, Any]] = []
     page = 1
     while True:
         page_assets = fetch_github_api(
@@ -314,12 +314,12 @@ def fetch_release_assets_paginated(
 
 def fetch_upstream_assets(
     repo: str,
-    tags: List[str],
-    token: Optional[str] = None,
-) -> List[UpstreamAsset]:
+    tags: list[str],
+    token: str | None = None,
+) -> list[UpstreamAsset]:
     """Fetch PC-compatible model release assets from GitHub repository."""
-    assets: List[UpstreamAsset] = []
-    seen_names: Set[str] = set()
+    assets: list[UpstreamAsset] = []
+    seen_names: set[str] = set()
 
     for tag in tags:
         print(f"Fetching release assets for {repo} tag: {tag}...")
@@ -366,16 +366,16 @@ def fetch_upstream_assets(
     return assets
 
 
-def load_local_registry(models_path: Path) -> List[LocalModel]:
+def load_local_registry(models_path: Path) -> list[LocalModel]:
     """Load and parse local models.json."""
     if not models_path.exists():
         print(f"Warning: {models_path} not found.", file=sys.stderr)
         return []
 
-    with open(models_path, "r", encoding="utf-8") as f:
+    with open(models_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    models: List[LocalModel] = []
+    models: list[LocalModel] = []
     for item in data.get("items", []):
         urls = item.get("urls", [])
         primary_url = urls[0] if urls else ""
@@ -422,20 +422,20 @@ def get_asset_effective_date(asset: UpstreamAsset) -> str:
 
 
 def compare_models(
-    local_models: List[LocalModel],
-    upstream_assets: List[UpstreamAsset],
+    local_models: list[LocalModel],
+    upstream_assets: list[UpstreamAsset],
     since_date: str = "",
-) -> List[ModelDiffItem]:
+) -> list[ModelDiffItem]:
     """
     Compare upstream assets against local models.
     Filters out historical models published before `since_date`.
     """
-    diff_items: List[ModelDiffItem] = []
+    diff_items: list[ModelDiffItem] = []
 
     exact_filenames = {m.filename: m for m in local_models if m.filename}
-    base_name_map: Dict[str, LocalModel] = {}
-    normalized_map: Dict[str, LocalModel] = {}
-    id_map: Dict[str, LocalModel] = {m.id: m for m in local_models}
+    base_name_map: dict[str, LocalModel] = {}
+    normalized_map: dict[str, LocalModel] = {}
+    id_map: dict[str, LocalModel] = {m.id: m for m in local_models}
 
     for m in local_models:
         if m.base_name:
@@ -459,7 +459,7 @@ def compare_models(
             continue
 
         # 2. Check if same base model exists with a different date version
-        matched_local: Optional[LocalModel] = None
+        matched_local: LocalModel | None = None
         if asset.base_name in base_name_map:
             matched_local = base_name_map[asset.base_name]
         elif normalize_base_name(asset.base_name) in normalized_map:
@@ -470,10 +470,7 @@ def compare_models(
         if matched_local:
             if asset.date_version and matched_local.date_version:
                 if asset.date_version > matched_local.date_version:
-                    reason = (
-                        f"Upstream has newer version: {asset.date_version} "
-                        f"(Local: {matched_local.date_version})"
-                    )
+                    reason = f"Upstream has newer version: {asset.date_version} (Local: {matched_local.date_version})"
                     diff_items.append(
                         ModelDiffItem(
                             asset=asset,
@@ -527,7 +524,7 @@ def compare_models(
     return diff_items
 
 
-def build_draft_model_json(asset: UpstreamAsset) -> Dict[str, Any]:
+def build_draft_model_json(asset: UpstreamAsset) -> dict[str, Any]:
     """Generate a draft registry item for models.json."""
     gh_url = asset.download_url
     urls = [
@@ -538,7 +535,7 @@ def build_draft_model_json(asset: UpstreamAsset) -> Dict[str, Any]:
 
     backend = "sherpa-streaming" if asset.runtime == "online" else "sherpa-offline"
 
-    model_config: Dict[str, Any] = {
+    model_config: dict[str, Any] = {
         "tokens": "tokens.txt",
         "num_threads": 1,
         "debug": 0,
@@ -569,9 +566,7 @@ def build_draft_model_json(asset: UpstreamAsset) -> Dict[str, Any]:
             "cached_decoder": "cached_decode.int8.onnx" if asset.quantization == "int8" else "cached_decode.onnx",
         }
     elif asset.family == "zipformer2_ctc":
-        model_config["zipformer2_ctc"] = {
-            "model": "model.int8.onnx" if asset.quantization == "int8" else "model.onnx"
-        }
+        model_config["zipformer2_ctc"] = {"model": "model.int8.onnx" if asset.quantization == "int8" else "model.onnx"}
     elif asset.family == "qwen3_asr":
         model_config["tokens"] = ""
         model_config["qwen3_asr"] = {
@@ -586,7 +581,7 @@ def build_draft_model_json(asset: UpstreamAsset) -> Dict[str, Any]:
             "seed": 0,
         }
 
-    recognizer_config: Dict[str, Any] = {
+    recognizer_config: dict[str, Any] = {
         "feat_config": {
             "sample_rate": 16000,
             "feature_dim": 80,
@@ -631,10 +626,10 @@ def build_draft_model_json(asset: UpstreamAsset) -> Dict[str, Any]:
 
 
 def generate_markdown_report(
-    diff_items: List[ModelDiffItem],
+    diff_items: list[ModelDiffItem],
     local_models_count: int,
-    upstream_repos: List[str],
-    tags: List[str],
+    upstream_repos: list[str],
+    tags: list[str],
     since_date: str,
     total_scanned_count: int,
 ) -> str:
@@ -654,7 +649,7 @@ def generate_markdown_report(
     )
     changed_by_size = sorted(new_items + updated_items, key=lambda x: x.asset.size_bytes)
 
-    lines: List[str] = [
+    lines: list[str] = [
         "# 上游模型监控报告 (Upstream Models Monitor)",
         "",
         f"> 检查时间: `{now_str}` | 基准日期: `{since_date}` | 上游: `{', '.join(upstream_repos)}` (`{', '.join(tags)}`) | 平台: PC (x86/ARM)",
@@ -666,39 +661,45 @@ def generate_markdown_report(
     ]
 
     if not has_real_updates:
-        lines.extend([
-            f"**暂无新更新**: 自基准日期 `{since_date}` 以来，上游未发布新的 PC ASR 模型或现有模型更新构建。",
-            f"本地收录模型（共 {local_models_count} 个）与上游保持同步。",
-            "",
-            "<details>",
-            f"<summary>已收录模型状态 ({len(up_to_date_items)} 个)</summary>",
-            "",
-            "| 模型 ID | 当前收录文件 | 体积大小 | 状态 |",
-            "| :--- | :--- | :---: | :---: |",
-        ])
+        lines.extend(
+            [
+                f"**暂无新更新**: 自基准日期 `{since_date}` 以来，上游未发布新的 PC ASR 模型或现有模型更新构建。",
+                f"本地收录模型（共 {local_models_count} 个）与上游保持同步。",
+                "",
+                "<details>",
+                f"<summary>已收录模型状态 ({len(up_to_date_items)} 个)</summary>",
+                "",
+                "| 模型 ID | 当前收录文件 | 体积大小 | 状态 |",
+                "| :--- | :--- | :---: | :---: |",
+            ]
+        )
         for d in sorted(up_to_date_items, key=lambda x: x.asset.size_bytes):
             m_id = d.local_match.id if d.local_match else d.asset.name
             lines.append(f"| `{m_id}` | `{d.asset.name}` | {format_size(d.asset.size_bytes)} | 最新 |")
-        lines.extend([
-            "",
-            "</details>",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "</details>",
+                "",
+            ]
+        )
         return "\n".join(lines)
 
-    lines.extend([
-        "| 类别 | 数量 |",
-        "| :--- | :--- |",
-        f"| 新增发布模型 | {len(new_items)} |",
-        f"| 现有模型更新 | {len(updated_items)} |",
-        "",
-        "---",
-        "",
-        f"### 1. 更新时间线 (自 `{since_date}` 以来)",
-        "",
-        "| 发布日期 | 变动类型 | 模型文件名 / 标识 | 体积大小 | 语言 | 模式 / 架构 | 量化 | 资源链接 |",
-        "| :---: | :---: | :--- | :---: | :---: | :--- | :---: | :--- |",
-    ])
+    lines.extend(
+        [
+            "| 类别 | 数量 |",
+            "| :--- | :--- |",
+            f"| 新增发布模型 | {len(new_items)} |",
+            f"| 现有模型更新 | {len(updated_items)} |",
+            "",
+            "---",
+            "",
+            f"### 1. 更新时间线 (自 `{since_date}` 以来)",
+            "",
+            "| 发布日期 | 变动类型 | 模型文件名 / 标识 | 体积大小 | 语言 | 模式 / 架构 | 量化 | 资源链接 |",
+            "| :---: | :---: | :--- | :---: | :---: | :--- | :---: | :--- |",
+        ]
+    )
     for d in changed_items:
         a = d.asset
         date_str = a.date_version or (a.created_at[:10] if a.created_at else "-")
@@ -713,14 +714,16 @@ def generate_markdown_report(
         )
     lines.append("")
 
-    lines.extend([
-        "---",
-        "",
-        "### 2. 候选模型体积排序 (从小到大)",
-        "",
-        "| 模型文件名 | 体积大小 | 变动类型 | 语言 | 运行模式 | 模型结构 | 量化 | 下载链接 |",
-        "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "### 2. 候选模型体积排序 (从小到大)",
+            "",
+            "| 模型文件名 | 体积大小 | 变动类型 | 语言 | 运行模式 | 模型结构 | 量化 | 下载链接 |",
+            "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |",
+        ]
+    )
     for d in changed_by_size:
         a = d.asset
         status_text = "全新发布" if d.status == "new" else "版本升级"
@@ -729,16 +732,18 @@ def generate_markdown_report(
         )
     lines.append("")
 
-    lines.extend([
-        "---",
-        "",
-        "### 3. 引入说明",
-        "",
-        "1. **计算哈希**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>`",
-        "2. **配置草稿**: 参考附件 `new_models_draft.json` 复制到 `registry/models.json`",
-        "3. **补充文案**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 补充对应的 title 与 description",
-        "",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "### 3. 引入说明",
+            "",
+            "1. **计算哈希**: 下载对应 `.tar.bz2` 并执行 `sha256sum <文件名>`",
+            "2. **配置草稿**: 参考附件 `new_models_draft.json` 复制到 `registry/models.json`",
+            "3. **补充文案**: 在 `i18n/zh_CN.json` 和 `i18n/en_US.json` 补充对应的 title 与 description",
+            "",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -780,7 +785,7 @@ def manage_tracking_issue(
     for iss in issues:
         if "pull_request" in iss:
             continue
-        if iss.get("title") == title or "upstream-monitor" in [l.get("name") for l in iss.get("labels", [])]:
+        if iss.get("title") == title or "upstream-monitor" in [lbl.get("name") for lbl in iss.get("labels", [])]:
             existing_issue = iss
             break
 
@@ -800,7 +805,7 @@ def manage_tracking_issue(
     else:
         print("Creating a new tracking issue...")
         create_url = f"https://api.github.com/repos/{repo}/issues"
-        payload_data: Dict[str, Any] = {
+        payload_data: dict[str, Any] = {
             "title": title,
             "body": safe_body,
         }
@@ -901,7 +906,7 @@ def main() -> None:
     # 2. Fetch upstream assets
     if args.mock_file and args.mock_file.exists():
         print(f"Loading mock upstream assets from {args.mock_file}")
-        with open(args.mock_file, "r", encoding="utf-8") as f:
+        with open(args.mock_file, encoding="utf-8") as f:
             raw_assets = json.load(f)
         upstream_assets = []
         for a in raw_assets:
@@ -968,7 +973,7 @@ def main() -> None:
 
     # JSON summary
     sorted_by_size = sorted(diff_items, key=lambda d: d.asset.size_bytes)
-    sorted_by_date = sorted(diff_items, key=lambda d: (d.asset.date_version or d.asset.created_at[:10]), reverse=True)
+    sorted_by_date = sorted(diff_items, key=lambda d: d.asset.date_version or d.asset.created_at[:10], reverse=True)
 
     json_summary = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),

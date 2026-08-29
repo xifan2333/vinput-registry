@@ -12,7 +12,7 @@ import struct
 import sys
 import threading
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 DEFAULT_URL = "wss://api.openai.com/v1/realtime"
@@ -25,7 +25,7 @@ EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
 
-def write_stdout(event: Dict[str, Any]) -> None:
+def write_stdout(event: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -117,7 +117,7 @@ def resample_pcm16_mono(
             repeated.byteswap()
         return repeated.tobytes()
 
-    target_length = max(1, int(round(len(source) * float(target_rate) / float(source_rate))))
+    target_length = max(1, round(len(source) * float(target_rate) / float(source_rate)))
     result = array.array("h")
     last_index = len(source) - 1
 
@@ -126,7 +126,7 @@ def resample_pcm16_mono(
         left = int(position)
         right = min(left + 1, last_index)
         fraction = position - left
-        value = int(round(source[left] * (1.0 - fraction) + source[right] * fraction))
+        value = round(source[left] * (1.0 - fraction) + source[right] * fraction)
         value = max(-32768, min(32767, value))
         result.append(value)
 
@@ -136,7 +136,7 @@ def resample_pcm16_mono(
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
             raise ValueError("WebSocket URL must use ws:// or wss://.")
@@ -198,11 +198,9 @@ class WebSocketClient:
         header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
         if not lines or "101" not in lines[0]:
-            raise RuntimeError(
-                f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}"
-            )
+            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
 
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         for line in lines[1:]:
             if ":" not in line:
                 continue
@@ -210,13 +208,9 @@ class WebSocketClient:
             headers[name.strip().lower()] = value.strip()
 
         accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(
-            hashlib.sha1((key + GUID).encode("utf-8")).digest()
-        ).decode("ascii")
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
-            raise RuntimeError(
-                "WebSocket handshake failed: invalid Sec-WebSocket-Accept header."
-            )
+            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
 
     def close(self) -> None:
         if self._closed:
@@ -230,12 +224,12 @@ class WebSocketClient:
         finally:
             self._closed = True
 
-    def send_json(self, payload: Dict[str, Any]) -> None:
+    def send_json(self, payload: dict[str, Any]) -> None:
         self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
-    def recv_json(self) -> Optional[Dict[str, Any]]:
+    def recv_json(self) -> dict[str, Any] | None:
         fragments = bytearray()
-        current_opcode: Optional[int] = None
+        current_opcode: int | None = None
 
         while True:
             frame = self._recv_frame()
@@ -292,7 +286,7 @@ class WebSocketClient:
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
         self.socket.sendall(bytes(header) + mask_key + masked)
 
-    def _recv_frame(self) -> Optional[tuple[int, bytes, bool]]:
+    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
@@ -329,7 +323,7 @@ class WebSocketClient:
 
         return opcode, payload, fin
 
-    def _recv_exact(self, size: int) -> Optional[bytes]:
+    def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
             chunk = self.socket.recv(4096)
             if not chunk:
@@ -366,10 +360,8 @@ def build_url(session_model: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
-def build_session_update_event(
-    transcription_model: str, target_sample_rate: int, session_type: str
-) -> Dict[str, Any]:
-    session: Dict[str, Any] = {
+def build_session_update_event(transcription_model: str, target_sample_rate: int, session_type: str) -> dict[str, Any]:
+    session: dict[str, Any] = {
         "type": session_type,
         "audio": {
             "input": {
@@ -396,12 +388,8 @@ def build_session_update_event(
         session["audio"]["input"]["turn_detection"] = {
             "type": "server_vad",
             "threshold": get_optional_float_env("VINPUT_ASR_VAD_THRESHOLD", 0.5),
-            "prefix_padding_ms": get_optional_int_env(
-                "VINPUT_ASR_VAD_PREFIX_PADDING_MS", 300
-            ),
-            "silence_duration_ms": get_optional_int_env(
-                "VINPUT_ASR_VAD_SILENCE_DURATION_MS", 500
-            ),
+            "prefix_padding_ms": get_optional_int_env("VINPUT_ASR_VAD_PREFIX_PADDING_MS", 300),
+            "silence_duration_ms": get_optional_int_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS", 500),
         }
     else:
         session["audio"]["input"]["turn_detection"] = None
@@ -413,7 +401,7 @@ def build_session_update_event(
     }
 
 
-def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> None:
+def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> None:
     message_type = str(message.get("type", "")).strip()
 
     if message_type in {"session.created", "session.updated"}:
@@ -440,9 +428,7 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
         return
 
     if message_type == "conversation.item.input_audio_transcription.delta":
-        item_id = str(message.get("item_id", "")).strip() or str(
-            state.get("last_item_id", "")
-        ).strip()
+        item_id = str(message.get("item_id", "")).strip() or str(state.get("last_item_id", "")).strip()
         delta = str(message.get("delta", ""))
         if item_id:
             state["partials"][item_id] = str(state["partials"].get(item_id, "")) + delta
@@ -494,21 +480,15 @@ def run() -> int:
     session_model = get_optional_env("VINPUT_ASR_SESSION_MODEL", transcription_model)
     session_type = "realtime" if session_model != transcription_model else "transcription"
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env(
-        "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
-    )
-    target_sample_rate = get_optional_int_env(
-        "VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE
-    )
+    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
+    target_sample_rate = get_optional_int_env("VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE)
     url = build_url(session_model)
 
     headers = {"Authorization": f"Bearer {api_key}"}
     client = WebSocketClient(url, headers, timeout)
-    client.send_json(
-        build_session_update_event(transcription_model, target_sample_rate, session_type)
-    )
+    client.send_json(build_session_update_event(transcription_model, target_sample_rate, session_type))
 
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "session_started": False,
         "error": None,
         "closed": False,

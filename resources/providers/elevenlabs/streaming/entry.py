@@ -4,15 +4,15 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import socket
 import ssl
 import struct
 import sys
 import threading
-import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 DEFAULT_MODEL_ID = "scribe_v2_realtime"
@@ -24,7 +24,7 @@ EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
 
-def write_stdout(event: Dict[str, Any]) -> None:
+def write_stdout(event: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -89,7 +89,7 @@ def get_optional_bool_env(name: str, default: bool) -> bool:
 @dataclass
 class SessionState:
     session_started: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     closed: bool = False
     confirmed_text: str = ""
     partial_text: str = ""
@@ -102,9 +102,7 @@ class SessionState:
         return bool(self.get_last_final_text())
 
     def get_visible_text(self) -> str:
-        return normalize_transcript_text(
-            combine_transcript(self.confirmed_text, self.partial_text)
-        )
+        return normalize_transcript_text(combine_transcript(self.confirmed_text, self.partial_text))
 
     def record_final_text(self, text: str) -> str:
         final_text = normalize_transcript_text(text)
@@ -120,13 +118,13 @@ def emit_final_text(
     *,
     event_type: str = "final",
     utterance_final: bool = False,
-    extra_fields: Optional[Dict[str, Any]] = None,
+    extra_fields: dict[str, Any] | None = None,
 ) -> bool:
     final_text = normalize_transcript_text(text)
     if not final_text or final_text == state.get_last_final_text():
         return False
 
-    event: Dict[str, Any] = {
+    event: dict[str, Any] = {
         "type": event_type,
         "text": state.record_final_text(final_text),
         "segment_final": True,
@@ -139,7 +137,7 @@ def emit_final_text(
     return True
 
 
-def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> bool:
+def emit_fallback_final(state: dict[str, Any], utterance_final: bool = True) -> bool:
     return emit_final_text(
         state,
         state.get_visible_text(),
@@ -148,7 +146,7 @@ def emit_fallback_final(state: Dict[str, Any], utterance_final: bool = True) -> 
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
             raise ValueError("WebSocket URL must use ws:// or wss://.")
@@ -210,11 +208,9 @@ class WebSocketClient:
         header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
         if not lines or "101" not in lines[0]:
-            raise RuntimeError(
-                f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}"
-            )
+            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
 
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         for line in lines[1:]:
             if ":" not in line:
                 continue
@@ -222,13 +218,9 @@ class WebSocketClient:
             headers[name.strip().lower()] = value.strip()
 
         accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(
-            hashlib.sha1((key + GUID).encode("utf-8")).digest()
-        ).decode("ascii")
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
-            raise RuntimeError(
-                "WebSocket handshake failed: invalid Sec-WebSocket-Accept header."
-            )
+            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
 
     def close(self) -> None:
         if self._closed:
@@ -242,12 +234,12 @@ class WebSocketClient:
         finally:
             self._closed = True
 
-    def send_json(self, payload: Dict[str, Any]) -> None:
+    def send_json(self, payload: dict[str, Any]) -> None:
         self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
-    def recv_json(self) -> Optional[Dict[str, Any]]:
+    def recv_json(self) -> dict[str, Any] | None:
         fragments = bytearray()
-        current_opcode: Optional[int] = None
+        current_opcode: int | None = None
 
         while True:
             frame = self._recv_frame()
@@ -304,7 +296,7 @@ class WebSocketClient:
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
         self.socket.sendall(bytes(header) + mask_key + masked)
 
-    def _recv_frame(self) -> Optional[tuple[int, bytes, bool]]:
+    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
@@ -341,7 +333,7 @@ class WebSocketClient:
 
         return opcode, payload, fin
 
-    def _recv_exact(self, size: int) -> Optional[bytes]:
+    def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
             chunk = self.socket.recv(4096)
             if not chunk:
@@ -359,20 +351,14 @@ def build_url() -> str:
     base_url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
     params = {
         "model_id": get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL_ID),
-        "include_timestamps": str(
-            get_optional_bool_env("VINPUT_ASR_INCLUDE_TIMESTAMPS", True)
-        ).lower(),
+        "include_timestamps": str(get_optional_bool_env("VINPUT_ASR_INCLUDE_TIMESTAMPS", True)).lower(),
         "include_language_detection": str(
             get_optional_bool_env("VINPUT_ASR_INCLUDE_LANGUAGE_DETECTION", False)
         ).lower(),
         "audio_format": get_optional_env("VINPUT_ASR_AUDIO_FORMAT", "pcm_16000"),
         "commit_strategy": get_optional_env("VINPUT_ASR_COMMIT_STRATEGY", "manual"),
-        "no_verbatim": str(
-            get_optional_bool_env("VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False)
-        ).lower(),
-        "enable_logging": str(
-            get_optional_bool_env("VINPUT_ASR_ENABLE_LOGGING", True)
-        ).lower(),
+        "no_verbatim": str(get_optional_bool_env("VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False)).lower(),
+        "enable_logging": str(get_optional_bool_env("VINPUT_ASR_ENABLE_LOGGING", True)).lower(),
     }
 
     language = get_optional_env("VINPUT_ASR_LANGUAGE")
@@ -380,24 +366,16 @@ def build_url() -> str:
         params["language_code"] = language
 
     if params["commit_strategy"] == "vad":
-        params["vad_silence_threshold_secs"] = str(
-            get_optional_float_env("VINPUT_ASR_VAD_SILENCE_THRESHOLD_SECS", 1.5)
-        )
-        params["vad_threshold"] = str(
-            get_optional_float_env("VINPUT_ASR_VAD_THRESHOLD", 0.4)
-        )
-        params["min_speech_duration_ms"] = str(
-            get_optional_int_env("VINPUT_ASR_MIN_SPEECH_DURATION_MS", 100)
-        )
-        params["min_silence_duration_ms"] = str(
-            get_optional_int_env("VINPUT_ASR_MIN_SILENCE_DURATION_MS", 100)
-        )
+        params["vad_silence_threshold_secs"] = str(get_optional_float_env("VINPUT_ASR_VAD_SILENCE_THRESHOLD_SECS", 1.5))
+        params["vad_threshold"] = str(get_optional_float_env("VINPUT_ASR_VAD_THRESHOLD", 0.4))
+        params["min_speech_duration_ms"] = str(get_optional_int_env("VINPUT_ASR_MIN_SPEECH_DURATION_MS", 100))
+        params["min_silence_duration_ms"] = str(get_optional_int_env("VINPUT_ASR_MIN_SILENCE_DURATION_MS", 100))
 
     separator = "&" if "?" in base_url else "?"
     return base_url + separator + urlencode(params)
 
 
-def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
+def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
     message_type = str(message.get("message_type", "")).strip()
 
     if message_type == "session_started":
@@ -440,7 +418,7 @@ def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
             state.confirmed_text,
             segment_text,
         )
-        event: Dict[str, Any] = {"words": message.get("words", [])}
+        event: dict[str, Any] = {"words": message.get("words", [])}
         language_code = message.get("language_code")
         if language_code is not None:
             event["language_code"] = language_code
@@ -453,7 +431,7 @@ def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
         if emit_fallback_final(state):
             return
         error_text = str(message.get("error", "Unknown ElevenLabs error."))
-        event: Dict[str, Any] = {
+        event: dict[str, Any] = {
             "type": "error",
             "message": error_text,
             "source_type": message_type,
@@ -470,9 +448,7 @@ def handle_server_message(message: Dict[str, Any], state: SessionState) -> None:
 def run() -> int:
     api_key = get_required_env("VINPUT_ASR_API_KEY")
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env(
-        "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
-    )
+    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
     url = build_url()
 
     client = WebSocketClient(url, {"xi-api-key": api_key}, timeout)
@@ -517,7 +493,7 @@ def run() -> int:
                 if not isinstance(audio_base64, str) or not audio_base64:
                     raise ValueError("audio event requires non-empty audio_base64.")
 
-                payload: Dict[str, Any] = {
+                payload: dict[str, Any] = {
                     "message_type": "input_audio_chunk",
                     "audio_base_64": audio_base64,
                     "commit": bool(event.get("commit", False)),

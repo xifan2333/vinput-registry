@@ -22,15 +22,11 @@ def parse_target_lang(system_prompt: str) -> str:
 
 
 def call_mtran(text: str, to_lang: str) -> str:
-    body = json.dumps(
-        {"from": "auto", "to": to_lang, "text": text, "html": False}
-    ).encode()
+    body = json.dumps({"from": "auto", "to": to_lang, "text": text, "html": False}).encode()
     headers = {"Content-Type": "application/json"}
     if mtran_token:
         headers["Authorization"] = f"Bearer {mtran_token}"
-    req = Request(
-        f"{mtran_url}/translate", data=body, headers=headers, method="POST"
-    )
+    req = Request(f"{mtran_url}/translate", data=body, headers=headers, method="POST")
     with urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return data.get("result", "")

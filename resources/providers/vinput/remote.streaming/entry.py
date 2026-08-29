@@ -10,7 +10,7 @@ import struct
 import sys
 import threading
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 DEFAULT_PORT = 8080
@@ -21,7 +21,7 @@ EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
 
-def write_stdout(event: Dict[str, Any]) -> None:
+def write_stdout(event: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -57,7 +57,7 @@ def new_event_id() -> str:
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme != "ws":
             raise ValueError("Remote VInput websocket URL must use ws://.")
@@ -109,16 +109,12 @@ class WebSocketClient:
         return bytes(data)
 
     def _validate_handshake(self, response: bytes, key: str) -> None:
-        header_blob = response.split(b"\r\n\r\n", 1)[0].decode(
-            "utf-8", errors="replace"
-        )
+        header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
         if not lines or "101" not in lines[0]:
-            raise RuntimeError(
-                f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}"
-            )
+            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
 
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         for line in lines[1:]:
             if ":" not in line:
                 continue
@@ -126,13 +122,9 @@ class WebSocketClient:
             headers[name.strip().lower()] = value.strip()
 
         accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(
-            hashlib.sha1((key + GUID).encode("utf-8")).digest()
-        ).decode("ascii")
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
-            raise RuntimeError(
-                "WebSocket handshake failed: invalid Sec-WebSocket-Accept header."
-            )
+            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
 
     def close(self) -> None:
         if self._closed:
@@ -146,12 +138,12 @@ class WebSocketClient:
         finally:
             self._closed = True
 
-    def send_json(self, payload: Dict[str, Any]) -> None:
+    def send_json(self, payload: dict[str, Any]) -> None:
         self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
-    def recv_json(self) -> Optional[Dict[str, Any]]:
+    def recv_json(self) -> dict[str, Any] | None:
         fragments = bytearray()
-        current_opcode: Optional[int] = None
+        current_opcode: int | None = None
 
         while True:
             frame = self._recv_frame()
@@ -208,7 +200,7 @@ class WebSocketClient:
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
         self.socket.sendall(bytes(header) + mask_key + masked)
 
-    def _recv_frame(self) -> Optional[tuple[int, bytes, bool]]:
+    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
@@ -245,7 +237,7 @@ class WebSocketClient:
 
         return opcode, payload, fin
 
-    def _recv_exact(self, size: int) -> Optional[bytes]:
+    def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
             chunk = self.socket.recv(4096)
             if not chunk:
@@ -266,7 +258,7 @@ def build_url() -> str:
     return f"ws://127.0.0.1:{port}/v1/realtime"
 
 
-def build_session_update_event() -> Dict[str, Any]:
+def build_session_update_event() -> dict[str, Any]:
     return {
         "event_id": new_event_id(),
         "type": "session.update",
@@ -283,7 +275,7 @@ def build_session_update_event() -> Dict[str, Any]:
     }
 
 
-def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> None:
+def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> None:
     message_type = str(message.get("type", "")).strip()
 
     if message_type in {"session.created", "session.updated"}:
@@ -340,15 +332,13 @@ def handle_server_message(message: Dict[str, Any], state: Dict[str, Any]) -> Non
 def run() -> int:
     api_key = get_required_env("VINPUT_ASR_API_KEY")
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env(
-        "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
-    )
+    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
 
     headers = {"Authorization": f"Bearer {api_key}"}
     client = WebSocketClient(build_url(), headers, timeout)
     client.send_json(build_session_update_event())
 
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "session_started": False,
         "error": None,
         "closed": False,

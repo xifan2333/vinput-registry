@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import uuid
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -50,28 +50,21 @@ def read_audio_input() -> bytes:
 
 
 def build_multipart(
-    fields: Iterable[Tuple[str, str]],
-    files: Iterable[Tuple[str, str, str, bytes]],
-) -> Tuple[bytes, str]:
+    fields: Iterable[tuple[str, str]],
+    files: Iterable[tuple[str, str, str, bytes]],
+) -> tuple[bytes, str]:
     boundary = f"----vinput-{uuid.uuid4().hex}"
     body = bytearray()
 
     for name, value in fields:
         body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
-        )
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         body.extend(value.encode())
         body.extend(b"\r\n")
 
     for field_name, filename, content_type, content in files:
         body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            (
-                f'Content-Disposition: form-data; name="{field_name}"; '
-                f'filename="{filename}"\r\n'
-            ).encode()
-        )
+        body.extend((f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n').encode())
         body.extend(f"Content-Type: {content_type}\r\n\r\n".encode())
         body.extend(content)
         body.extend(b"\r\n")
@@ -108,7 +101,7 @@ def transcribe(
     pcm_audio: bytes,
     api_key: str,
     model_id: str,
-    language_code: Optional[str],
+    language_code: str | None,
     timeout: int,
     endpoint: str,
     enable_logging: bool,
@@ -162,12 +155,8 @@ def main() -> int:
         endpoint = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
         timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
         enable_logging = get_optional_bool_env("VINPUT_ASR_ENABLE_LOGGING", True)
-        tag_audio_events = get_optional_bool_env(
-            "VINPUT_ASR_TAG_AUDIO_EVENTS", False
-        )
-        no_verbatim = get_optional_bool_env(
-            "VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False
-        )
+        tag_audio_events = get_optional_bool_env("VINPUT_ASR_TAG_AUDIO_EVENTS", False)
+        no_verbatim = get_optional_bool_env("VINPUT_ASR_ELEVENLABS_NO_VERBATIM", False)
         pcm_audio = read_audio_input()
 
         text = transcribe(

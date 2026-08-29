@@ -6,7 +6,7 @@ import os
 import sys
 import uuid
 import wave
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -55,28 +55,21 @@ def pcm_to_wav_bytes(pcm_audio: bytes) -> bytes:
 
 
 def build_multipart(
-    fields: Iterable[Tuple[str, str]],
-    files: Iterable[Tuple[str, str, str, bytes]],
-) -> Tuple[bytes, str]:
+    fields: Iterable[tuple[str, str]],
+    files: Iterable[tuple[str, str, str, bytes]],
+) -> tuple[bytes, str]:
     boundary = f"----vinput-{uuid.uuid4().hex}"
     body = bytearray()
 
     for name, value in fields:
         body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
-        )
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         body.extend(value.encode())
         body.extend(b"\r\n")
 
     for field_name, filename, content_type, content in files:
         body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            (
-                f'Content-Disposition: form-data; name="{field_name}"; '
-                f'filename="{filename}"\r\n'
-            ).encode()
-        )
+        body.extend((f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n').encode())
         body.extend(f"Content-Type: {content_type}\r\n\r\n".encode())
         body.extend(content)
         body.extend(b"\r\n")
@@ -147,9 +140,9 @@ def transcribe(
     model: str,
     response_format: str,
     timeout: int,
-    language: Optional[str],
-    prompt: Optional[str],
-    temperature: Optional[str],
+    language: str | None,
+    prompt: str | None,
+    temperature: str | None,
 ) -> str:
     wav_audio = pcm_to_wav_bytes(pcm_audio)
 
@@ -190,14 +183,10 @@ def main() -> int:
             "VINPUT_ASR_RESPONSE_FORMAT",
             DEFAULT_RESPONSE_FORMAT,
         )
-        timeout = get_optional_int_env(
-            "VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT
-        )
+        timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
         language = get_optional_env("VINPUT_ASR_LANGUAGE") or None
         prompt = get_optional_env("VINPUT_ASR_PROMPT") or None
-        temperature = (
-            get_optional_env("VINPUT_ASR_TEMPERATURE") or None
-        )
+        temperature = get_optional_env("VINPUT_ASR_TEMPERATURE") or None
         pcm_audio = read_audio_input()
 
         text = transcribe(
@@ -217,8 +206,7 @@ def main() -> int:
     except HTTPError as exc:
         payload = exc.read()
         print(
-            f"OpenAI-compatible ASR HTTP {exc.code}: "
-            f"{parse_error_payload(payload)}",
+            f"OpenAI-compatible ASR HTTP {exc.code}: {parse_error_payload(payload)}",
             file=sys.stderr,
         )
         return EXIT_RUNTIME_ERROR

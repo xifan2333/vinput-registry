@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import wave
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -105,11 +105,11 @@ def resolve_endpoint() -> str:
 def build_request_body(
     model: str,
     data_uri: str,
-    language: Optional[str],
-    prompt: Optional[str],
+    language: str | None,
+    prompt: str | None,
     enable_itn: bool,
-) -> Dict[str, Any]:
-    messages: List[Dict[str, Any]] = []
+) -> dict[str, Any]:
+    messages: list[dict[str, Any]] = []
     if prompt:
         messages.append({"role": "system", "content": prompt})
 
@@ -125,7 +125,7 @@ def build_request_body(
         }
     )
 
-    asr_options: Dict[str, Any] = {"enable_itn": enable_itn}
+    asr_options: dict[str, Any] = {"enable_itn": enable_itn}
     if language:
         asr_options["language"] = language
 
@@ -170,15 +170,12 @@ def transcribe(
     endpoint: str,
     model: str,
     timeout: int,
-    language: Optional[str],
-    prompt: Optional[str],
+    language: str | None,
+    prompt: str | None,
     enable_itn: bool,
 ) -> str:
     wav_audio = pcm_to_wav_bytes(pcm_audio)
-    data_uri = (
-        "data:audio/wav;base64,"
-        + base64.b64encode(wav_audio).decode("ascii")
-    )
+    data_uri = "data:audio/wav;base64," + base64.b64encode(wav_audio).decode("ascii")
     payload = build_request_body(
         model=model,
         data_uri=data_uri,

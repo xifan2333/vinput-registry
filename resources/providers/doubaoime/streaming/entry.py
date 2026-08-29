@@ -17,7 +17,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -80,7 +80,7 @@ OPUS_APPLICATION_AUDIO = 2049
 OPUS_MAX_PACKET_SIZE = 4000
 
 
-def write_stdout(event: Dict[str, Any]) -> None:
+def write_stdout(event: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -111,16 +111,13 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
     # separator only where concatenating ASCII words would join them together.
     separator = (
         " "
-        if committed[-1].isascii()
-        and committed[-1].isalnum()
-        and current[0].isascii()
-        and current[0].isalnum()
+        if committed[-1].isascii() and committed[-1].isalnum() and current[0].isascii() and current[0].isalnum()
         else ""
     )
     return committed + separator + current
 
 
-def coerce_optional_float(value: Any) -> Optional[float]:
+def coerce_optional_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -159,7 +156,7 @@ def get_optional_bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def json_dumps_compact(data: Dict[str, Any]) -> str:
+def json_dumps_compact(data: dict[str, Any]) -> str:
     return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -205,8 +202,8 @@ def encode_field_int(field_number: int, value: int) -> bytes:
     return encode_varint((field_number << 3) | 0) + encode_varint(value)
 
 
-def parse_protobuf_fields(data: bytes) -> Dict[int, Any]:
-    fields: Dict[int, Any] = {}
+def parse_protobuf_fields(data: bytes) -> dict[int, Any]:
+    fields: dict[int, Any] = {}
     index = 0
     while index < len(data):
         key, index = decode_varint(data, index)
@@ -244,7 +241,7 @@ def parse_protobuf_fields(data: bytes) -> Dict[int, Any]:
     return fields
 
 
-def get_proto_string(fields: Dict[int, Any], field_number: int) -> str:
+def get_proto_string(fields: dict[int, Any], field_number: int) -> str:
     value = fields.get(field_number, b"")
     if isinstance(value, list):
         value = value[-1]
@@ -255,7 +252,7 @@ def get_proto_string(fields: Dict[int, Any], field_number: int) -> str:
     return ""
 
 
-def get_proto_int(fields: Dict[int, Any], field_number: int) -> int:
+def get_proto_int(fields: dict[int, Any], field_number: int) -> int:
     value = fields.get(field_number, 0)
     if isinstance(value, list):
         value = value[-1]
@@ -274,7 +271,7 @@ class DeviceCredentials:
     token: str = ""
     route_healthy: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device_id": self.device_id,
             "install_id": self.install_id,
@@ -289,24 +286,22 @@ class DeviceCredentials:
 @dataclass
 class SessionState:
     session_started: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     error_code: int = 0
     closed: bool = False
     finished: bool = False
     committed_text: str = ""
     current_partial_text: str = ""
-    current_partial_start_time: Optional[float] = None
+    current_partial_start_time: float | None = None
     last_final_text: str = ""
 
     def has_usable_final(self) -> bool:
         return bool(normalize_transcript_text(self.last_final_text))
 
     def get_visible_text(self) -> str:
-        return normalize_transcript_text(
-            combine_transcript(self.committed_text, self.current_partial_text)
-        )
+        return normalize_transcript_text(combine_transcript(self.committed_text, self.current_partial_text))
 
-    def record_partial(self, text: str, start_time: Optional[float] = None) -> str:
+    def record_partial(self, text: str, start_time: float | None = None) -> str:
         normalized = normalize_transcript_text(text)
         starts_new_segment = False
 
@@ -319,13 +314,10 @@ class SessionState:
             self.current_partial_text
             and start_time is not None
             and self.current_partial_start_time is not None
-            and start_time
-            > self.current_partial_start_time + SEGMENT_START_ADVANCE_SECS
+            and start_time > self.current_partial_start_time + SEGMENT_START_ADVANCE_SECS
         ):
             starts_new_segment = True
-            self.committed_text = combine_transcript(
-                self.committed_text, self.current_partial_text
-            )
+            self.committed_text = combine_transcript(self.committed_text, self.current_partial_text)
 
         self.current_partial_text = normalized
         if self.current_partial_start_time is None or starts_new_segment:
@@ -333,9 +325,7 @@ class SessionState:
         return self.get_visible_text()
 
     def record_final(self, text: str) -> str:
-        full_text = normalize_transcript_text(
-            combine_transcript(self.committed_text, text)
-        )
+        full_text = normalize_transcript_text(combine_transcript(self.committed_text, text))
         self.committed_text = full_text
         self.current_partial_text = ""
         self.current_partial_start_time = None
@@ -351,9 +341,7 @@ class OpusEncoder:
             try:
                 self.lib = ctypes.CDLL(env_path)
             except OSError as exc:
-                raise RuntimeError(
-                    f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}"
-                ) from exc
+                raise RuntimeError(f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}") from exc
         else:
             candidates = []
             discovered = ctypes.util.find_library("opus")
@@ -422,7 +410,7 @@ class OpusEncoder:
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
             raise ValueError("WebSocket URL must use ws:// or wss://.")
@@ -457,10 +445,7 @@ class WebSocketClient:
 
         key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
         host_header = self.host
-        if not (
-            (self.scheme == "wss" and self.port == 443)
-            or (self.scheme == "ws" and self.port == 80)
-        ):
+        if not ((self.scheme == "wss" and self.port == 443) or (self.scheme == "ws" and self.port == 80)):
             host_header = f"{self.host}:{self.port}"
         lines = [
             f"GET {self.path} HTTP/1.1",
@@ -497,11 +482,9 @@ class WebSocketClient:
         header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
         if not lines or "101" not in lines[0]:
-            raise RuntimeError(
-                f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}"
-            )
+            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
 
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         for line in lines[1:]:
             if ":" not in line:
                 continue
@@ -509,13 +492,9 @@ class WebSocketClient:
             headers[name.strip().lower()] = value.strip()
 
         accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(
-            hashlib.sha1((key + GUID).encode("utf-8")).digest()
-        ).decode("ascii")
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
-            raise RuntimeError(
-                "WebSocket handshake failed: invalid Sec-WebSocket-Accept header."
-            )
+            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
 
     def close(self) -> None:
         if self._closed:
@@ -532,9 +511,9 @@ class WebSocketClient:
     def send_binary(self, payload: bytes) -> None:
         self._send_frame(0x2, payload)
 
-    def recv_binary(self) -> Optional[bytes]:
+    def recv_binary(self) -> bytes | None:
         fragments = bytearray()
-        current_opcode: Optional[int] = None
+        current_opcode: int | None = None
 
         while True:
             frame = self._recv_frame()
@@ -586,7 +565,7 @@ class WebSocketClient:
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
         self.socket.sendall(bytes(header) + mask_key + masked)
 
-    def _recv_frame(self) -> Optional[tuple[int, bytes, bool]]:
+    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
@@ -623,7 +602,7 @@ class WebSocketClient:
 
         return opcode, payload, fin
 
-    def _recv_exact(self, size: int) -> Optional[bytes]:
+    def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
             chunk = self.socket.recv(4096)
             if not chunk:
@@ -648,11 +627,11 @@ def generate_uuid() -> str:
 def http_post_json(
     url: str,
     *,
-    params: Dict[str, Any],
+    params: dict[str, Any],
     body: Any,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     timeout: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     full_url = url + "?" + urlencode(sorted(params.items()))
     payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     request = Request(full_url, data=payload, headers=headers, method="POST")
@@ -663,18 +642,18 @@ def http_post_json(
 def http_post_form(
     url: str,
     *,
-    params: Dict[str, Any],
+    params: dict[str, Any],
     body: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     timeout: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     full_url = url + "?" + urlencode(sorted(params.items()))
     request = Request(full_url, data=body.encode("utf-8"), headers=headers, method="POST")
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def load_credentials(path: Path) -> Optional[DeviceCredentials]:
+def load_credentials(path: Path) -> DeviceCredentials | None:
     if not path.exists():
         return None
     try:
@@ -810,11 +789,7 @@ def get_asr_token(device_id: str, cdid: str, timeout: int) -> str:
 
 
 def ensure_credentials(timeout: int) -> DeviceCredentials:
-    credential_path = Path(
-        os.path.expanduser(
-            get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)
-        )
-    )
+    credential_path = Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
     credentials = load_credentials(credential_path) or DeviceCredentials()
 
     env_device_id = get_optional_env("VINPUT_ASR_DEVICE_ID")
@@ -840,11 +815,7 @@ def _credentials_pinned_by_env() -> bool:
 
 
 def _resolve_credential_path() -> Path:
-    return Path(
-        os.path.expanduser(
-            get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)
-        )
-    )
+    return Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
 
 
 def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
@@ -870,9 +841,7 @@ def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
 
     samples_per_frame = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000
     silent_pcm = b"\x00" * (samples_per_frame * 2)
-    silent_frame = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS).encode(
-        silent_pcm, samples_per_frame
-    )
+    silent_frame = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS).encode(silent_pcm, samples_per_frame)
 
     try:
         client.send_binary(build_start_task(request_id, credentials.token))
@@ -884,9 +853,7 @@ def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
             return False
 
         client.send_binary(
-            build_start_session(
-                request_id, credentials.token, build_session_config(credentials.device_id)
-            )
+            build_start_session(request_id, credentials.token, build_session_config(credentials.device_id))
         )
         resp = client.recv_binary()
         if resp is None:
@@ -895,11 +862,7 @@ def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
         if parsed["message_type"] != "SessionStarted":
             return False
 
-        client.send_binary(
-            build_asr_request(
-                silent_frame, request_id, FRAME_STATE_FIRST, int(time.time() * 1000)
-            )
-        )
+        client.send_binary(build_asr_request(silent_frame, request_id, FRAME_STATE_FIRST, int(time.time() * 1000)))
         client.send_binary(build_finish_session(request_id, credentials.token))
 
         while True:
@@ -940,8 +903,7 @@ def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCre
             return credentials
         if pinned:
             raise RuntimeError(
-                "Doubao IME pinned credentials failed health probe; "
-                "服务端拒绝路由，可能 device_id/token 已失效。"
+                "Doubao IME pinned credentials failed health probe; 服务端拒绝路由，可能 device_id/token 已失效。"
             )
         write_stderr(
             f"Doubao IME device {credentials.device_id} failed health probe "
@@ -951,15 +913,12 @@ def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCre
             credential_path.unlink()
         except FileNotFoundError:
             pass
-    raise RuntimeError(
-        f"Doubao IME failed to register a healthy device after {max_attempts} attempts."
-    )
+    raise RuntimeError(f"Doubao IME failed to register a healthy device after {max_attempts} attempts.")
 
 
 def _invalidate_credentials_after_route_failure(state: SessionState) -> None:
     if _credentials_pinned_by_env() or not (
-        state.error_code == CONCURRENCY_QUOTA_STATUS_CODE
-        or "service discovery failure" in (state.error or "").lower()
+        state.error_code == CONCURRENCY_QUOTA_STATUS_CODE or "service discovery failure" in (state.error or "").lower()
     ):
         return
     try:
@@ -1021,9 +980,7 @@ def build_asr_request(
     frame_state: int,
     timestamp_ms: int,
 ) -> bytes:
-    metadata = json.dumps(
-        {"extra": {}, "timestamp_ms": timestamp_ms}, ensure_ascii=False
-    )
+    metadata = json.dumps({"extra": {}, "timestamp_ms": timestamp_ms}, ensure_ascii=False)
     payload = bytearray()
     payload.extend(encode_field_string(3, "ASR"))
     payload.extend(encode_field_string(5, "TaskRequest"))
@@ -1042,19 +999,13 @@ def build_session_config(device_id: str) -> str:
             "sample_rate": DEFAULT_SAMPLE_RATE,
         },
         "enable_punctuation": get_optional_bool_env("VINPUT_ASR_ENABLE_PUNCTUATION", True),
-        "enable_speech_rejection": get_optional_bool_env(
-            "VINPUT_ASR_ENABLE_SPEECH_REJECTION", False
-        ),
+        "enable_speech_rejection": get_optional_bool_env("VINPUT_ASR_ENABLE_SPEECH_REJECTION", False),
         "extra": {
             "app_name": get_optional_env("VINPUT_ASR_APP_NAME", DEFAULT_APP_NAME),
             "cell_compress_rate": 8,
             "did": device_id,
-            "enable_asr_threepass": get_optional_bool_env(
-                "VINPUT_ASR_ENABLE_ASR_THREEPASS", True
-            ),
-            "enable_asr_twopass": get_optional_bool_env(
-                "VINPUT_ASR_ENABLE_ASR_TWOPASS", True
-            ),
+            "enable_asr_threepass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_THREEPASS", True),
+            "enable_asr_twopass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_TWOPASS", True),
             "input_mode": "tool",
         },
     }
@@ -1066,7 +1017,7 @@ def emit_final_text(
     text: str,
     *,
     utterance_final: bool = False,
-    words: Optional[list] = None,
+    words: list | None = None,
     allow_same_text: bool = False,
 ) -> bool:
     final_text = normalize_transcript_text(text)
@@ -1103,9 +1054,7 @@ def emit_fallback_final(state: SessionState) -> bool:
     if not visible_text:
         return False
 
-    if normalize_transcript_text(visible_text) == normalize_transcript_text(
-        state.last_final_text
-    ):
+    if normalize_transcript_text(visible_text) == normalize_transcript_text(state.last_final_text):
         write_stdout(
             {
                 "type": "final",
@@ -1124,7 +1073,7 @@ def emit_fallback_final(state: SessionState) -> bool:
     )
 
 
-def extract_words(results: list) -> Optional[list]:
+def extract_words(results: list) -> list | None:
     for result in results:
         if not isinstance(result, dict):
             continue
@@ -1143,11 +1092,11 @@ def extract_words(results: list) -> Optional[list]:
     return None
 
 
-def parse_server_response(message: bytes) -> Dict[str, Any]:
+def parse_server_response(message: bytes) -> dict[str, Any]:
     fields = parse_protobuf_fields(message)
     message_type = get_proto_string(fields, 4)
     result_json = get_proto_string(fields, 7)
-    parsed: Dict[str, Any] = {
+    parsed: dict[str, Any] = {
         "message_type": message_type,
         "status_code": get_proto_int(fields, 5),
         "status_message": get_proto_string(fields, 6),
@@ -1196,7 +1145,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         return
 
     text = ""
-    text_start_time: Optional[float] = None
+    text_start_time: float | None = None
     is_interim = True
     vad_finished = False
     nonstream_result = False
@@ -1247,20 +1196,20 @@ def send_audio_frame(
 
 
 def run() -> int:
-    # Use a separate thread to read stdin lines to avoid blocking the vinput-daemon event loop, 
+    # Use a separate thread to read stdin lines to avoid blocking the vinput-daemon event loop,
     # which could cause first several seconds of audio to be dropped.
     input_queue: queue.Queue = queue.Queue()
+
     def read_stdin() -> None:
         try:
             for raw_line in sys.stdin:
                 input_queue.put(raw_line)
         finally:
             input_queue.put(None)
+
     threading.Thread(target=read_stdin, daemon=True).start()
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env(
-        "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
-    )
+    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
     credentials = ensure_healthy_credentials(timeout)
     request_id = str(uuid.uuid4())
     token = credentials.token
@@ -1286,9 +1235,7 @@ def run() -> int:
         _invalidate_credentials_after_route_failure(state)
         return EXIT_RUNTIME_ERROR
 
-    client.send_binary(
-        build_start_session(request_id, token, build_session_config(credentials.device_id))
-    )
+    client.send_binary(build_start_session(request_id, token, build_session_config(credentials.device_id)))
     start_session_response = client.recv_binary()
     if start_session_response is None:
         raise RuntimeError("Doubao IME websocket closed before session start.")

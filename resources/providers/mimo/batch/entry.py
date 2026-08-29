@@ -169,10 +169,7 @@ def transcribe(
     prompt: str | None,
 ) -> str:
     wav_audio = pcm_to_wav_bytes(pcm_audio)
-    data_uri = (
-        "data:audio/wav;base64,"
-        + base64.b64encode(wav_audio).decode("ascii")
-    )
+    data_uri = "data:audio/wav;base64," + base64.b64encode(wav_audio).decode("ascii")
     payload = build_request_body(
         model=model,
         data_uri=data_uri,

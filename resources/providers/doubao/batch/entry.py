@@ -10,9 +10,7 @@ import wave
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_URL = (
-    "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
-)
+DEFAULT_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
 DEFAULT_RESOURCE_ID = "volc.bigasr.auc_turbo"
 DEFAULT_MODEL_NAME = "bigmodel"
 DEFAULT_TIMEOUT = 60
@@ -121,9 +119,7 @@ def transcribe(
 
     if status_code and status_code != str(SUCCESS_CODE):
         message = status_message or parse_error_payload(body)
-        raise RuntimeError(
-            f"Doubao ASR returned status {status_code}: {message}"
-        )
+        raise RuntimeError(f"Doubao ASR returned status {status_code}: {message}")
 
     data = json.loads(body.decode("utf-8"))
     result = data.get("result")
@@ -141,12 +137,8 @@ def main() -> int:
         app_id = get_required_env("VINPUT_ASR_APP_ID")
         access_token = get_required_env("VINPUT_ASR_ACCESS_TOKEN")
         endpoint = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
-        resource_id = get_optional_env(
-            "VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID
-        )
-        model_name = get_optional_env(
-            "VINPUT_ASR_MODEL", DEFAULT_MODEL_NAME
-        )
+        resource_id = get_optional_env("VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID)
+        model_name = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL_NAME)
         user_id = get_optional_env("VINPUT_ASR_USER_ID", app_id)
         timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
         pcm_audio = read_audio_input()

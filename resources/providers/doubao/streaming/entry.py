@@ -13,7 +13,7 @@ import sys
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 DEFAULT_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
@@ -46,7 +46,7 @@ COMPRESSION_NONE = 0x0
 COMPRESSION_GZIP = 0x1
 
 
-def write_stdout(event: Dict[str, Any]) -> None:
+def write_stdout(event: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -87,32 +87,28 @@ def get_optional_env(name: str, default: str = "") -> str:
     return value or default
 
 
-def get_optional_int_env(name: str, default: Optional[int] = None) -> Optional[int]:
+def get_optional_int_env(name: str, default: int | None = None) -> int | None:
     value = os.getenv(name, "").strip()
     if not value:
         return default
     return int(value)
 
 
-def get_optional_float_env(
-    name: str, default: Optional[float] = None
-) -> Optional[float]:
+def get_optional_float_env(name: str, default: float | None = None) -> float | None:
     value = os.getenv(name, "").strip()
     if not value:
         return default
     return float(value)
 
 
-def get_optional_bool_env(
-    name: str, default: Optional[bool] = None
-) -> Optional[bool]:
+def get_optional_bool_env(name: str, default: bool | None = None) -> bool | None:
     value = os.getenv(name)
     if value is None or not value.strip():
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def get_optional_json_object_env(name: str) -> Optional[Dict[str, Any]]:
+def get_optional_json_object_env(name: str) -> dict[str, Any] | None:
     value = os.getenv(name, "").strip()
     if not value:
         return None
@@ -164,8 +160,8 @@ def coerce_result_type(value: str) -> str:
     return value.strip()
 
 
-def build_request_payload(model: str, user_id: str) -> Dict[str, Any]:
-    request: Dict[str, Any] = {}
+def build_request_payload(model: str, user_id: str) -> dict[str, Any]:
+    request: dict[str, Any] = {}
     request_override = get_optional_json_object_env("VINPUT_ASR_REQUEST_JSON")
     if request_override:
         request.update(request_override)
@@ -182,21 +178,15 @@ def build_request_payload(model: str, user_id: str) -> Dict[str, Any]:
     show_speech_rate = get_optional_bool_env("VINPUT_ASR_SHOW_SPEECH_RATE")
     show_volume = get_optional_bool_env("VINPUT_ASR_SHOW_VOLUME")
     enable_lid = get_optional_bool_env("VINPUT_ASR_ENABLE_LID")
-    enable_emotion_detection = get_optional_bool_env(
-        "VINPUT_ASR_ENABLE_EMOTION_DETECTION"
-    )
-    enable_gender_detection = get_optional_bool_env(
-        "VINPUT_ASR_ENABLE_GENDER_DETECTION"
-    )
+    enable_emotion_detection = get_optional_bool_env("VINPUT_ASR_ENABLE_EMOTION_DETECTION")
+    enable_gender_detection = get_optional_bool_env("VINPUT_ASR_ENABLE_GENDER_DETECTION")
     end_window_size = get_optional_int_env("VINPUT_ASR_END_WINDOW_SIZE")
     vad_segment_duration = get_optional_int_env("VINPUT_ASR_VAD_SEGMENT_DURATION")
     force_to_speech_time = get_optional_int_env("VINPUT_ASR_FORCE_TO_SPEECH_TIME")
 
     # Compat: the previous edge-gateway script exposed a VAD silence env.
     if end_window_size is None and get_optional_bool_env("VINPUT_ASR_ENABLE_VAD"):
-        end_window_size = get_optional_int_env(
-            "VINPUT_ASR_VAD_SILENCE_DURATION_MS", 800
-        )
+        end_window_size = get_optional_int_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS", 800)
 
     if enable_nonstream is not None:
         request["enable_nonstream"] = enable_nonstream
@@ -244,7 +234,7 @@ def build_request_payload(model: str, user_id: str) -> Dict[str, Any]:
     ):
         request["show_utterances"] = True
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "user": {
             "uid": user_id,
         },
@@ -278,7 +268,7 @@ def pack_protocol_header(
     )
 
 
-def build_full_client_request(payload: Dict[str, Any]) -> bytes:
+def build_full_client_request(payload: dict[str, Any]) -> bytes:
     raw_payload = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     compressed = gzip.compress(raw_payload)
     return (
@@ -310,7 +300,7 @@ def build_audio_request(audio_bytes: bytes, *, final: bool) -> bytes:
 
 @dataclass
 class ProviderState:
-    error: Optional[str] = None
+    error: str | None = None
     closed: bool = False
     confirmed_text: str = ""
     latest_partial_text: str = ""
@@ -323,10 +313,7 @@ class ProviderState:
         return normalize_transcript_text(self.confirmed_text)
 
     def has_pending_partial(self) -> bool:
-        return (
-            normalize_transcript_text(self.latest_partial_text)
-            != self.get_confirmed_text()
-        )
+        return normalize_transcript_text(self.latest_partial_text) != self.get_confirmed_text()
 
 
 def emit_partial_text(state: ProviderState, text: str) -> bool:
@@ -345,9 +332,9 @@ def emit_final_event(
     state: ProviderState,
     text: str,
     *,
-    utterances: Optional[list[Dict[str, Any]]] = None,
-    words: Optional[list[Dict[str, Any]]] = None,
-    audio_info: Optional[Dict[str, Any]] = None,
+    utterances: list[dict[str, Any]] | None = None,
+    words: list[dict[str, Any]] | None = None,
+    audio_info: dict[str, Any] | None = None,
 ) -> bool:
     final_text = normalize_transcript_text(text)
     if not final_text or final_text == state.get_last_final_text():
@@ -357,7 +344,7 @@ def emit_final_event(
     state.confirmed_text = final_text
     state.latest_partial_text = final_text
 
-    event: Dict[str, Any] = {
+    event: dict[str, Any] = {
         "type": "final_timestamps" if utterances or words else "final",
         "text": final_text,
         "segment_final": True,
@@ -399,11 +386,11 @@ def extract_error_message(payload: Any) -> str:
 
 
 def extract_result_fields(
-    payload: Dict[str, Any],
-) -> tuple[str, list[Dict[str, Any]], list[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    payload: dict[str, Any],
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
     transcript = ""
-    utterances: list[Dict[str, Any]] = []
-    words: list[Dict[str, Any]] = []
+    utterances: list[dict[str, Any]] = []
+    words: list[dict[str, Any]] = []
 
     result = payload.get("result")
     if isinstance(result, dict):
@@ -424,11 +411,7 @@ def extract_result_fields(
             if not utterances:
                 candidate_utterances = item.get("utterances")
                 if isinstance(candidate_utterances, list):
-                    utterances = [
-                        utterance
-                        for utterance in candidate_utterances
-                        if isinstance(utterance, dict)
-                    ]
+                    utterances = [utterance for utterance in candidate_utterances if isinstance(utterance, dict)]
         transcript = " ".join(text_parts).strip()
 
     top_level_words = payload.get("words")
@@ -438,9 +421,7 @@ def extract_result_fields(
         for utterance in utterances:
             candidate_words = utterance.get("words")
             if isinstance(candidate_words, list):
-                words.extend(
-                    [item for item in candidate_words if isinstance(item, dict)]
-                )
+                words.extend([item for item in candidate_words if isinstance(item, dict)])
 
     audio_info = payload.get("audio_info")
     if not isinstance(audio_info, dict):
@@ -450,7 +431,7 @@ def extract_result_fields(
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: Dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
             raise ValueError("WebSocket URL must use ws:// or wss://.")
@@ -465,7 +446,7 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self.response_headers: Dict[str, str] = {}
+        self.response_headers: dict[str, str] = {}
         self._recv_buffer = b""
         self._closed = False
         self.socket = self._connect()
@@ -516,7 +497,7 @@ class WebSocketClient:
         header_blob = response.decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
 
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         for line in lines[1:]:
             if ":" not in line:
                 continue
@@ -541,13 +522,9 @@ class WebSocketClient:
             raise RuntimeError(", ".join(details))
 
         accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(
-            hashlib.sha1((key + GUID).encode("utf-8")).digest()
-        ).decode("ascii")
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
-            raise RuntimeError(
-                "WebSocket handshake failed: invalid Sec-WebSocket-Accept header."
-            )
+            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
         self.response_headers = headers
 
     def close(self) -> None:
@@ -565,9 +542,9 @@ class WebSocketClient:
     def send_binary(self, payload: bytes) -> None:
         self._send_frame(0x2, payload)
 
-    def recv_message(self) -> Optional[tuple[int, bytes]]:
+    def recv_message(self) -> tuple[int, bytes] | None:
         fragments = bytearray()
-        current_opcode: Optional[int] = None
+        current_opcode: int | None = None
 
         while True:
             frame = self._recv_frame()
@@ -622,7 +599,7 @@ class WebSocketClient:
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
         self.socket.sendall(bytes(header) + mask_key + masked)
 
-    def _recv_frame(self) -> Optional[tuple[int, bytes, bool]]:
+    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
@@ -659,7 +636,7 @@ class WebSocketClient:
 
         return opcode, payload, fin
 
-    def _recv_exact(self, size: int) -> Optional[bytes]:
+    def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
             chunk = self.socket.recv(4096)
             if not chunk:
@@ -678,14 +655,12 @@ class DecodedServerPacket:
     message_type: int
     flags: int
     payload: Any = None
-    sequence: Optional[int] = None
-    error_code: Optional[int] = None
+    sequence: int | None = None
+    error_code: int | None = None
     is_final: bool = False
 
 
-def decode_payload(
-    payload: bytes, serialization: int, compression: int
-) -> Any:
+def decode_payload(payload: bytes, serialization: int, compression: int) -> Any:
     if compression == COMPRESSION_GZIP:
         payload = gzip.decompress(payload)
     elif compression != COMPRESSION_NONE:
@@ -695,9 +670,7 @@ def decode_payload(
         return json.loads(payload.decode("utf-8"))
     if serialization == SERIALIZATION_NONE:
         return payload
-    raise RuntimeError(
-        f"Unsupported serialization type from Doubao: {serialization}"
-    )
+    raise RuntimeError(f"Unsupported serialization type from Doubao: {serialization}")
 
 
 def decode_server_packet(raw: bytes) -> DecodedServerPacket:
@@ -777,7 +750,7 @@ class ActiveStream:
         access_key: str,
         resource_id: str,
         timeout: int,
-        request_payload: Dict[str, Any],
+        request_payload: dict[str, Any],
     ) -> None:
         self.state = state
         self.url = url
@@ -794,9 +767,7 @@ class ActiveStream:
             },
             timeout,
         )
-        self.session_id = (
-            self.client.response_headers.get("x-api-connect-id") or self.connect_id
-        )
+        self.session_id = self.client.response_headers.get("x-api-connect-id") or self.connect_id
         self.log_id = self.client.response_headers.get("x-tt-logid", "")
         self.final_received = threading.Event()
         self.stop_event = threading.Event()
@@ -832,7 +803,7 @@ class ActiveStream:
         if self.session_started:
             return
 
-        config: Dict[str, Any] = {
+        config: dict[str, Any] = {
             "url": self.url,
             "request": self.request_payload,
             "connect_id": self.connect_id,
@@ -947,9 +918,7 @@ def run() -> int:
     resource_id = get_optional_env("VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID)
     user_id = get_optional_env("VINPUT_ASR_USER_ID", app_id)
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env(
-        "VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS
-    )
+    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
     if timeout is None:
         raise ValueError("VINPUT_ASR_TIMEOUT must not be empty.")
     if finish_grace_secs is None:
@@ -957,7 +926,7 @@ def run() -> int:
 
     request_payload = build_request_payload(model, user_id)
     state = ProviderState()
-    active_stream: Optional[ActiveStream] = None
+    active_stream: ActiveStream | None = None
 
     try:
         for raw_line in sys.stdin:
