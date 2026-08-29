@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
+*.pyo
+.codex
 .codex/
+.pi-subagents/
+output_report/

@@ -1,0 +1,69 @@
+name: Monitor Upstream Models
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'Upstream GitHub repository to monitor (owner/repo)'
+        required: false
+        default: 'k2-fsa/sherpa-onnx'
+        type: string
+      tags:
+        description: 'Release tag to inspect'
+        required: false
+        default: 'asr-models'
+        type: string
+      create_issue:
+        description: 'Create or update a tracking GitHub Issue for reference'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-models:
+    name: Check Upstream PC ASR Models
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check upstream models
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          REPO="${{ inputs.repo || 'k2-fsa/sherpa-onnx' }}"
+          TAGS="${{ inputs.tags || 'asr-models' }}"
+          CREATE_ISSUE_FLAG=""
+          if [ "${{ inputs.create_issue != false }}" = "true" ]; then
+            CREATE_ISSUE_FLAG="--create-issue"
+          fi
+
+          python scripts/check_upstream_models.py \
+            --registry registry/models.json \
+            --repo "$REPO" \
+            --tags "$TAGS" \
+            --token "$GITHUB_TOKEN" \
+            --output-dir output_report \
+            $CREATE_ISSUE_FLAG
+
+      - name: Upload monitor artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-models-report
+          path: output_report/
+          retention-days: 30
