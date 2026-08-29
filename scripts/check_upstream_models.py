@@ -760,6 +760,15 @@ def manage_tracking_issue(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
+    # GitHub issue body has a limit of 65,536 characters
+    safe_body = body
+    if len(safe_body) > 60000:
+        safe_body = (
+            safe_body[:59000]
+            + "\n\n---\n> ⚠️ **提示**: 候选模型条目较多，Issue 正文已自动截断以符合 GitHub 长度限制。完整清单及配置草稿（Draft JSON）请查看当前 Action 的 **Run Summary** 或下载 **Artifacts** 附件。"
+        )
+
+    # Find existing open issue with the same title or label
     search_url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page=50"
     req = urllib.request.Request(search_url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -777,7 +786,7 @@ def manage_tracking_issue(
         issue_number = existing_issue["number"]
         print(f"Found existing tracking issue #{issue_number}. Updating content...")
         update_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}"
-        payload = json.dumps({"body": body}).encode("utf-8")
+        payload = json.dumps({"body": safe_body}).encode("utf-8")
         patch_req = urllib.request.Request(
             update_url,
             data=payload,
@@ -790,20 +799,36 @@ def manage_tracking_issue(
         if has_updates:
             print("No existing tracking issue found. Creating a new one...")
             create_url = f"https://api.github.com/repos/{repo}/issues"
-            payload = json.dumps({
+            payload_data: Dict[str, Any] = {
                 "title": title,
-                "body": body,
-                "labels": ["upstream-monitor", "enhancement"],
-            }).encode("utf-8")
-            post_req = urllib.request.Request(
-                create_url,
-                data=payload,
-                headers={**headers, "Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(post_req, timeout=30) as resp:
-                created = json.loads(resp.read().decode("utf-8"))
-                print(f"Successfully created tracking issue #{created.get('number')}.")
+                "body": safe_body,
+            }
+            try:
+                payload = json.dumps({**payload_data, "labels": ["upstream-monitor"]}).encode("utf-8")
+                post_req = urllib.request.Request(
+                    create_url,
+                    data=payload,
+                    headers={**headers, "Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(post_req, timeout=30) as resp:
+                    created = json.loads(resp.read().decode("utf-8"))
+                    print(f"Successfully created tracking issue #{created.get('number')}.")
+            except urllib.error.HTTPError as e:
+                if e.code == 422:
+                    print("Retrying issue creation without custom label...")
+                    payload = json.dumps(payload_data).encode("utf-8")
+                    post_req = urllib.request.Request(
+                        create_url,
+                        data=payload,
+                        headers={**headers, "Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(post_req, timeout=30) as resp:
+                        created = json.loads(resp.read().decode("utf-8"))
+                        print(f"Successfully created tracking issue #{created.get('number')}.")
+                else:
+                    raise
         else:
             print("No updates detected and no existing issue. Skipping issue creation.")
 
