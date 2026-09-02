@@ -9,6 +9,8 @@
   "provider.bailian.batch.description": "Use Bailian Qwen3-ASR-Flash through the OpenAI-compatible chat completions API for cloud ASR.",
   "provider.bailian.streaming.title": "Bailian (Streaming)",
   "provider.bailian.streaming.description": "Use the Bailian Qwen-ASR-Realtime API for streaming cloud ASR.",
+  "provider.bailian.qwen-audio3.streaming.title": "Bailian Qwen-Audio (Streaming)",
+  "provider.bailian.qwen-audio3.streaming.description": "Use the Bailian Qwen-Audio-3.0-ASR-Flash-Streaming realtime speech recognition API for streaming cloud ASR.",
   "provider.doubao.streaming.title": "Doubao (Streaming)",
   "provider.doubao.streaming.description": "Use the official Volcengine OpenSpeech bigmodel streaming ASR API for streaming cloud ASR.",
   "provider.doubaoime.streaming.title": "Doubao IME (Streaming)",
