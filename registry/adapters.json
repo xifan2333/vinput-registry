@@ -28,7 +28,7 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/text-cleaner/proxy/README.md",
       "envs": [
-        { "name": "CLEANER_PORT", "required": false }
+        { "name": "TEXT_CLEANER_PORT", "required": false }
       ]
     }
   ]
