@@ -1,19 +1,37 @@
 #!/usr/bin/env python3
+"""Managed local LLM adaptor that exposes MTranServer through an OpenAI-compatible API."""
 
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
 DEFAULT_MTRAN_URL = "http://localhost:8989"
-DEFAULT_PORT = 8990
 
 mtran_url = DEFAULT_MTRAN_URL
 mtran_token = ""
+
+
+def get_required_port() -> int:
+    val = os.getenv("MTRAN_PORT", "").strip()
+    if not val:
+        raise ValueError("Missing MTRAN_PORT environment variable.")
+    try:
+        port = int(val)
+    except ValueError as exc:
+        raise ValueError(f"Invalid MTRAN_PORT '{val}': must be a valid integer.") from exc
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Invalid MTRAN_PORT '{val}': port number must be between 1 and 65535.")
+    return port
 
 
 def parse_target_lang(system_prompt: str) -> str:
@@ -32,8 +50,8 @@ def call_mtran(text: str, to_lang: str) -> str:
     return data.get("result", "")
 
 
-def make_chat_response(content: str, model: str = "mtranserver") -> dict:
-    wrapped = json.dumps({"candidates": [content]})
+def make_chat_response(content: str, model: str = "mtranserver") -> dict[str, Any]:
+    wrapped = json.dumps({"candidates": [content]}, ensure_ascii=False)
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
         "object": "chat.completion",
@@ -51,21 +69,25 @@ def make_chat_response(content: str, model: str = "mtranserver") -> dict:
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
+    def do_POST(self) -> None:
         if self.path.rstrip("/") not in ("/v1/chat/completions", "/chat/completions"):
-            self.send_error(404)
+            self.send_error(404, "Endpoint not found")
             return
 
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+        except Exception as exc:
+            self.send_error(400, f"Invalid JSON payload: {exc}")
+            return
 
         messages = body.get("messages", [])
         system_prompt = ""
         user_text = ""
         for message in messages:
-            if message["role"] == "system":
+            if message.get("role") == "system":
                 system_prompt = message.get("content", "")
-            elif message["role"] == "user":
+            elif message.get("role") == "user":
                 user_text = message.get("content", "")
 
         to_lang = parse_target_lang(system_prompt)
@@ -76,13 +98,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.send_error(502, str(exc))
             return
 
-        resp = json.dumps(make_chat_response(result, body.get("model", "mtranserver")))
+        resp = json.dumps(make_chat_response(result, body.get("model", "mtranserver")), ensure_ascii=False)
+        payload = resp.encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(resp.encode())
+        self.wfile.write(payload)
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         if self.path.rstrip("/") in ("/v1/models", "/models"):
             resp = json.dumps(
                 {
@@ -94,31 +118,57 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             "owned_by": "mtranserver",
                         }
                     ],
-                }
+                },
+                ensure_ascii=False,
             )
+            payload = resp.encode("utf-8")
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(resp.encode())
+            self.wfile.write(payload)
         else:
-            self.send_error(404)
+            self.send_error(404, "Endpoint not found")
 
-    def log_message(self, fmt, *args):
-        print(f"[mtranserver-proxy] {fmt % args}")
+    def log_message(self, fmt: str, *args: Any) -> None:
+        # Suppress normal HTTP access logs; only errors should be logged to stderr
+        pass
+
+    def log_error(self, fmt: str, *args: Any) -> None:
+        sys.stderr.write(f"[mtranserver-proxy] {fmt % args}\n")
+        sys.stderr.flush()
 
 
-def main():
+def main() -> int:
     global mtran_url, mtran_token
 
-    port = int(os.getenv("MTRAN_PORT", DEFAULT_PORT))
-    mtran_url = os.getenv("MTRAN_URL", DEFAULT_MTRAN_URL).rstrip("/")
-    mtran_token = os.getenv("MTRAN_TOKEN", "")
+    try:
+        port = get_required_port()
+    except ValueError as exc:
+        sys.stderr.write(f"[mtranserver-proxy] {exc}\n")
+        sys.stderr.flush()
+        return EXIT_USAGE_ERROR
 
-    server = HTTPServer(("127.0.0.1", port), ProxyHandler)
-    print(f"[mtranserver-proxy] Listening on http://127.0.0.1:{port}")
-    print(f"[mtranserver-proxy] MTranServer: {mtran_url}")
-    server.serve_forever()
+    mtran_url = os.getenv("MTRAN_URL", DEFAULT_MTRAN_URL).strip().rstrip("/")
+    if not mtran_url:
+        mtran_url = DEFAULT_MTRAN_URL
+    mtran_token = os.getenv("MTRAN_TOKEN", "").strip()
+
+    try:
+        server = HTTPServer(("127.0.0.1", port), ProxyHandler)
+    except Exception as exc:
+        sys.stderr.write(f"[mtranserver-proxy] Failed to bind port {port}: {exc}\n")
+        sys.stderr.flush()
+        return EXIT_RUNTIME_ERROR
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
