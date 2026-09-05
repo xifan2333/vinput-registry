@@ -23,6 +23,8 @@
   "provider.openai-compatible.streaming.description": "通过兼容 OpenAI Realtime 转写事件的 WebSocket 接口调用流式云端 ASR。",
   "adapter.mtranserver.proxy.title": "MTranServer 代理",
   "adapter.mtranserver.proxy.description": "为 MTranServer 提供 OpenAI 兼容本地代理。",
+  "adapter.text-cleaner.proxy.title": "文本清洗（标点去空格）",
+  "adapter.text-cleaner.proxy.description": "通过本地代理消除语音识别文本中标点符号前后的多余空格。",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.title": "SenseVoice 五语",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "非流/中英日韩粤/不支持标点/不支持热词",
   "model.sherpa-onnx.moonshine-tiny-en-int8.title": "Moonshine Tiny 英文",
