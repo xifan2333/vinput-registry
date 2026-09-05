@@ -15,7 +15,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
-DEFAULT_PORT = 8991
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
 
 # Unicode Punctuation Codepoint Ranges:
 # 1. CJK and East Asian Fullwidth punctuation blocks:
@@ -37,16 +38,19 @@ ALL_PUNCT_RANGE = r"[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e\u3000-
 CJK_IDEOGRAPHS_RANGE = r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"
 
 
-def get_int_env(name: str, fallback_name: str = "", default: int = DEFAULT_PORT) -> int:
-    val = os.getenv(name, "").strip()
-    if not val and fallback_name:
-        val = os.getenv(fallback_name, "").strip()
+def get_required_port() -> int:
+    val = os.getenv("TEXT_CLEANER_PORT", "").strip()
     if not val:
-        return default
+        val = os.getenv("CLEANER_PORT", "").strip()
+    if not val:
+        raise ValueError("Missing TEXT_CLEANER_PORT environment variable.")
     try:
-        return int(val)
-    except ValueError:
-        return default
+        port = int(val)
+    except ValueError as exc:
+        raise ValueError(f"Invalid TEXT_CLEANER_PORT '{val}': must be a valid integer.") from exc
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Invalid TEXT_CLEANER_PORT '{val}': port number must be between 1 and 65535.")
+    return port
 
 
 def get_bool_env(name: str, fallback_name: str = "", default: bool = True) -> bool:
@@ -178,7 +182,13 @@ class CleanerHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    port = get_int_env("TEXT_CLEANER_PORT", "CLEANER_PORT", DEFAULT_PORT)
+    try:
+        port = get_required_port()
+    except ValueError as exc:
+        sys.stderr.write(f"[text-cleaner] {exc}\n")
+        sys.stderr.flush()
+        return EXIT_USAGE_ERROR
+
     trim_ascii = get_bool_env("TEXT_CLEANER_TRIM_ASCII_PUNCT", "CLEANER_TRIM_ASCII_PUNCT", True)
     trim_cjk_spaces = get_bool_env("TEXT_CLEANER_TRIM_CJK_SPACES", "CLEANER_TRIM_CJK_SPACES", True)
 
@@ -190,7 +200,7 @@ def main() -> int:
     except Exception as exc:
         sys.stderr.write(f"[text-cleaner] Failed to bind port {port}: {exc}\n")
         sys.stderr.flush()
-        return 1
+        return EXIT_RUNTIME_ERROR
 
     try:
         server.serve_forever()
