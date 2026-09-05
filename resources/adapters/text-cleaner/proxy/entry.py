@@ -172,7 +172,7 @@ class CleanerHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Endpoint not found")
 
-    def log_message(self, fmt: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         """Override BaseHTTPRequestHandler.log_message.
 
         Called implicitly by BaseHTTPRequestHandler.send_response -> log_request.
@@ -181,14 +181,14 @@ class CleanerHandler(BaseHTTPRequestHandler):
         """
         pass
 
-    def log_error(self, fmt: str, *args: Any) -> None:
+    def log_error(self, format: str, *args: Any) -> None:
         """Override BaseHTTPRequestHandler.log_error.
 
         Called implicitly by BaseHTTPRequestHandler.send_error on 4xx/5xx responses.
         Because log_message is suppressed above, this ensures genuine HTTP errors
         are still routed to stderr with the adapter prefix for troubleshooting.
         """
-        sys.stderr.write(f"[text-cleaner] {fmt % args}\n")
+        sys.stderr.write(f"[text-cleaner] {format % args}\n")
         sys.stderr.flush()
 
 

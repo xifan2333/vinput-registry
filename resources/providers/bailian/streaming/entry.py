@@ -145,7 +145,7 @@ def emit_final_text(
     return True
 
 
-def emit_fallback_final(state: dict[str, Any], utterance_final: bool = True) -> bool:
+def emit_fallback_final(state: SessionState, utterance_final: bool = True) -> bool:
     return emit_final_text(
         state,
         state.latest_partial_text,

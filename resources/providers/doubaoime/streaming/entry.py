@@ -386,6 +386,8 @@ class OpusEncoder:
             raise RuntimeError(f"libopus encoder init failed: {error.value}")
 
     def encode(self, pcm_frame: bytes, samples_per_frame: int) -> bytes:
+        if self.lib is None or self.encoder is None:
+            raise RuntimeError("libopus encoder is not initialized.")
         pcm_array = (ctypes.c_int16 * samples_per_frame).from_buffer_copy(pcm_frame)
         output = (ctypes.c_ubyte * OPUS_MAX_PACKET_SIZE)()
         encoded_size = self.lib.opus_encode(
