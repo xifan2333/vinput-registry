@@ -31,3 +31,40 @@ jobs:
 
       - name: Ruff format check
         run: ruff format --check .
+
+  pyright:
+    name: Pyright
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run pyright
+        run: npx pyright
+
+  registry:
+    name: Validate Registry
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate registry schema and i18n
+        run: python3 scripts/validate_registry.py
