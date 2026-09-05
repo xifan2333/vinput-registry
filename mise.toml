@@ -1,0 +1,70 @@
+[tools]
+hk = "1.57.0"
+ruff = "0.16.5"
+
+[tasks.default]
+description = "List available tasks"
+run = "mise tasks"
+
+[tasks.hooks-install]
+description = "Install hk git hooks with mise integration"
+run = "hk install --mise"
+
+[tasks.check]
+description = "Run all hk checks across the repo"
+run = "hk check"
+
+[tasks."check:safe"]
+description = "Run hk check across the repo"
+run = "hk run check"
+
+[tasks."check:plan"]
+description = "Preview hk check execution plan without running tools"
+run = "hk run check --plan"
+
+[tasks."check:changed"]
+description = "Run hk check only on modified/staged/untracked files"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+{
+  git diff --name-only -z
+  git diff --cached --name-only -z
+  git ls-files --others --exclude-standard -z
+} | hk run check --files0-from - "$@"
+"""
+
+[tasks.fix]
+description = "Run all hk fixers to format files"
+run = "hk fix"
+
+[tasks.lint]
+description = "Run ruff linter and validate JSON structure"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+ruff check .
+find registry i18n -type f -name '*.json' -print0 | xargs -0 -n 1 python3 -m json.tool >/dev/null
+python3 scripts/validate_registry.py
+"""
+
+[tasks.fmt]
+description = "Format Python code with ruff"
+run = "ruff format ."
+
+[tasks.check-fmt]
+description = "Check Python formatting with ruff without modifying files"
+run = "ruff format --check ."
+
+[tasks."validate:json"]
+description = "Validate all JSON files syntax in registry and i18n"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+find registry i18n -type f -name '*.json' -print0 | xargs -0 -n 1 python3 -m json.tool >/dev/null
+echo "All JSON files are valid."
+"""
+
+[tasks."validate:registry"]
+description = "Validate registry schema, file existence, and i18n parity"
+run = "python3 scripts/validate_registry.py"
