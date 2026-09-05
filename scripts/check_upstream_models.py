@@ -1027,7 +1027,7 @@ def main() -> None:
 
     # Handle GitHub Issue creation/update
     if args.create_issue and args.token and os.environ.get("GITHUB_REPOSITORY"):
-        current_repo = os.environ.get("GITHUB_REPOSITORY")
+        current_repo = os.environ["GITHUB_REPOSITORY"]
         print(f"Managing tracking issue on {current_repo}...")
         try:
             manage_tracking_issue(

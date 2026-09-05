@@ -22,3 +22,14 @@ ignore = [
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
+
+[tool.pyright]
+include = ["resources", "scripts"]
+exclude = [
+    "**/__pycache__",
+    ".ruff_cache",
+    ".git",
+]
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+typeCheckingMode = "standard"

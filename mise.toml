@@ -1,6 +1,7 @@
 [tools]
 hk = "1.57.0"
 ruff = "0.16.5"
+node = "22"
 
 [tasks.default]
 description = "List available tasks"
@@ -39,18 +40,23 @@ description = "Run all hk fixers to format files"
 run = "hk fix"
 
 [tasks.lint]
-description = "Run ruff linter and validate JSON structure"
+description = "Run ruff linter, pyright typecheck, and validate JSON structure"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 ruff check .
 find registry i18n -type f -name '*.json' -print0 | xargs -0 -n 1 python3 -m json.tool >/dev/null
 python3 scripts/validate_registry.py
+npx --yes pyright
 """
 
 [tasks.fmt]
 description = "Format Python code with ruff"
 run = "ruff format ."
+
+[tasks.typecheck]
+description = "Run pyright static type checker"
+run = "npx --yes pyright"
 
 [tasks.check-fmt]
 description = "Check Python formatting with ruff without modifying files"
