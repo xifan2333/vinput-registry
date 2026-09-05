@@ -16,7 +16,7 @@ local linters = new Mapping<String, Step> {
 
   ["pyright"] {
     glob = List("**/*.py")
-    check = "npx --yes pyright"
+    check = "pyright"
   }
 
   ["json-validate"] {

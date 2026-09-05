@@ -2,6 +2,7 @@
 hk = "1.57.0"
 ruff = "0.16.5"
 node = "22"
+"npm:pyright" = "1.1.413"
 
 [tasks.default]
 description = "List available tasks"
@@ -47,7 +48,7 @@ set -euo pipefail
 ruff check .
 find registry i18n -type f -name '*.json' -print0 | xargs -0 -n 1 python3 -m json.tool >/dev/null
 python3 scripts/validate_registry.py
-npx --yes pyright
+pyright
 """
 
 [tasks.fmt]
@@ -56,7 +57,7 @@ run = "ruff format ."
 
 [tasks.typecheck]
 description = "Run pyright static type checker"
-run = "npx --yes pyright"
+run = "pyright"
 
 [tasks.check-fmt]
 description = "Check Python formatting with ruff without modifying files"
