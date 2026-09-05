@@ -51,6 +51,8 @@ Verify repository roles before making changes:
    - `https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
    - `https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
 5. **i18n Parity**: Any new or updated resource must contain both `<id>.title` and `<id>.description` in both `i18n/en_US.json` and `i18n/zh_CN.json`.
+6. **Adapter Stderr Silence (Desktop Notification Coupling)**: `vinput-daemon` reads an adapter's `stderr` line-by-line and translates every non-empty line directly into a D-Bus desktop error notification (`EmitNotification`). Adapters must **never print operational logs, startup banners, options, or HTTP 200 access logs to `stderr`**. Normal operation must be 100% silent; only fatal startup failures or HTTP 4xx/5xx errors may be emitted to `stderr`.
+7. **Explicit Adapter Port Requirement (No Implicit Defaults)**: Adapters must require an explicit, namespaced port environment variable (e.g., `TEXT_CLEANER_PORT`, `MTRAN_PORT`) declared with `"required": true` in `registry/adapters.json`. Scripts must never silently fall back to an internal hardcoded default port when the env variable is missing or empty, so users always know exactly which port to set in their matching LLM provider `base_url`.
 
 ---
 
