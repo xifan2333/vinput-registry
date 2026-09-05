@@ -37,9 +37,23 @@ ALL_PUNCT_RANGE = r"[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e\u3000-
 CJK_IDEOGRAPHS_RANGE = r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"
 
 
-def get_bool_env(name: str, default: bool) -> bool:
+def get_int_env(name: str, fallback_name: str = "", default: int = DEFAULT_PORT) -> int:
+    val = os.getenv(name, "").strip()
+    if not val and fallback_name:
+        val = os.getenv(fallback_name, "").strip()
+    if not val:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def get_bool_env(name: str, fallback_name: str = "", default: bool = True) -> bool:
     val = os.getenv(name)
-    if val is None:
+    if val is None and fallback_name:
+        val = os.getenv(fallback_name)
+    if val is None or not val.strip():
         return default
     return val.strip().lower() not in {"0", "false", "no", "off"}
 
@@ -160,9 +174,9 @@ class CleanerHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    port = int(os.getenv("CLEANER_PORT", str(DEFAULT_PORT)))
-    trim_ascii = get_bool_env("CLEANER_TRIM_ASCII_PUNCT", True)
-    trim_cjk_spaces = get_bool_env("CLEANER_TRIM_CJK_SPACES", True)
+    port = get_int_env("TEXT_CLEANER_PORT", "CLEANER_PORT", DEFAULT_PORT)
+    trim_ascii = get_bool_env("TEXT_CLEANER_TRIM_ASCII_PUNCT", "CLEANER_TRIM_ASCII_PUNCT", True)
+    trim_cjk_spaces = get_bool_env("TEXT_CLEANER_TRIM_CJK_SPACES", "CLEANER_TRIM_CJK_SPACES", True)
 
     CleanerHandler.trim_ascii = trim_ascii
     CleanerHandler.trim_cjk_spaces = trim_cjk_spaces
