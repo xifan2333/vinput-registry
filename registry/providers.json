@@ -140,6 +140,60 @@
       ]
     },
     {
+      "id": "provider.bailian.qwen-audio3.streaming",
+      "short_id": "bailian-qwen-audio3-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3.streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3.streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3.streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3.streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_PROMPT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_WORKSPACE_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_PUNCTUATION",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_VAD_SILENCE_DURATION_MS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "provider.doubao.streaming",
       "short_id": "doubao-stream",
       "stream": true,

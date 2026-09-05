@@ -9,6 +9,8 @@
   "provider.bailian.batch.description": "通过百炼 Qwen3-ASR-Flash OpenAI 兼容 chat completions 接口调用云端 ASR。",
   "provider.bailian.streaming.title": "阿里百炼（流式）",
   "provider.bailian.streaming.description": "通过百炼 Qwen-ASR-Realtime API 调用流式云端 ASR。",
+  "provider.bailian.qwen-audio3.streaming.title": "阿里百炼 Qwen-Audio（流式）",
+  "provider.bailian.qwen-audio3.streaming.description": "通过百炼 Qwen-Audio-3.0-ASR-Flash-Streaming 实时语音识别接口调用流式云端 ASR。",
   "provider.doubao.streaming.title": "豆包（流式）",
   "provider.doubao.streaming.description": "通过火山引擎 OpenSpeech 官方大模型流式语音识别 API 调用流式云端 ASR。",
   "provider.doubaoime.streaming.title": "豆包输入法（流式）",
