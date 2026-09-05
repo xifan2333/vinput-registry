@@ -129,7 +129,29 @@ FillDefaultEnvMap(entry.envs, &adapter.env); // Injects every declared env as ""
 2. **Tier 2: Script (`entry.py`)**: Fallback defaults via `os.getenv("PARAM", DEFAULT_VALUE)`.
 3. **Tier 3: Documentation (`README.md`)**: Full documentation separating Required vs Optional settings.
 
-### 4. Adapter `README.md` Documentation Template
+### 4. Explicit Port Requirement (No Implicit Defaults)
+In `fcitx5-vinput`, configuring a scene requires the user to pair an adapter with an LLM provider definition specifying `base_url: http://127.0.0.1:<port>/v1`.
+- **Port Must Be Explicit**: The adapter port variable (e.g. `TEXT_CLEANER_PORT`, `MTRAN_PORT`) must be marked `"required": true` in `registry/adapters.json`.
+- **No Implicit Code Fallbacks**: Scripts must never silently fall back to an internal default port if the environment variable is missing, empty, or whitespace. Missing or invalid port variables must cause the script to immediately exit with code 2 (`EXIT_USAGE_ERROR`) and write an actionable error to `stderr`.
+- **Prevents Port Conflicts**: Requiring the user to provide an explicit port ensures they know exactly which port is running and prevents collisions between multiple local services.
+
+### 5. Stderr Silence & Desktop Notification Coupling
+`vinput-daemon` monitors the adapter child process's `stderr` via `FlushAdapterBuffer`:
+```cpp
+void FlushAdapterBuffer(ManagedAdapter& adapter, bool flush_partial) {
+  if (!line.empty()) {
+    EmitNotification(line); // Forwards every line to desktop notification via D-Bus!
+  }
+}
+```
+- **Every non-empty line emitted to `stderr` results in an immediate desktop popup notification for the user.**
+- **Absolute Silence in Normal Operation**:
+  - Never print startup banners (e.g. `Listening on...`).
+  - Never log operational options.
+  - Override `log_message` in HTTP server handlers to `pass` (suppress HTTP 200/access logs).
+- **Errors Only**: Implement `log_error` or exception handlers to write only genuine fatal failures (e.g. port already in use, missing required env) to `stderr`.
+
+### 6. Adapter `README.md` Documentation Template
 Each `resources/adapters/<group>/<name>/README.md` must clearly categorize variables:
 
 ```markdown

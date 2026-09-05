@@ -82,3 +82,7 @@ All development follows a strict 5-stage lifecycle:
    - Every `script_urls` array must provide 3 fallback mirrors in order: GitHub raw, `gh-proxy.com`, and `ghfast.top`.
 5. **i18n Parity**:
    - Every new resource requires both `<id>.title` and `<id>.description` in both `i18n/en_US.json` and `i18n/zh_CN.json`.
+6. **Adapter Stderr Silence**:
+   - `vinput-daemon` translates every non-empty line of an adapter's `stderr` directly into a user desktop notification (`EmitNotification`). Adapters must be 100% silent on `stderr` during normal operation (no startup banners, options, or HTTP 200 logs); only fatal errors or 4xx/5xx responses may write to `stderr`.
+7. **Explicit Adapter Ports**:
+   - Adapters must require an explicit port environment variable declared with `"required": true` in `registry/adapters.json`. Never fall back to implicit internal default ports when the env is missing or empty, ensuring users know exactly which port to configure in their LLM provider `base_url`.
