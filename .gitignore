@@ -5,3 +5,5 @@ __pycache__/
 .codex/
 .pi-subagents/
 output_report/
+.ruff_cache/
+.hk/

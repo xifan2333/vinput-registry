@@ -1,0 +1,49 @@
+amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["ruff-check"] {
+    glob = List("**/*.py")
+    check = "ruff check {{files}}"
+    fix = "ruff check --fix {{files}}"
+  }
+
+  ["ruff-format"] {
+    glob = List("**/*.py")
+    check = "ruff format --check {{files}}"
+    fix = "ruff format {{files}}"
+  }
+
+  ["json-validate"] {
+    glob = List("registry/**/*.json", "i18n/**/*.json")
+    check = "python3 -m json.tool {{files}} >/dev/null"
+  }
+
+  ["registry-validate"] {
+    glob = List("registry/**/*.json", "i18n/**/*.json", "resources/**/entry.py", "resources/**/README.md")
+    check = "python3 scripts/validate_registry.py"
+  }
+
+  ["mise"] = Builtins.mise
+  ["trailing-whitespace"] = Builtins.trailing_whitespace
+  ["newlines"] = Builtins.newlines
+  ["check-merge-conflict"] = Builtins.check_merge_conflict
+  ["detect-private-key"] = Builtins.detect_private_key
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "patch-file"
+    steps = linters
+  }
+
+  ["check"] {
+    steps = linters
+  }
+
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}
