@@ -169,6 +169,10 @@ class CleanerHandler(BaseHTTPRequestHandler):
             self.send_error(404, "Endpoint not found")
 
     def log_message(self, fmt: str, *args: Any) -> None:
+        # Suppress normal HTTP access logs; only errors should be logged to stderr
+        pass
+
+    def log_error(self, fmt: str, *args: Any) -> None:
         sys.stderr.write(f"[text-cleaner] {fmt % args}\n")
         sys.stderr.flush()
 
@@ -181,10 +185,12 @@ def main() -> int:
     CleanerHandler.trim_ascii = trim_ascii
     CleanerHandler.trim_cjk_spaces = trim_cjk_spaces
 
-    server = HTTPServer(("127.0.0.1", port), CleanerHandler)
-    sys.stderr.write(f"[text-cleaner] Listening on http://127.0.0.1:{port}\n")
-    sys.stderr.write(f"[text-cleaner] Options: trim_ascii={trim_ascii}, trim_cjk_spaces={trim_cjk_spaces}\n")
-    sys.stderr.flush()
+    try:
+        server = HTTPServer(("127.0.0.1", port), CleanerHandler)
+    except Exception as exc:
+        sys.stderr.write(f"[text-cleaner] Failed to bind port {port}: {exc}\n")
+        sys.stderr.flush()
+        return 1
 
     try:
         server.serve_forever()
