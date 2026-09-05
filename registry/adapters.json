@@ -12,9 +12,9 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/mtranserver/proxy/README.md",
       "envs": [
+        { "name": "MTRAN_PORT", "required": true },
         { "name": "MTRAN_URL", "required": false },
-        { "name": "MTRAN_TOKEN", "required": false },
-        { "name": "MTRAN_PORT", "required": false }
+        { "name": "MTRAN_TOKEN", "required": false }
       ]
     },
     {
