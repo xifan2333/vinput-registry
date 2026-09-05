@@ -16,7 +16,7 @@ local linters = new Mapping<String, Step> {
 
   ["json-validate"] {
     glob = List("registry/**/*.json", "i18n/**/*.json")
-    check = "python3 -m json.tool {{files}} >/dev/null"
+    check = "python3 -c 'import json, sys; [json.load(open(f, encoding=\"utf-8\")) for f in sys.argv[1:]]' {{files}}"
   }
 
   ["registry-validate"] {

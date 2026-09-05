@@ -16,6 +16,20 @@
         { "name": "MTRAN_TOKEN", "required": false },
         { "name": "MTRAN_PORT", "required": false }
       ]
+    },
+    {
+      "id": "adapter.text-cleaner.proxy",
+      "short_id": "clean-spaces",
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/text-cleaner/proxy/README.md",
+      "envs": [
+        { "name": "CLEANER_PORT", "required": false }
+      ]
     }
   ]
 }
