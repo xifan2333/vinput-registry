@@ -22,9 +22,9 @@ Operates as a zero-latency, offline OpenAI-compatible proxy (`POST /v1/chat/comp
 None. Runs out of the box with zero configuration.
 
 ### Optional
-- `CLEANER_PORT` (optional, default: `8991`): Local HTTP listening port.
-- `CLEANER_TRIM_ASCII_PUNCT` (optional, default: `true`): Whether to trim spaces following ASCII punctuation (`U+0021-U+002F`, `U+003A-U+0040`, `U+005B-U+0060`, `U+007B-U+007E`).
-- `CLEANER_TRIM_CJK_SPACES` (optional, default: `true`): Whether to collapse spaces between consecutive CJK ideographs (`\u4e00-\u9fff`, `\u3400-\u4dbf`).
+- `TEXT_CLEANER_PORT` (optional, default: `8991`): Local HTTP listening port (legacy `CLEANER_PORT` is also supported as fallback).
+- `TEXT_CLEANER_TRIM_ASCII_PUNCT` (optional, default: `true`): Whether to trim spaces following ASCII punctuation (`U+0021-U+002F`, `U+003A-U+0040`, `U+005B-U+0060`, `U+007B-U+007E`).
+- `TEXT_CLEANER_TRIM_CJK_SPACES` (optional, default: `true`): Whether to collapse spaces between consecutive CJK ideographs (`\u4e00-\u9fff`, `\u3400-\u4dbf`).
 
 ## Unicode Punctuation Ranges Used
 
