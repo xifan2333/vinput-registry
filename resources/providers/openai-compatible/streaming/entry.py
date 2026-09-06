@@ -227,6 +227,9 @@ class WebSocketClient:
     def send_json(self, payload: dict[str, Any]) -> None:
         self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
+    def send_binary(self, payload: bytes) -> None:
+        self._send_frame(0x2, payload)
+
     def recv_json(self) -> dict[str, Any] | None:
         fragments = bytearray()
         current_opcode: int | None = None
@@ -520,6 +523,7 @@ def run() -> int:
 
     saw_finish = False
     has_audio = False
+    use_binary = get_optional_bool_env("VINPUT_ASR_BINARY_MODE", False)
     try:
         for raw_line in sys.stdin:
             if stop_event.is_set():
@@ -552,13 +556,16 @@ def run() -> int:
                     target_rate=target_sample_rate,
                 )
                 has_audio = True
-                client.send_json(
-                    {
-                        "event_id": new_event_id(),
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(payload_audio).decode("ascii"),
-                    }
-                )
+                if use_binary:
+                    client.send_binary(payload_audio)
+                else:
+                    client.send_json(
+                        {
+                            "event_id": new_event_id(),
+                            "type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(payload_audio).decode("ascii"),
+                        }
+                    )
                 if bool(event.get("commit", False)):
                     client.send_json(
                         {
