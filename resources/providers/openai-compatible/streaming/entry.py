@@ -448,7 +448,10 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         state["confirmed_text"] = full_text
         if item_id:
             state["partials"].pop(item_id, None)
-        write_stdout({"type": "final", "text": full_text, "segment_final": True})
+        # NOTE: host ends the utterance on the first non-empty final, so surface
+        # mid-stream completions as partial; a single final goes out on finish.
+        if full_text:
+            write_stdout({"type": "partial", "text": full_text})
         return
 
     if message_type == "conversation.item.input_audio_transcription.failed":
@@ -516,6 +519,7 @@ def run() -> int:
     thread.start()
 
     saw_finish = False
+    has_audio = False
     try:
         for raw_line in sys.stdin:
             if stop_event.is_set():
@@ -547,6 +551,7 @@ def run() -> int:
                     source_rate=source_rate,
                     target_rate=target_sample_rate,
                 )
+                has_audio = True
                 client.send_json(
                     {
                         "event_id": new_event_id(),
@@ -565,6 +570,13 @@ def run() -> int:
 
             if event_type == "finish":
                 saw_finish = True
+                if has_audio:
+                    client.send_json(
+                        {
+                            "event_id": new_event_id(),
+                            "type": "input_audio_buffer.commit",
+                        }
+                    )
                 break
 
             if event_type == "cancel":
@@ -573,11 +585,21 @@ def run() -> int:
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        if saw_finish and not stop_event.is_set():
+        if saw_finish and has_audio and not stop_event.is_set():
             thread.join(timeout=finish_grace_secs)
         stop_event.set()
         client.close()
         thread.join(timeout=1.0)
+        confirmed = str(state.get("confirmed_text", "")).strip()
+        if confirmed:
+            write_stdout(
+                {
+                    "type": "final",
+                    "text": confirmed,
+                    "segment_final": True,
+                    "utterance_final": True,
+                }
+            )
         if not state["closed"]:
             write_stdout({"type": "closed"})
             state["closed"] = True
