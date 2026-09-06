@@ -82,7 +82,7 @@ def get_optional_float_env(name: str, default: float) -> float:
 
 def get_optional_bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
-    if value is None:
+    if value is None or not value.strip():
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
