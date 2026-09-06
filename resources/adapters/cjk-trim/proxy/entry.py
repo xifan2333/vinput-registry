@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Managed local LLM adapter for normalizing punctuation and spacing in ASR transcripts.
+"""Managed local LLM adapter that removes redundant spaces in CJK ASR transcripts:
+spaces around CJK punctuation marks and between consecutive CJK ideographs.
 
-Operates locally as an OpenAI-compatible HTTP service on port 8991 (default).
-Intercepts transcription text and removes unwanted spaces around punctuation
-identified by Unicode codepoint ranges (without hardcoding specific punctuation literals).
+Operates locally as an OpenAI-compatible HTTP service. Removes unwanted spaces
+around CJK punctuation marks and between consecutive CJK ideographs that some
+speech recognition models (e.g. x-asr Zipformer Transducer) emit.
+
+Scope note: ASCII / English text is intentionally left untouched — no ASCII
+punctuation normalization, no interior space collapsing. Only leading/trailing
+whitespace is stripped.
 """
 
 import json
@@ -18,71 +23,60 @@ from typing import Any
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
-# Unicode Punctuation Codepoint Ranges:
-# 1. CJK and East Asian Fullwidth punctuation blocks:
-#    - \u3000-\u303F: CJK Symbols and Punctuation (IDEOGRAPHIC FULL STOP, ENUMERATION COMMA, etc.)
-#    - \uFF01-\uFF65: Fullwidth ASCII Variants (FULLWIDTH COMMA, EXCLAMATION, QUESTION, COLON, etc.)
-#    - \u2000-\u206F: General Punctuation (HORIZONTAL ELLIPSIS, EM DASH, etc.)
-#    - \uFE10-\uFE1F: Presentation Forms for Vertical Lines
-#    - \uFE30-\uFE4F: CJK Compatibility Forms
+# Unicode CJK punctuation codepoint ranges (no hardcoded punctuation literals):
+#   \u3000-\u303F: CJK Symbols and Punctuation (IDEOGRAPHIC FULL STOP, etc.)
+#   \uFF01-\uFF65: Fullwidth ASCII Variants (FULLWIDTH COMMA, EXCLAMATION, etc.)
+#   \u2000-\u206F: General Punctuation (HORIZONTAL ELLIPSIS, EM DASH, quotes)
+#   \uFE10-\uFE1F: Presentation Forms for Vertical Lines
+#   \uFE30-\uFE4F: CJK Compatibility Forms
 CJK_PUNCT_RANGE = r"[\u3000-\u303f\uff01-\uff65\u2000-\u206f\ufe10-\ufe1f\ufe30-\ufe4f]"
 
-# 2. ASCII Punctuation block:
-#    - \u0021-\u002F, \u003A-\u0040, \u005B-\u0060, \u007B-\u007E
-ASCII_PUNCT_RANGE = r"[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e]"
-
-# 3. All punctuation combined:
-ALL_PUNCT_RANGE = r"[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e\u3000-\u303f\uff01-\uff65\u2000-\u206f\ufe10-\ufe1f\ufe30-\ufe4f]"
-
-# 4. CJK Unified Ideographs & Extension ranges:
+# CJK Unified Ideographs & Extension ranges:
 CJK_IDEOGRAPHS_RANGE = r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"
 
 
 def get_required_port() -> int:
-    val = os.getenv("TEXT_CLEANER_PORT", "").strip()
+    val = os.getenv("CJK_TRIM_PORT", "").strip()
     if not val:
-        val = os.getenv("CLEANER_PORT", "").strip()
-    if not val:
-        raise ValueError("Missing TEXT_CLEANER_PORT environment variable.")
+        raise ValueError("Missing CJK_TRIM_PORT environment variable.")
     try:
         port = int(val)
     except ValueError as exc:
-        raise ValueError(f"Invalid TEXT_CLEANER_PORT '{val}': must be a valid integer.") from exc
+        raise ValueError(f"Invalid CJK_TRIM_PORT '{val}': must be a valid integer.") from exc
     if not (1 <= port <= 65535):
-        raise ValueError(f"Invalid TEXT_CLEANER_PORT '{val}': port number must be between 1 and 65535.")
+        raise ValueError(f"Invalid CJK_TRIM_PORT '{val}': port number must be between 1 and 65535.")
     return port
 
 
-def get_bool_env(name: str, fallback_name: str = "", default: bool = True) -> bool:
+def get_bool_env(name: str, default: bool = True) -> bool:
     val = os.getenv(name)
-    if val is None and fallback_name:
-        val = os.getenv(fallback_name)
     if val is None or not val.strip():
         return default
     return val.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def clean_transcript(text: str, trim_ascii: bool = True, trim_cjk_spaces: bool = True) -> str:
-    """Normalize whitespace around punctuation and CJK characters using Unicode ranges."""
+def clean_transcript(text: str, collapse_cjk_spaces: bool = True) -> str:
+    """Remove redundant spaces around CJK punctuation and between CJK ideographs.
+
+    ASCII content is preserved as-is (except stripping leading/trailing
+    whitespace); no interior ASCII space collapsing is performed.
+    """
     if not text:
         return ""
 
-    punct_pattern = ALL_PUNCT_RANGE if trim_ascii else CJK_PUNCT_RANGE
+    # 1. Remove whitespace immediately after CJK punctuation
+    text = re.sub(f"({CJK_PUNCT_RANGE})\\s+", r"\1", text)
 
-    # 1. Remove one or more spaces immediately after any matching punctuation mark
-    text = re.sub(f"({punct_pattern})\\s+", r"\1", text)
+    # 2. Remove whitespace immediately before CJK punctuation
+    text = re.sub(f"\\s+({CJK_PUNCT_RANGE})", r"\1", text)
 
-    # 2. Remove whitespace immediately before any matching punctuation mark
-    text = re.sub(f"\\s+({punct_pattern})", r"\1", text)
-
-    # 3. Remove spaces between consecutive CJK ideographs if enabled
-    if trim_cjk_spaces:
-        # Loop to collapse sequences of single CJK characters separated by spaces
+    # 3. Remove spaces between consecutive CJK ideographs if enabled.
+    #    Loop to collapse sequences where a single pass leaves new adjacencies.
+    if collapse_cjk_spaces:
         while re.search(f"({CJK_IDEOGRAPHS_RANGE})\\s+({CJK_IDEOGRAPHS_RANGE})", text):
             text = re.sub(f"({CJK_IDEOGRAPHS_RANGE})\\s+({CJK_IDEOGRAPHS_RANGE})", r"\1\2", text)
 
-    # 4. Collapse remaining consecutive spaces/tabs to a single space
-    text = re.sub(r"[ \t]+", " ", text)
+    # 4. Strip leading/trailing whitespace only. Interior ASCII spacing is kept.
     return text.strip()
 
 
@@ -103,7 +97,7 @@ def extract_input_text(messages: list[dict[str, Any]]) -> str:
     return combined.strip()
 
 
-def make_chat_response(content: str, model: str = "text-cleaner") -> dict[str, Any]:
+def make_chat_response(content: str, model: str = "cjk-trim") -> dict[str, Any]:
     """Wrap cleaned text in candidates JSON expected by vinput-daemon."""
     wrapped = json.dumps({"candidates": [content]}, ensure_ascii=False)
     return {
@@ -122,9 +116,8 @@ def make_chat_response(content: str, model: str = "text-cleaner") -> dict[str, A
     }
 
 
-class CleanerHandler(BaseHTTPRequestHandler):
-    trim_ascii: bool = True
-    trim_cjk_spaces: bool = True
+class CjkTrimHandler(BaseHTTPRequestHandler):
+    collapse_cjk_spaces: bool = True
 
     def do_POST(self) -> None:
         if self.path.rstrip("/") not in ("/v1/chat/completions", "/chat/completions"):
@@ -140,9 +133,9 @@ class CleanerHandler(BaseHTTPRequestHandler):
 
         messages = body.get("messages", [])
         raw_text = extract_input_text(messages)
-        cleaned_text = clean_transcript(raw_text, trim_ascii=self.trim_ascii, trim_cjk_spaces=self.trim_cjk_spaces)
+        cleaned_text = clean_transcript(raw_text, collapse_cjk_spaces=self.collapse_cjk_spaces)
 
-        resp_obj = make_chat_response(cleaned_text, body.get("model", "text-cleaner"))
+        resp_obj = make_chat_response(cleaned_text, body.get("model", "cjk-trim"))
         payload = json.dumps(resp_obj, ensure_ascii=False).encode("utf-8")
 
         self.send_response(200)
@@ -157,7 +150,7 @@ class CleanerHandler(BaseHTTPRequestHandler):
                 "object": "list",
                 "data": [
                     {
-                        "id": "text-cleaner",
+                        "id": "cjk-trim",
                         "object": "model",
                         "owned_by": "vinput",
                     }
@@ -188,7 +181,7 @@ class CleanerHandler(BaseHTTPRequestHandler):
         Because log_message is suppressed above, this ensures genuine HTTP errors
         are still routed to stderr with the adapter prefix for troubleshooting.
         """
-        sys.stderr.write(f"[text-cleaner] {format % args}\n")
+        sys.stderr.write(f"[cjk-trim] {format % args}\n")
         sys.stderr.flush()
 
 
@@ -196,20 +189,16 @@ def main() -> int:
     try:
         port = get_required_port()
     except ValueError as exc:
-        sys.stderr.write(f"[text-cleaner] {exc}\n")
+        sys.stderr.write(f"[cjk-trim] {exc}\n")
         sys.stderr.flush()
         return EXIT_USAGE_ERROR
 
-    trim_ascii = get_bool_env("TEXT_CLEANER_TRIM_ASCII_PUNCT", "CLEANER_TRIM_ASCII_PUNCT", True)
-    trim_cjk_spaces = get_bool_env("TEXT_CLEANER_TRIM_CJK_SPACES", "CLEANER_TRIM_CJK_SPACES", True)
-
-    CleanerHandler.trim_ascii = trim_ascii
-    CleanerHandler.trim_cjk_spaces = trim_cjk_spaces
+    CjkTrimHandler.collapse_cjk_spaces = get_bool_env("CJK_TRIM_COLLAPSE_CJK_SPACES", default=True)
 
     try:
-        server = HTTPServer(("127.0.0.1", port), CleanerHandler)
+        server = HTTPServer(("127.0.0.1", port), CjkTrimHandler)
     except Exception as exc:
-        sys.stderr.write(f"[text-cleaner] Failed to bind port {port}: {exc}\n")
+        sys.stderr.write(f"[cjk-trim] Failed to bind port {port}: {exc}\n")
         sys.stderr.flush()
         return EXIT_RUNTIME_ERROR
 

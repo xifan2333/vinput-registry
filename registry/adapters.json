@@ -18,17 +18,17 @@
       ]
     },
     {
-      "id": "adapter.text-cleaner.proxy",
-      "short_id": "clean-spaces",
+      "id": "adapter.cjk-trim.proxy",
+      "short_id": "cjk-trim",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/text-cleaner/proxy/entry.py"
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/text-cleaner/proxy/README.md",
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/cjk-trim/proxy/README.md",
       "envs": [
-        { "name": "TEXT_CLEANER_PORT", "required": true }
+        { "name": "CJK_TRIM_PORT", "required": true }
       ]
     }
   ]
