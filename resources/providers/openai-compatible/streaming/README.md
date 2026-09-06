@@ -42,6 +42,10 @@ explicitly sets `sample_rate`.
   Transcription model id forwarded as `audio.input.transcription.model`.
 - `VINPUT_ASR_SESSION_MODEL` optional
   Realtime websocket `model`. Defaults to `VINPUT_ASR_MODEL`.
+- `VINPUT_ASR_BINARY_MODE` optional
+  Set to `true` to stream raw PCM audio via WebSocket binary frames instead of
+  Base64-encoded JSON `input_audio_buffer.append` text frames. Supported by
+  OpenAI Realtime API. Defaults to `false`.
 - `VINPUT_ASR_LANGUAGE` optional
   Language hint forwarded to the upstream transcription session.
 - `VINPUT_ASR_PROMPT` optional
