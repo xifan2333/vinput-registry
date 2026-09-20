@@ -37,7 +37,7 @@ Verify repository roles before making changes:
 
 ## 3. Hard Engineering Rules
 
-1. **Zero External Dependencies**: All provider and adapter scripts (`entry.py`) must use the **Python 3 standard library only** (e.g. `urllib.request`, `socket`, `ssl`, `json`, `hashlib`, `struct`). Never import third-party packages (no `requests`, `websockets`, `aiohttp`).
+1. **Zero External Dependencies & No Binaries**: All provider and adapter scripts (`entry.py`) must use the **Python 3 standard library only** (e.g. `urllib.request`, `socket`, `ssl`, `json`, `hashlib`, `struct`). Never import third-party packages (no `requests`, `websockets`, `aiohttp`) and strictly **never distribute precompiled binary executables** (to guarantee auditability, portability across `x86_64`/`aarch64`, and zero-dependency distribution).
 2. **Resource ID Structure**: Stable machine IDs follow `<kind>.<folder>.<name>`:
    - Providers: `provider.<folder>.<name>` (streaming providers **must** end with `.streaming`).
    - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
@@ -83,6 +83,10 @@ Follow progressive disclosure: consult specific reference files depending on you
 ### Task: Writing or Debugging a Cloud ASR Provider
 Read **[references/provider-protocol.md](references/provider-protocol.md)**
 - Streaming duplex JSONL protocol (stdin `audio`, `finish`, `cancel` vs stdout `session_started`, `partial`, `final`, `error`, `closed`).
+- Raw PCM binary streaming (`VINPUT_ASR_BINARY_MODE` / Opcode `0x2`) vs Base64 text frames.
+- Single final per utterance semantics (preventing premature cutoffs on mid-stream completions).
+- Pure Python 3 standard library RFC 6455 WebSocket client architecture.
+- Guidelines for self-hosted / dedicated GPU ASR servers (e.g. vLLM / OpenAI Realtime) and artifact token stripping.
 - Batch raw PCM stdin to plain text stdout protocol.
 - Standard exit codes (`0` success, `1` runtime error, `2` usage/config error).
 - Audio framing (16000Hz, mono, S16_LE), start buffering, fallback final, and finish grace period.
