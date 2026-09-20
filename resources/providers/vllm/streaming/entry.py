@@ -86,10 +86,10 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self.socket = self._connect()
         self._recv_buffer = b""
         self._closed = False
         self._send_lock = threading.Lock()
+        self.socket = self._connect()
 
     def _connect(self) -> socket.socket:
         raw_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
@@ -368,6 +368,22 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         return
 
 
+
+
+def wait_for_session_ready(state, timeout: float) -> None:
+    """Wait until the reader thread has seen session.created, or timeout.
+
+    Avoids sending audio before the upstream session is ready.
+    """
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if state.get("session_started"):
+            return
+        _time.sleep(0.02)
+    raise RuntimeError("timed out waiting for session.created")
+
+
 def run() -> int:
     model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
     url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
@@ -404,7 +420,7 @@ def run() -> int:
     thread.start()
 
     saw_finish = False
-    has_audio = False
+    pending_commit = False
     try:
         for raw_line in sys.stdin:
             if stop_event.is_set():
@@ -421,26 +437,34 @@ def run() -> int:
                 b64 = event.get("audio_base64")
                 if not isinstance(b64, str) or not b64:
                     raise ValueError("audio event requires non-empty audio_base64.")
+                # Don't send audio before the upstream session is ready.
+                wait_for_session_ready(state, timeout)
                 pcm_audio = base64.b64decode(b64)
-                has_audio = True
+                pending_commit = True
                 step = max(2, int(16000 * chunk_ms / 1000) * 2)
                 for i in range(0, len(pcm_audio), step):
                     chunk = pcm_audio[i:i+step]
                     client.send_json(build_append(base64.b64encode(chunk).decode("ascii")))
                 if bool(event.get("commit", False)):
+                    # This block is already the final chunk; no need to commit
+                    # again on finish. Clear the pending flag.
                     client.send_json(build_commit(final=True))
+                    pending_commit = False
                 continue
             if etype == "finish":
                 saw_finish = True
-                if has_audio:
+                if pending_commit:
                     client.send_json(build_commit(final=True))
+                    # Keep pending_commit true so the finalizer below waits for
+                    # transcription.done before closing.
                 break
             if etype == "cancel":
                 stop_event.set()
                 break
             raise ValueError(f"Unsupported event type: {etype or ''}")
     finally:
-        if saw_finish and has_audio and not stop_event.is_set():
+        if saw_finish and not stop_event.is_set():
+            # Wait up to finish_grace_secs for transcription.done to arrive.
             thread.join(timeout=finish_grace_secs)
         stop_event.set()
         client.close()
