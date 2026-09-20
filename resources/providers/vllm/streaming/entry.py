@@ -341,8 +341,10 @@ def build_commit(final: bool) -> dict[str, Any]:
 
 def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> None:
     mtype = str(message.get("type", "")).strip()
-    if mtype == "session.created":
+    if mtype in ("session.created", "session.updated"):
         # session_started was already emitted in run(); just mark ready.
+        # Some OpenAI-Realtime-style endpoints acknowledge session.update with
+        # session.updated instead of session.created, so accept either.
         state["session_started"] = True
         return
     if mtype == "transcription.delta":
