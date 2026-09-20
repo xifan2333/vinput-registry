@@ -34,17 +34,13 @@ Local/self-hosted realtime ASR provider over WebSocket, generic and model-agnost
 ## Environment Variables
 
 - `VINPUT_ASR_URL` optional
-  WebSocket endpoint, e.g. `ws://<host>:7000/v1/realtime`. Defaults to a local vLLM realtime endpoint.
+  WebSocket endpoint, e.g. `ws://127.0.0.1:7000/v1/realtime`.
 - `VINPUT_ASR_MODEL` optional
-  Served model name forwarded as `session.update.model` (e.g. `qwen3-asr`).
-- `VINPUT_ASR_CHUNK_MS` optional
-  PCM chunk duration in milliseconds sent per append. Defaults to `250`.
-- `VINPUT_ASR_TIMEOUT` optional
-  Network timeout in seconds. Defaults to `30`.
-- `VINPUT_ASR_FINISH_GRACE_SECS` optional
-  Extra wait time after local `finish` before the script closes the socket.
-- `VINPUT_ASR_DEBUG` optional
-  Set to `true` to print debug info to stderr.
+  Served model name forwarded as `session.update.model`.
+
+Advanced tuning (chunk size, timeouts, debug logging) can still be supplied via
+environment variables but is intentionally not advertised in the registry to
+avoid polluting user configuration.
 
 ## Notes
 

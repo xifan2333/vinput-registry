@@ -406,22 +406,6 @@
         {
           "name": "VINPUT_ASR_MODEL",
           "required": false
-        },
-        {
-          "name": "VINPUT_ASR_CHUNK_MS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_TIMEOUT",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
-          "required": false
-        },
-        {
-          "name": "VINPUT_ASR_DEBUG",
-          "required": false
         }
       ]
     }
