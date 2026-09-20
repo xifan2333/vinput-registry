@@ -18,7 +18,7 @@ import threading
 from typing import Any
 from urllib.parse import urlparse
 
-DEFAULT_URL = "ws://192.168.102.10:7000/v1/realtime"
+DEFAULT_URL = "ws://127.0.0.1:7000/v1/realtime"
 DEFAULT_MODEL = "qwen3-asr"
 DEFAULT_TIMEOUT = 30
 DEFAULT_FINISH_GRACE_SECS = 0.5
@@ -37,6 +37,12 @@ def write_stdout(event: dict[str, Any]) -> None:
 def write_stderr(message: str) -> None:
     sys.stderr.write(message + "\n")
     sys.stderr.flush()
+
+
+def debug_log(message: str) -> None:
+    if os.getenv("VINPUT_ASR_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+        sys.stderr.write("[provider.vllm] " + message + "\n")
+        sys.stderr.flush()
 
 
 
@@ -83,6 +89,7 @@ class WebSocketClient:
         self.socket = self._connect()
         self._recv_buffer = b""
         self._closed = False
+        self._send_lock = threading.Lock()
 
     def _connect(self) -> socket.socket:
         raw_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
@@ -121,7 +128,11 @@ class WebSocketClient:
             data.extend(chunk)
             if len(data) > 65536:
                 raise RuntimeError("WebSocket handshake failed: response too large.")
-        return bytes(data)
+        # Keep any bytes after the HTTP header terminator so an immediate
+        # WebSocket frame (e.g. session.created) is not lost.
+        head, _, trailing = data.partition(b"\r\n\r\n")
+        self._recv_buffer = trailing
+        return bytes(head) + b"\r\n\r\n" + trailing
 
     def _validate_handshake(self, response: bytes, key: str) -> None:
         header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
@@ -201,6 +212,10 @@ class WebSocketClient:
         if self._closed:
             return
 
+        with self._send_lock:
+            self._send_frame_unlocked(opcode, payload)
+
+    def _send_frame_unlocked(self, opcode: int, payload: bytes) -> None:
         first = 0x80 | (opcode & 0x0F)
         mask_key = secrets.token_bytes(4)
         length = len(payload)
@@ -272,27 +287,43 @@ class WebSocketClient:
 
 
 
-def strip_trailing_lang_prefix(seg: str) -> str:
+def _strip_trailing_lang_prefix(seg: str) -> str:
+    """If `seg` ends with a Qwen3-ASR `language <lang>` metadata prefix that is
+    immediately followed by the `<asr_text>` marker, remove exactly that run.
+
+    We only remove it when the whole trailing run is `language <word>` (a single
+    non-whitespace word), so ordinary dictated text such as 'select language
+    English' is never truncated.
+    """
     lp = "language "
     pos = seg.rfind(lp)
     if pos < 0:
         return seg
     after = seg[pos + len(lp):]
-    if after and not any(c.isspace() for c in after):
+    # language name must be one non-whitespace word (no spaces/punct/newline)
+    if after and after.strip() and not any(c.isspace() for c in after):
         return seg[:pos]
     return seg
 
 
 def strip_prefix(text: str) -> str:
+    """Strip every `language {lang}<asr_text>` prefix, keep all segments, drop newlines.
+
+    For each `<asr_text>` marker, we remove the trailing `language <word>` run
+    immediately before it. The final tail after the last marker is kept as-is,
+    so ordinary dictated text is preserved.
+    """
     out = []
     pos = 0
     while True:
         rel = text.find(ASR_TEXT_TAG, pos)
         if rel < 0:
+            # Final tail: keep as-is (no metadata removal here).
+            out.append(text[pos:])
             break
-        out.append(strip_trailing_lang_prefix(text[pos:rel]))
+        seg = text[pos:rel]
+        out.append(_strip_trailing_lang_prefix(seg))
         pos = rel + len(ASR_TEXT_TAG)
-    out.append(strip_trailing_lang_prefix(text[pos:]))
     return "".join(out).replace("\n", "").replace("\r", "")
 
 
@@ -311,8 +342,8 @@ def build_commit(final: bool) -> dict[str, Any]:
 def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> None:
     mtype = str(message.get("type", "")).strip()
     if mtype == "session.created":
+        # session_started was already emitted in run(); just mark ready.
         state["session_started"] = True
-        write_stdout({"type": "session_started"})
         return
     if mtype == "transcription.delta":
         delta = str(message.get("delta", ""))
@@ -324,7 +355,8 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
     if mtype == "transcription.done":
         text = str(message.get("text", ""))
         final = strip_prefix(text) if text else strip_prefix(state["raw"])
-        if final:
+        if final and not state.get("final_sent"):
+            state["final_sent"] = True
             write_stdout({"type": "final", "text": final})
         state["done"] = True
         return
@@ -343,11 +375,15 @@ def run() -> int:
     finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
     chunk_ms = get_optional_int_env("VINPUT_ASR_CHUNK_MS", DEFAULT_CHUNK_MS)
 
+    debug_log(f"connecting to {url}")
     client = WebSocketClient(url, {}, timeout)
+    # vinput daemon expects session_started promptly; send it now.
+    write_stdout({"type": "session_started"})
     client.send_json(build_session_update(model))
     client.send_json(build_commit(final=False))
+    debug_log("session.update + non-final commit sent")
 
-    state = {"session_started": False, "error": None, "done": False, "raw": "", "closed": False}
+    state = {"session_started": False, "error": None, "done": False, "raw": "", "closed": False, "final_sent": False}
     stop_event = threading.Event()
 
     def reader() -> None:
@@ -409,9 +445,10 @@ def run() -> int:
         stop_event.set()
         client.close()
         thread.join(timeout=1.0)
-        if state["raw"]:
+        if state["raw"] and not state.get("final_sent") and not state.get("error") and state.get("done"):
             final = strip_prefix(state["raw"])
             if final:
+                state["final_sent"] = True
                 write_stdout({"type": "final", "text": final})
         if not state["closed"]:
             write_stdout({"type": "closed"})
