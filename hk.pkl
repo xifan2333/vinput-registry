@@ -1,7 +1,7 @@
-amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
+amends "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.0.1/hk@2.0.1#/Builtins.pkl"
 
-local linters = new Mapping<String, Step> {
+steps {
   ["ruff-check"] {
     glob = List("**/*.py")
     check = "ruff check {{files}}"
@@ -34,21 +34,4 @@ local linters = new Mapping<String, Step> {
   ["newlines"] = Builtins.newlines
   ["check-merge-conflict"] = Builtins.check_merge_conflict
   ["detect-private-key"] = Builtins.detect_private_key
-}
-
-hooks {
-  ["pre-commit"] {
-    fix = true
-    stash = "patch-file"
-    steps = linters
-  }
-
-  ["check"] {
-    steps = linters
-  }
-
-  ["fix"] {
-    fix = true
-    steps = linters
-  }
 }

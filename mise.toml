@@ -1,7 +1,6 @@
 [tools]
-hk = "1.57.0"
-ruff = "0.16.5"
-node = "22"
+hk = "latest"
+ruff = "latest"
 "npm:pyright" = "1.1.413"
 
 [tasks.default]
