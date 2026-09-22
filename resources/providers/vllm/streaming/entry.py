@@ -45,12 +45,9 @@ def debug_log(message: str) -> None:
         sys.stderr.flush()
 
 
-
 def get_optional_env(name: str, default: str = "") -> str:
     value = os.getenv(name, "").strip()
     return value or default
-
-
 
 
 def get_optional_int_env(name: str, default: int) -> int:
@@ -60,14 +57,11 @@ def get_optional_int_env(name: str, default: int) -> int:
     return int(value)
 
 
-
-
 def get_optional_float_env(name: str, default: float) -> float:
     value = os.getenv(name, "").strip()
     if not value:
         return default
     return float(value)
-
 
 
 class WebSocketClient:
@@ -281,10 +275,7 @@ class WebSocketClient:
 
         data = self._recv_buffer[:size]
         self._recv_buffer = self._recv_buffer[size:]
-        return data
-
-
-
+        return bytes(data)
 
 
 def _strip_trailing_lang_prefix(seg: str) -> str:
@@ -368,8 +359,6 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         write_stdout({"type": "error", "message": err_msg})
         state["error"] = err_msg
         return
-
-
 
 
 def wait_for_session_ready(state, timeout: float) -> None:
