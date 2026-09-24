@@ -290,7 +290,7 @@ def _strip_trailing_lang_prefix(seg: str) -> str:
     pos = seg.rfind(lp)
     if pos < 0:
         return seg
-    after = seg[pos + len(lp):]
+    after = seg[pos + len(lp) :]
     # language name must be one non-whitespace word (no spaces/punct/newline)
     if after and after.strip() and not any(c.isspace() for c in after):
         return seg[:pos]
@@ -367,6 +367,7 @@ def wait_for_session_ready(state, timeout: float) -> None:
     Avoids sending audio before the upstream session is ready.
     """
     import time as _time
+
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
         if state.get("session_started"):
@@ -434,7 +435,7 @@ def run() -> int:
                 pending_commit = True
                 step = max(2, int(16000 * chunk_ms / 1000) * 2)
                 for i in range(0, len(pcm_audio), step):
-                    chunk = pcm_audio[i:i+step]
+                    chunk = pcm_audio[i : i + step]
                     client.send_json(build_append(base64.b64encode(chunk).decode("ascii")))
                 if bool(event.get("commit", False)):
                     # This block is already the final chunk; no need to commit
