@@ -55,7 +55,7 @@ jobs:
           TAGS="${{ inputs.tags || 'asr-models' }}"
           SINCE="${{ inputs.since || 'today' }}"
           CREATE_ISSUE_FLAG=""
-          if [ "${{ inputs.create_issue != false }}" = "true" ]; then
+          if [ "${{ github.event_name == 'schedule' || inputs.create_issue != false }}" = "true" ]; then
             CREATE_ISSUE_FLAG="--create-issue"
           fi
 
