@@ -44,5 +44,7 @@
   "provider.soniox.streaming.title": "Soniox（流式）",
   "provider.soniox.streaming.description": "通过 Soniox Real-time STT API 调用流式云端 ASR。",
   "provider.vllm.streaming.title": "本地 vLLM（流式）",
-  "provider.vllm.streaming.description": "通过本地/自托管的实时 ASR WebSocket 端点（如 vLLM /v1/realtime）调用流式 ASR。"
+  "provider.vllm.streaming.description": "通过本地/自托管的实时 ASR WebSocket 端点（如 vLLM /v1/realtime）调用流式 ASR。",
+  "provider.xfyun.streaming.title": "讯飞星火语音听写（流式）",
+  "provider.xfyun.streaming.description": "通过讯飞星火语音听写大模型 V2.0 WebSocket 接口调用流式云端 ASR。"
 }

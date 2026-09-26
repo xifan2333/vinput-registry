@@ -44,5 +44,7 @@
   "provider.soniox.streaming.title": "Soniox (Streaming)",
   "provider.soniox.streaming.description": "Use the Soniox real-time speech-to-text API for streaming cloud ASR.",
   "provider.vllm.streaming.title": "Local vLLM (Streaming)",
-  "provider.vllm.streaming.description": "Use a local/self-hosted realtime ASR WebSocket endpoint (e.g. vLLM /v1/realtime) for streaming ASR."
+  "provider.vllm.streaming.description": "Use a local/self-hosted realtime ASR WebSocket endpoint (e.g. vLLM /v1/realtime) for streaming ASR.",
+  "provider.xfyun.streaming.title": "iFlytek Spark IAT (Streaming)",
+  "provider.xfyun.streaming.description": "Use the iFlytek Spark speech dictation V2.0 WebSocket API for streaming cloud ASR."
 }
