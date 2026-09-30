@@ -1,11 +1,12 @@
 # providers.bailian.qwen-audio3.streaming
 
-Cloud ASR provider script for Bailian `qwen-audio-3.0-asr-flash-streaming`
+Cloud ASR provider script for Bailian `qwen-audio-3.1-asr-flash-streaming`
 over the DashScope duplex realtime speech recognition WebSocket protocol
 (`run-task` / `finish-task` with binary audio frames).
 
-The same protocol is shared by the Fun-ASR-Realtime and Paraformer realtime
-models, so those can be selected with `VINPUT_ASR_MODEL` as well.
+The same protocol is shared by the Qwen-Audio-3.0-ASR-Flash-Streaming,
+Fun-ASR-Realtime, and Paraformer realtime models, so those can be selected
+with `VINPUT_ASR_MODEL` as well.
 
 ## Entry
 
@@ -48,9 +49,9 @@ cumulative confirmed text.
   handshake. API keys are region-bound; pick the key that matches the endpoint
   below.
 - `VINPUT_ASR_MODEL` optional
-  Model id. Defaults to `qwen-audio-3.0-asr-flash-streaming`. Any model of the
-  `qwen-audio-3.0-asr-flash-streaming`, `fun-asr-realtime`, or `paraformer`
-  realtime families can be used here.
+  Model id. Defaults to `qwen-audio-3.1-asr-flash-streaming`. Any model of the
+  `qwen-audio-3.1-asr-flash-streaming`, `qwen-audio-3.0-asr-flash-streaming`,
+  `fun-asr-realtime`, or `paraformer` realtime families can be used here.
 - `VINPUT_ASR_URL` optional
   Full WebSocket endpoint override. Needed when the default endpoint does not
   match your region or workspace.
@@ -70,6 +71,13 @@ cumulative confirmed text.
   VAD sentence-splitting silence threshold in milliseconds
   (`parameters.max_sentence_silence`). Server default is `1300`; accepted range
   is `[200, 6000]`.
+- `VINPUT_ASR_VAD_MODEL` optional
+  Qwen-Audio-3.1 VAD model selector (`parameters.vad_model`). Server default is
+  `far_field_meeting_16k`; `near_meeting_16k` is recommended for close-talk
+  input-method usage.
+- `VINPUT_ASR_KEEP_DIALECT` optional
+  Qwen-Audio-3.1 only. When enabled, sets `parameters.keep_dialect: true` to
+  keep dialect expressions instead of normalizing to Mandarin.
 - `VINPUT_ASR_TIMEOUT` optional
   Network timeout in seconds.
 - `VINPUT_ASR_FINISH_GRACE_SECS` optional
