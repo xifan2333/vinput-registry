@@ -26,7 +26,7 @@ DEFAULT_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 MAAS_URL_TEMPLATE = "wss://{workspace_id}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
 # Context text is truncated from the end past this limit (server rule).
 MAX_CONTEXT_TEXT_LENGTH = 400
-DEFAULT_MODEL = "qwen-audio-3.0-asr-flash-streaming"
+DEFAULT_MODEL = "qwen-audio-3.1-asr-flash-streaming"
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_FORMAT = "pcm"
 DEFAULT_TIMEOUT = 30
@@ -401,6 +401,13 @@ def build_parameters() -> dict[str, Any]:
     language = get_optional_env("VINPUT_ASR_LANGUAGE")
     if language:
         parameters["language_hints"] = [language]
+
+    if get_optional_bool_env("VINPUT_ASR_KEEP_DIALECT", False):
+        parameters["keep_dialect"] = True
+
+    vad_model = get_optional_env("VINPUT_ASR_VAD_MODEL")
+    if vad_model:
+        parameters["vad_model"] = vad_model
 
     return parameters
 

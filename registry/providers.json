@@ -184,6 +184,14 @@
           "required": false
         },
         {
+          "name": "VINPUT_ASR_VAD_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_KEEP_DIALECT",
+          "required": false
+        },
+        {
           "name": "VINPUT_ASR_TIMEOUT",
           "required": false
         },
