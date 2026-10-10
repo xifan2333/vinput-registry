@@ -66,3 +66,36 @@ Cloud ASR provider script for the unofficial `doubaoime-asr` protocol path used 
 - This path is based on a reverse-engineered, unofficial protocol and may break if upstream changes.
 - The script auto-registers a virtual device and caches credentials locally when `VINPUT_ASR_DEVICE_ID` and `VINPUT_ASR_TOKEN` are not provided.
 - This resource is intended to be materialized into local config and executed locally.
+
+## Client 1.4.6 compatibility
+
+The default protocol now follows the Android 1.4.6 client: device registration
+uses `log-klink.zijieapi.com`, and sessions use the current client ASR application
+identifier instead of fetching a token from the legacy settings endpoint.
+Existing cached device IDs are retained, while automatically cached tokens are
+updated. Explicit `VINPUT_ASR_DEVICE_ID` and `VINPUT_ASR_TOKEN` overrides continue
+to take precedence. Credential paths and provider IDs are unchanged.
+
+The default session uses `app_name=oime`, streaming input mode, speech rejection,
+two-pass recognition, and no three-pass recognition. Existing environment
+options can still override their corresponding settings. Audio uses 16 kHz mono
+Opus VOIP at 16 kbps. Buffered audio is sent at no more than roughly four times
+real time, followed by an empty terminal audio frame. The default finish grace
+period is 15 seconds (an upper bound; a completed session exits immediately).
+
+The new backend's first result contains cumulative text; auxiliary candidates
+are not appended. Updates are emitted as `partial` events, and a single final
+transcript is emitted at teardown. Cancelling does not submit a transcript.
+The obsolete silent health-probe/re-registration loop is no longer performed;
+connection or session failures remain visible to the caller.
+
+Protocol observations were cross-checked against VoiceKey's
+[1.4.6 update](https://github.com/J3n5en/voicekey/commit/82ae4f245e) and
+[registration endpoint update](https://github.com/J3n5en/voicekey/commit/181a1360c1).
+This remains an unofficial client protocol, not a supported cloud ASR API.
+
+Offline regression tests (no network, credentials, or libopus required):
+
+```sh
+python3 -m unittest discover -s tests -p 'test_doubaoime_streaming.py'
+```

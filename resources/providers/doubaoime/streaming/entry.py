@@ -21,16 +21,17 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
-REGISTER_URL = "https://log.snssdk.com/service/2/device_register/"
-SETTINGS_URL = "https://is.snssdk.com/service/settings/v3/"
+REGISTER_URL = "https://log-klink.zijieapi.com/service/2/device_register/"
+# ASR application identifier advertised by the 1.4.6 client (not a user credential).
+DEFAULT_APP_KEY = "OrnqKvSSrs"
 DEFAULT_URL = "wss://frontier-audio-ime-ws.doubao.com/ocean/api/v1/ws"
 DEFAULT_AID = "401734"
 DEFAULT_TIMEOUT = 30
-DEFAULT_FINISH_GRACE_SECS = 0.4
+DEFAULT_FINISH_GRACE_SECS = 15.0
 DEFAULT_FRAME_DURATION_MS = 20
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
-DEFAULT_APP_NAME = "com.android.chrome"
+DEFAULT_APP_NAME = "oime"
 DEFAULT_CREDENTIAL_PATH = "~/.cache/vinput/doubaoime-asr/credentials.json"
 SEGMENT_START_ADVANCE_SECS = 3.0
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -39,7 +40,7 @@ EXIT_USAGE_ERROR = 2
 CONCURRENCY_QUOTA_STATUS_CODE = 40200011
 
 USER_AGENT = (
-    "com.bytedance.android.doubaoime/100102018 "
+    "com.bytedance.android.doubaoime/100406010 "
     "(Linux; U; Android 16; en_US; Pixel 7 Pro; "
     "Build/BP2A.250605.031.A2; Cronet/TTNetVersion:94cf429a "
     "2025-11-17 QuicVersion:1f89f732 2025-05-08)"
@@ -48,10 +49,10 @@ USER_AGENT = (
 APP_CONFIG = {
     "aid": 401734,
     "app_name": "oime",
-    "version_code": 100102018,
-    "version_name": "1.1.2",
-    "manifest_version_code": 100102018,
-    "update_version_code": 100102018,
+    "version_code": 100406010,
+    "version_name": "1.4.6",
+    "manifest_version_code": 100406010,
+    "update_version_code": 100406010,
     "channel": "official",
     "package": "com.bytedance.android.doubaoime",
 }
@@ -76,7 +77,7 @@ DEFAULT_DEVICE_CONFIG = {
 FRAME_STATE_FIRST = 1
 FRAME_STATE_MIDDLE = 3
 FRAME_STATE_LAST = 9
-OPUS_APPLICATION_AUDIO = 2049
+OPUS_APPLICATION_VOIP = 2048
 OPUS_MAX_PACKET_SIZE = 4000
 
 
@@ -379,11 +380,19 @@ class OpusEncoder:
         self.encoder = self.lib.opus_encoder_create(
             sample_rate,
             channels,
-            OPUS_APPLICATION_AUDIO,
+            OPUS_APPLICATION_VOIP,
             ctypes.byref(error),
         )
         if not self.encoder or error.value != 0:
             raise RuntimeError(f"libopus encoder init failed: {error.value}")
+
+        self.lib.opus_encoder_ctl.restype = ctypes.c_int
+        for request, value in ((4002, 16000), (4010, 5)):  # Bitrate and complexity.
+            result = self.lib.opus_encoder_ctl(
+                ctypes.c_void_p(self.encoder), ctypes.c_int(request), ctypes.c_int(value)
+            )
+            if result != 0:
+                raise RuntimeError(f"libopus encoder configuration failed: {result}")
 
     def encode(self, pcm_frame: bytes, samples_per_frame: int) -> bytes:
         if self.lib is None or self.encoder is None:
@@ -641,20 +650,6 @@ def http_post_json(
         return json.loads(response.read().decode("utf-8"))
 
 
-def http_post_form(
-    url: str,
-    *,
-    params: dict[str, Any],
-    body: str,
-    headers: dict[str, str],
-    timeout: int,
-) -> dict[str, Any]:
-    full_url = url + "?" + urlencode(sorted(params.items()))
-    request = Request(full_url, data=body.encode("utf-8"), headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
 def load_credentials(path: Path) -> DeviceCredentials | None:
     if not path.exists():
         return None
@@ -760,36 +755,6 @@ def register_device(timeout: int) -> DeviceCredentials:
     )
 
 
-def get_asr_token(device_id: str, cdid: str, timeout: int) -> str:
-    body = "body=null"
-    params = {
-        "device_platform": "android",
-        "os": "android",
-        "ssmix": "a",
-        "_rticket": str(int(time.time() * 1000)),
-        "cdid": cdid,
-        "channel": APP_CONFIG["channel"],
-        "aid": str(APP_CONFIG["aid"]),
-        "app_name": APP_CONFIG["app_name"],
-        "version_code": str(APP_CONFIG["version_code"]),
-        "version_name": APP_CONFIG["version_name"],
-        "device_id": device_id,
-    }
-    headers = {
-        "User-Agent": USER_AGENT,
-        "x-ss-stub": hashlib.md5(body.encode("utf-8")).hexdigest().upper(),
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    response = http_post_form(
-        SETTINGS_URL,
-        params=params,
-        body=body,
-        headers=headers,
-        timeout=timeout,
-    )
-    return str(response["data"]["settings"]["asr_config"]["app_key"])
-
-
 def ensure_credentials(timeout: int) -> DeviceCredentials:
     credential_path = Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
     credentials = load_credentials(credential_path) or DeviceCredentials()
@@ -803,10 +768,9 @@ def ensure_credentials(timeout: int) -> DeviceCredentials:
         credentials = register_device(timeout)
     if not credentials.cdid:
         credentials.cdid = generate_uuid()
-    if env_token:
-        credentials.token = env_token
-    elif not credentials.token:
-        credentials.token = get_asr_token(credentials.device_id, credentials.cdid, timeout)
+    # Cached settings tokens belong to the old backend. Preserve explicit
+    # overrides, but migrate automatic credentials without discarding device IDs.
+    credentials.token = env_token or DEFAULT_APP_KEY
 
     save_credentials(credential_path, credentials)
     return credentials
@@ -818,104 +782,6 @@ def _credentials_pinned_by_env() -> bool:
 
 def _resolve_credential_path() -> Path:
     return Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
-
-
-def _probe_device_healthy(credentials: DeviceCredentials, timeout: int) -> bool:
-    """跑一次完整的 StartTask + StartSession + 一帧静音 探针。
-
-    服务端的 ASR 后端路由失败 (rpc service discovery failure) 仅在收到第一帧
-    TaskRequest 之后才会暴露，因此 SessionStarted 不够，需要至少送出一帧再读响应。
-    """
-    request_id = generate_uuid()
-    try:
-        client = WebSocketClient(
-            build_websocket_url(credentials.device_id),
-            {
-                "User-Agent": USER_AGENT,
-                "proto-version": "v2",
-                "x-custom-keepalive": "true",
-            },
-            timeout,
-        )
-    except Exception as exc:
-        write_stderr(f"Doubao IME probe websocket connect failed: {exc}")
-        return False
-
-    samples_per_frame = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000
-    silent_pcm = b"\x00" * (samples_per_frame * 2)
-    silent_frame = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS).encode(silent_pcm, samples_per_frame)
-
-    try:
-        client.send_binary(build_start_task(request_id, credentials.token))
-        resp = client.recv_binary()
-        if resp is None:
-            return False
-        parsed = parse_server_response(resp)
-        if parsed["message_type"] != "TaskStarted":
-            return False
-
-        client.send_binary(
-            build_start_session(request_id, credentials.token, build_session_config(credentials.device_id))
-        )
-        resp = client.recv_binary()
-        if resp is None:
-            return False
-        parsed = parse_server_response(resp)
-        if parsed["message_type"] != "SessionStarted":
-            return False
-
-        client.send_binary(build_asr_request(silent_frame, request_id, FRAME_STATE_FIRST, int(time.time() * 1000)))
-        client.send_binary(build_finish_session(request_id, credentials.token))
-
-        while True:
-            resp = client.recv_binary()
-            if resp is None:
-                return True
-            parsed = parse_server_response(resp)
-            mt = parsed["message_type"]
-            if mt in {"TaskFailed", "SessionFailed"}:
-                return False
-            if mt == "SessionFinished":
-                return True
-    except Exception as exc:
-        write_stderr(f"Doubao IME probe failed: {exc}")
-        return False
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
-
-
-def ensure_healthy_credentials(timeout: int, max_attempts: int = 5) -> DeviceCredentials:
-    """注册凭证并通过探针验证后端路由可用；失败则丢弃凭证重新注册。
-
-    服务端的 device_register 大约有 ~50% 概率分配一个无 ASR 后端路由的设备
-    （`rpc error code = 2 desc = service discovery failure`），用探针识别并自愈。
-    """
-    credential_path = _resolve_credential_path()
-    pinned = _credentials_pinned_by_env()
-    for attempt in range(1, max_attempts + 1):
-        credentials = ensure_credentials(timeout)
-        if credentials.route_healthy and not pinned:
-            return credentials
-        if _probe_device_healthy(credentials, timeout):
-            credentials.route_healthy = True
-            save_credentials(credential_path, credentials)
-            return credentials
-        if pinned:
-            raise RuntimeError(
-                "Doubao IME pinned credentials failed health probe; 服务端拒绝路由，可能 device_id/token 已失效。"
-            )
-        write_stderr(
-            f"Doubao IME device {credentials.device_id} failed health probe "
-            f"(attempt {attempt}/{max_attempts}); re-registering."
-        )
-        try:
-            credential_path.unlink()
-        except FileNotFoundError:
-            pass
-    raise RuntimeError(f"Doubao IME failed to register a healthy device after {max_attempts} attempts.")
 
 
 def _invalidate_credentials_after_route_failure(state: SessionState) -> None:
@@ -1001,14 +867,14 @@ def build_session_config(device_id: str) -> str:
             "sample_rate": DEFAULT_SAMPLE_RATE,
         },
         "enable_punctuation": get_optional_bool_env("VINPUT_ASR_ENABLE_PUNCTUATION", True),
-        "enable_speech_rejection": get_optional_bool_env("VINPUT_ASR_ENABLE_SPEECH_REJECTION", False),
+        "enable_speech_rejection": get_optional_bool_env("VINPUT_ASR_ENABLE_SPEECH_REJECTION", True),
         "extra": {
             "app_name": get_optional_env("VINPUT_ASR_APP_NAME", DEFAULT_APP_NAME),
             "cell_compress_rate": 8,
             "did": device_id,
-            "enable_asr_threepass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_THREEPASS", True),
+            "enable_asr_threepass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_THREEPASS", False),
             "enable_asr_twopass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_TWOPASS", True),
-            "input_mode": "tool",
+            "input_mode": "stream",
         },
     }
     return json_dumps_compact(config)
@@ -1146,6 +1012,18 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
     if not isinstance(results, list):
         return
 
+    # The 1.4.6 backend returns cumulative text first, then auxiliary candidates.
+    # Replace earlier hypotheses; appending them duplicates corrected sentences.
+    if results and not any(isinstance(item, dict) and "index" in item for item in results):
+        first = results[0]
+        text = first.get("text", "") if isinstance(first, dict) else ""
+        if isinstance(text, str) and text.strip():
+            state.committed_text = ""
+            state.current_partial_text = normalize_transcript_text(text)
+            state.current_partial_start_time = None
+            write_stdout({"type": "partial", "text": state.current_partial_text})
+        return
+
     text = ""
     text_start_time: float | None = None
     is_interim = True
@@ -1170,7 +1048,7 @@ def handle_server_message(message: bytes, state: SessionState, request_id: str) 
         return
 
     if nonstream_result or (not is_interim and vad_finished):
-        emit_final_text(state, text, words=extract_words(results))
+        write_stdout({"type": "partial", "text": state.record_final(text)})
         return
 
     write_stdout(
@@ -1212,7 +1090,7 @@ def run() -> int:
     threading.Thread(target=read_stdin, daemon=True).start()
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
     finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
-    credentials = ensure_healthy_credentials(timeout)
+    credentials = ensure_credentials(timeout)
     request_id = str(uuid.uuid4())
     token = credentials.token
 
@@ -1278,6 +1156,7 @@ def run() -> int:
     start_timestamp_ms = int(time.time() * 1000)
     sent_audio = False
     finish_requested = False
+    cancelled = False
 
     def finish_session() -> None:
         nonlocal frame_index, sent_audio, finish_requested
@@ -1287,7 +1166,7 @@ def run() -> int:
             padded = bytes(pcm_buffer)
             if len(padded) < bytes_per_frame:
                 padded += b"\x00" * (bytes_per_frame - len(padded))
-            frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_LAST
+            frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_MIDDLE
             frame_index = send_audio_frame(
                 client,
                 encoder,
@@ -1300,18 +1179,14 @@ def run() -> int:
             )
             pcm_buffer.clear()
             sent_audio = True
-        elif sent_audio:
-            silent = b"\x00" * bytes_per_frame
-            frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_LAST
-            frame_index = send_audio_frame(
-                client,
-                encoder,
-                request_id,
-                silent,
-                frame_state,
-                frame_index,
-                samples_per_frame,
-                start_timestamp_ms,
+        if sent_audio:
+            client.send_binary(
+                build_asr_request(
+                    b"",
+                    request_id,
+                    FRAME_STATE_LAST,
+                    start_timestamp_ms + frame_index * DEFAULT_FRAME_DURATION_MS,
+                )
             )
         client.send_binary(build_finish_session(request_id, token))
         finish_requested = True
@@ -1353,6 +1228,8 @@ def run() -> int:
                         start_timestamp_ms,
                     )
                     sent_audio = True
+                    # Bound audio buffered during registration to 4x realtime.
+                    time.sleep(0.005)
 
                 continue
 
@@ -1361,11 +1238,12 @@ def run() -> int:
                 break
 
             if event_type == "cancel":
+                cancelled = True
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        if state.session_started and not state.finished:
+        if not cancelled and state.session_started and not state.finished:
             try:
                 finish_session()
             except Exception:
@@ -1377,7 +1255,8 @@ def run() -> int:
             client.close()
         finally:
             thread.join(timeout=1.0)
-        emit_fallback_final(state)
+        if not cancelled:
+            emit_fallback_final(state)
         if not state.closed:
             write_stdout({"type": "closed"})
             state.closed = True
