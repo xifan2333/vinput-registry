@@ -15,6 +15,8 @@
   "provider.doubao.streaming.description": "通过火山引擎 OpenSpeech 官方大模型流式语音识别 API 调用流式云端 ASR。",
   "provider.doubaoime.streaming.title": "豆包输入法（流式）",
   "provider.doubaoime.streaming.description": "通过非官方的豆包输入法实时语音识别协议调用流式云端 ASR。",
+  "provider.wetype.streaming.title": "微信输入法（流式）",
+  "provider.wetype.streaming.description": "使用微信输入法非官方协议进行流式云端识别。日常口述建议先试原始场景，通常无需额外 LLM 整理。",
   "provider.vinput.remote.streaming.title": "VInput 手机输入（流式）",
   "provider.vinput.remote.streaming.description": "通过 VInput 内建的局域网文本输入服务提供伪流式 ASR。",
   "provider.openai-compatible.batch.title": "OpenAI 兼容（非流式）",
