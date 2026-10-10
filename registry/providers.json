@@ -250,6 +250,19 @@
       ]
     },
     {
+      "id": "provider.wetype.streaming",
+      "short_id": "wetype-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
+      "envs": []
+    },
+    {
       "id": "provider.vinput.remote.streaming",
       "short_id": "remote",
       "stream": true,
