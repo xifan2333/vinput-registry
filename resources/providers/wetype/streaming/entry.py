@@ -760,7 +760,7 @@ def run() -> int:
             encoder = OpusEncoder(16000, 1)
             voice_id = uuid.uuid4().hex
             emit("session_started", session_id=voice_id, config={})
-            seq = total = 0
+            seq = total = frames = polls = 0
             text = polished = ""
             packets: list[bytes] = []
             pcm = bytearray()
@@ -800,15 +800,19 @@ def run() -> int:
                     pcm.extend(base64.b64decode(event["audio_base64"], validate=True))
                     while len(pcm) >= 640 and not cancelled.is_set():
                         packets.append(encoder.encode(bytes(pcm[:640]), 320))
+                        frames += 1
                         del pcm[:640]
                         if len(packets) == 6:
                             send()
                 elif kind == "finish":
+                    finish_start = time.monotonic()
                     if pcm:
                         if len(pcm) % 2:
                             raise ValueError("PCM must contain 16-bit samples")
                         packets.append(encoder.encode(bytes(pcm).ljust(640, b"\0"), 320))
+                        frames += 1
                     if seq == 0 and not packets:
+                        print("[wetype] frames=0 uploads=0 polls=0 final=0ms", file=sys.stderr, flush=True)
                         emit("final", text="", segment_final=True, utterance_final=True)
                         return
                     deadline = time.monotonic() + grace
@@ -823,12 +827,19 @@ def run() -> int:
                             if remaining <= 0:
                                 break
                             client.ws.socket.settimeout(min(timeout, remaining))
+                            polls += 1
                             send(True, True)
                     except TimeoutError:
                         if not (text or polished):
                             raise
                         # After finish only, retain the latest transcript on a finalization timeout.
                     if not cancelled.is_set():
+                        final_ms = round((time.monotonic() - finish_start) * 1000)
+                        print(
+                            f"[wetype] frames={frames} uploads={seq} polls={polls} final={final_ms}ms",
+                            file=sys.stderr,
+                            flush=True,
+                        )
                         emit("final", text=polished or text, segment_final=True, utterance_final=True)
                     return
                 elif kind == "error":

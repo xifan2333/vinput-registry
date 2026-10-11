@@ -159,7 +159,7 @@ class LifecycleTests(unittest.TestCase):
         client = FakeClient()
         status, events, error = self.invoke(io.StringIO(audio() + audio(b"\0" * 10) + '{"type":"finish"}\n'), client)
         self.assertEqual(status, 0)
-        self.assertEqual(error, "")
+        self.assertRegex(error, r"^\[wetype\] frames=\d+ uploads=\d+ polls=\d+ final=\d+ms\n$")
         self.assertEqual([e["type"] for e in events], ["session_started", "partial", "partial", "final", "closed"])
         self.assertEqual(events[-2]["text"], "完整口述。")
         self.assertTrue(events[-2]["utterance_final"])
@@ -168,8 +168,9 @@ class LifecycleTests(unittest.TestCase):
 
     def test_empty_recording_does_not_upload_audio(self):
         client = FakeClient()
-        status, events, _ = self.invoke(io.StringIO('{"type":"finish"}\n'), client)
+        status, events, error = self.invoke(io.StringIO('{"type":"finish"}\n'), client)
         self.assertEqual(status, 0)
+        self.assertEqual(error, "[wetype] frames=0 uploads=0 polls=0 final=0ms\n")
         self.assertEqual([e["text"] for e in events if e["type"] == "final"], [""])
         self.assertEqual(client.calls, [])
 
@@ -224,7 +225,7 @@ class LifecycleTests(unittest.TestCase):
         client.voice = voice
         status, events, error = self.invoke(io.StringIO(audio() + '{"type":"finish"}\n'), client)
         self.assertEqual(status, 0)
-        self.assertEqual(error, "")
+        self.assertRegex(error, r"^\[wetype\] frames=\d+ uploads=\d+ polls=2 final=\d+ms\n$")
         self.assertEqual(events[-2]["text"], "最终定稿文本。")
         self.assertEqual(poll_count, 2)
 
@@ -239,8 +240,8 @@ class LifecycleTests(unittest.TestCase):
         client.voice = voice
         status, events, error = self.invoke(io.StringIO(audio() + '{"type":"finish"}\n'), client)
         self.assertEqual(status, 0)
+        self.assertRegex(error, r"^\[wetype\] frames=\d+ uploads=\d+ polls=\d+ final=\d+ms\n$")
         self.assertEqual([e["text"] for e in events if e["type"] == "final"], ["保留口述"])
-        self.assertEqual(error, "")
 
     def test_network_failure_before_finish_reports_error_without_final(self):
         client = FakeClient()

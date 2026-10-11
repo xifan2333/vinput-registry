@@ -44,7 +44,8 @@ vinput scene use __raw__
 - 新录音建立新连接，复用缓存的设备身份；失效身份重新注册。
 - PCM 每 20 ms 编码为 Opus，6 帧一批上传（120 ms）。
 - `session_started` 后输出累计 `partial`；中途服务端修正不会触发提前上屏。
-- `finish` 后上传余音并轮询定稿，整个录音仅输出一次 `final`，随后 `closed`。
+- `finish` 后上传余音并以 30 ms 节奏轮询定稿，整个录音仅输出一次 `final`，随后 `closed`。
+- 会话定稿完成时在 stderr 输出单行诊断统计（`[wetype] frames=<N> uploads=<N> polls=<N> final=<N>ms`），便于排障。
 - `cancel` 或未发送 `finish` 的 EOF 均中止，不输出最终文本；网络等待中的取消也可及时退出。
 - 网络或协议错误通过 `error` 和 stderr 报告，不静默重新上传整段音频。
 
