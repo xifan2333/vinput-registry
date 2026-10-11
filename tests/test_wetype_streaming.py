@@ -113,6 +113,16 @@ class ProtocolTests(unittest.TestCase):
         ws._read_http_response(sock)
         self.assertEqual(ws._recv_buffer, b"\x82\x00")
 
+    def test_opus_encoder_real_initialization(self):
+        try:
+            encoder = w.OpusEncoder(16000, 1)
+        except RuntimeError as exc:
+            if "Failed to locate system libopus" in str(exc):
+                self.skipTest("libopus not found on system")
+            raise
+        packet = encoder.encode(b"\0" * 640, 320)
+        self.assertGreater(len(packet), 0)
+
 
 class FakeEncoder:
     def __init__(self, *args):
