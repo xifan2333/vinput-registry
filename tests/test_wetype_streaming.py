@@ -205,6 +205,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(any(e["type"] == "final" for e in events))
         self.assertEqual(error, "")
 
+    def test_finish_polls_until_final_text(self):
+        client = FakeClient()
+        poll_count = 0
+
+        def voice(voice_id, opus, seq, total, end):
+            nonlocal poll_count
+            client.calls.append((opus, seq, total, end))
+            if not end:
+                return "临时", ""
+            if opus is not None:
+                return "临时2", ""
+            poll_count += 1
+            if poll_count < 2:
+                return "临时2", ""
+            return "临时2", "最终定稿文本。"
+
+        client.voice = voice
+        status, events, error = self.invoke(io.StringIO(audio() + '{"type":"finish"}\n'), client)
+        self.assertEqual(status, 0)
+        self.assertEqual(error, "")
+        self.assertEqual(events[-2]["text"], "最终定稿文本。")
+        self.assertEqual(poll_count, 2)
+
     def test_finish_timeout_preserves_latest_partial(self):
         client = FakeClient()
 

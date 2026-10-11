@@ -815,9 +815,9 @@ def run() -> int:
                     try:
                         client.ws.socket.settimeout(min(timeout, grace))
                         send(True)
-                        for _ in range(8):
+                        while not polished:
                             remaining = deadline - time.monotonic()
-                            if polished or remaining <= 0 or cancelled.wait(min(0.25, remaining)):
+                            if remaining <= 0 or cancelled.wait(min(0.03, remaining)):
                                 break
                             remaining = deadline - time.monotonic()
                             if remaining <= 0:
