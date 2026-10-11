@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-OPUS_APPLICATION_AUDIO = 2049
+OPUS_APPLICATION_VOIP = 2047
 OPUS_MAX_PACKET_SIZE = 4000
 
 
@@ -76,7 +76,7 @@ class OpusEncoder:
         self.encoder = self.lib.opus_encoder_create(
             sample_rate,
             channels,
-            OPUS_APPLICATION_AUDIO,
+            OPUS_APPLICATION_VOIP,
             ctypes.byref(error),
         )
         if not self.encoder or error.value != 0:
