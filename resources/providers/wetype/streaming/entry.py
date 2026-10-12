@@ -559,13 +559,14 @@ class Client:
         self.task = 0
         self.uin = "0"
         self.device = ""
+        self.time_offset_ms = 0
 
     def roundtrip(self, path, body=b"", cmd=0, compression="1", token=""):
         special = cmd in (CMD_DH, CMD_UIN)
         if not special:
             self.task += 1
         task = cmd if special else self.task
-        ts = str(time.time_ns() // 1000000)
+        ts = str(self._now_ms())
         trace = random_lower(16)
         digest = hashlib.md5(body).hexdigest().upper()
         values = ["5", "2.2.3(657)", "2"]
@@ -646,8 +647,22 @@ class Client:
         self.key = shared_key(k, server)
         return server, reply.get(4, b"").decode()
 
+    def _now_ms(self) -> int:
+        # Like the official client's GetSvrTimestamp, sign with the server clock, not the local one.
+        return time.time_ns() // 1000000 + self.time_offset_ms
+
+    def _sync_time(self) -> None:
+        body, _ = self.roundtrip("/timestamp")
+        try:
+            server = dict(fields(body)).get(1)
+        except ValueError:
+            return
+        # Field 1 is server epoch ms; ignore anything else (empty/changed schema) and keep local time.
+        if isinstance(server, int) and 10**12 <= server <= 10**13:
+            self.time_offset_ms = server - time.time_ns() // 1000000
+
     def handshake(self):
-        self.roundtrip("/timestamp")
+        self._sync_time()
         path = Path(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", "~/.cache/vinput/wetype/identity.json")).expanduser()
         cached = False
         try:
