@@ -286,7 +286,7 @@ class LifecycleTests(unittest.TestCase):
         client = FakeClient()
         status, events, error = self.invoke(io.StringIO('{"type":"finish"}\n'), client)
         self.assertEqual(status, 0)
-        self.assertEqual(error, "[wetype] frames=0 uploads=0 polls=0 final=0ms\n")
+        self.assertEqual(error, "")  # speechless sessions keep stderr silent for the daemon's no-speech notice
         self.assertEqual([e["text"] for e in events if e["type"] == "final"], [""])
         self.assertEqual(client.calls, [])
 
@@ -321,6 +321,24 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertFalse(any(e["type"] == "final" for e in events))
         self.assertEqual(error, "")
+
+    def test_finish_without_transcript_skips_finalize(self):
+        client = FakeClient()
+
+        def voice(voice_id, opus, seq, total, end):
+            client.calls.append((opus, seq, total, end))
+            return "", ""  # speechless upload: server never sends a partial
+
+        client.voice = voice
+        start = time.monotonic()
+        status, events, error = self.invoke(io.StringIO(audio() + '{"type":"finish"}\n'), client)
+        self.assertLess(time.monotonic() - start, 1)  # never waits out the finish grace
+        self.assertEqual(status, 0)
+        self.assertEqual(error, "")  # quiet stderr so the daemon shows its no-speech notice
+        self.assertEqual([e["type"] for e in events], ["session_started", "final", "closed"])
+        self.assertEqual(events[-2]["text"], "")
+        self.assertTrue(events[-2]["utterance_final"])
+        self.assertFalse(any(call[3] for call in client.calls))  # no finalize round trips
 
     def test_finish_polls_until_final_text(self):
         client = FakeClient()

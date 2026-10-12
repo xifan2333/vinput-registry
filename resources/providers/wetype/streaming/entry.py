@@ -846,8 +846,14 @@ def run() -> int:
                             raise ValueError("PCM must contain 16-bit samples")
                         packets.append(encoder.encode(bytes(pcm).ljust(640, b"\0"), 320))
                         frames += 1
-                    if seq == 0 and not packets:
-                        print("[wetype] frames=0 uploads=0 polls=0 final=0ms", file=sys.stderr, flush=True)
+                    if not text:
+                        # No transcript means there is no utterance for the
+                        # server to finalize: skip the finish round trips
+                        # (a speechless session never produces a final and
+                        # would otherwise burn the whole finish grace or
+                        # hit the socket read timeout) and keep stderr
+                        # silent so vinput-daemon can surface its own
+                        # "returned no text." notice.
                         emit("final", text="", segment_final=True, utterance_final=True)
                         return
                     deadline = time.monotonic() + grace
@@ -865,9 +871,10 @@ def run() -> int:
                             polls += 1
                             send(True, True)
                     except TimeoutError:
-                        if not (text or polished):
-                            raise
-                        # After finish only, retain the latest transcript on a finalization timeout.
+                        # After finish only, retain the latest transcript on
+                        # a finalization timeout; a textless finish returns
+                        # before this point.
+                        pass
                     if not cancelled.is_set():
                         final_ms = round((time.monotonic() - finish_start) * 1000)
                         print(
