@@ -72,7 +72,7 @@ class TestMTranServerProxy(unittest.TestCase):
         fake_cm.__enter__.return_value = fake_response
 
         with patch.object(m, "urlopen", return_value=fake_cm) as mock_urlopen:
-            with patch.object(m, "mtran_url", "http://test-mtran:8989"), patch.object(m, "mtran_token", "secret123"):
+            with patch.dict(os.environ, {"MTRAN_URL": "http://test-mtran:8989", "MTRAN_TOKEN": "secret123"}):
                 result = m.call_mtran("你好世界", "en")
                 self.assertEqual(result, "Hello world")
                 self.assertEqual(mock_urlopen.call_count, 1)
@@ -82,6 +82,13 @@ class TestMTranServerProxy(unittest.TestCase):
                 self.assertEqual(req.headers.get("Authorization"), "Bearer secret123")
                 body = json.loads(req.data.decode("utf-8"))
                 self.assertEqual(body, {"from": "auto", "to": "en", "text": "你好世界", "html": False})
+
+            # Also test fallback to 127.0.0.1:8989 when MTRAN_URL is unset
+            with patch.dict(os.environ, {}, clear=True):
+                _ = m.call_mtran("test", "ja")
+                req = mock_urlopen.call_args[0][0]
+                self.assertEqual(req.full_url, "http://127.0.0.1:8989/translate")
+                self.assertNotIn("Authorization", req.headers)
 
     def test_make_chat_response(self):
         resp = m.make_chat_response("translated text", "test-model")

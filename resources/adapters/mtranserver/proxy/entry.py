@@ -15,11 +15,6 @@ from urllib.request import Request, urlopen
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
-DEFAULT_MTRAN_URL = "http://localhost:8989"
-
-mtran_url = DEFAULT_MTRAN_URL
-mtran_token = ""
-
 
 def get_required_port() -> int:
     val = os.getenv("MTRAN_PORT", "").strip()
@@ -45,11 +40,14 @@ def extract_text(content: str) -> str:
 
 
 def call_mtran(text: str, to_lang: str) -> str:
+    url = os.getenv("MTRAN_URL", "").strip().rstrip("/") or "http://127.0.0.1:8989"
+    token = os.getenv("MTRAN_TOKEN", "").strip()
+
     body = json.dumps({"from": "auto", "to": to_lang, "text": text, "html": False}).encode()
     headers = {"Content-Type": "application/json"}
-    if mtran_token:
-        headers["Authorization"] = f"Bearer {mtran_token}"
-    req = Request(f"{mtran_url}/translate", data=body, headers=headers, method="POST")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(f"{url}/translate", data=body, headers=headers, method="POST")
     with urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return data.get("result", "")
@@ -153,19 +151,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global mtran_url, mtran_token
-
     try:
         port = get_required_port()
     except ValueError as exc:
         sys.stderr.write(f"[mtranserver-proxy] {exc}\n")
         sys.stderr.flush()
         return EXIT_USAGE_ERROR
-
-    mtran_url = os.getenv("MTRAN_URL", DEFAULT_MTRAN_URL).strip().rstrip("/")
-    if not mtran_url:
-        mtran_url = DEFAULT_MTRAN_URL
-    mtran_token = os.getenv("MTRAN_TOKEN", "").strip()
 
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), ProxyHandler)

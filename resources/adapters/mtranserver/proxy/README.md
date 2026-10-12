@@ -20,7 +20,7 @@ Managed local LLM adaptor that exposes MTranServer through an OpenAI-compatible 
 - `MTRAN_PORT` (required): Local HTTP listening port (e.g. `8990`). The script requires an explicit port and will exit with error if omitted.
 
 ### Optional
-- `MTRAN_URL` (optional, default: `http://localhost:8989`): Upstream MTranServer endpoint.
+- `MTRAN_URL` (optional, default: `http://127.0.0.1:8989`): Upstream MTranServer endpoint.
 - `MTRAN_TOKEN` (optional): Bearer authorization token for upstream MTranServer if authentication is required.
 
 ## Scene Prompt Specification
