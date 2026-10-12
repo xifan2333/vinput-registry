@@ -118,6 +118,9 @@ class OpusEncoder:
                 pass
 
 
+CONNECT_PROBE_SECONDS = 0.25
+
+
 class WebSocketClient:
     def __init__(self, url: str, headers: dict[str, str], timeout: float) -> None:
         parsed = urlparse(url)
@@ -139,7 +142,7 @@ class WebSocketClient:
         self.socket = self._connect()
 
     def _connect(self) -> socket.socket:
-        raw_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        raw_sock = self._dial()
         raw_sock.settimeout(self.timeout)
 
         if self.scheme == "wss":
@@ -175,6 +178,23 @@ class WebSocketClient:
             sock.close()
             raise
         return sock
+
+    def _dial(self) -> socket.socket:
+        # shortcut: sequential probe pass, not a parallel Happy Eyeballs race — a blackholed
+        # address costs CONNECT_PROBE_SECONDS instead of timeout, at +probe on slow links.
+        addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        last: OSError | None = None
+        for probe in (True, False):
+            for family, kind, proto, _canon, sockaddr in addrs:
+                sock = socket.socket(family, kind, proto)
+                sock.settimeout(min(CONNECT_PROBE_SECONDS, self.timeout) if probe else self.timeout)
+                try:
+                    sock.connect(sockaddr)
+                    return sock
+                except OSError as exc:
+                    last = exc
+                    sock.close()
+        raise last or OSError(f"cannot connect to {self.host}:{self.port}")
 
     def _read_http_response(self, sock: socket.socket) -> bytes:
         data = bytearray()
@@ -559,13 +579,14 @@ class Client:
         self.task = 0
         self.uin = "0"
         self.device = ""
+        self.time_offset_ms = 0
 
     def roundtrip(self, path, body=b"", cmd=0, compression="1", token=""):
         special = cmd in (CMD_DH, CMD_UIN)
         if not special:
             self.task += 1
         task = cmd if special else self.task
-        ts = str(time.time_ns() // 1000000)
+        ts = str(self._now_ms())
         trace = random_lower(16)
         digest = hashlib.md5(body).hexdigest().upper()
         values = ["5", "2.2.3(657)", "2"]
@@ -646,8 +667,22 @@ class Client:
         self.key = shared_key(k, server)
         return server, reply.get(4, b"").decode()
 
+    def _now_ms(self) -> int:
+        # Like the official client's GetSvrTimestamp, sign with the server clock, not the local one.
+        return time.time_ns() // 1000000 + self.time_offset_ms
+
+    def _sync_time(self) -> None:
+        body, _ = self.roundtrip("/timestamp")
+        try:
+            server = dict(fields(body)).get(1)
+        except ValueError:
+            return
+        # Field 1 is server epoch ms; ignore anything else (empty/changed schema) and keep local time.
+        if isinstance(server, int) and 10**12 <= server <= 10**13:
+            self.time_offset_ms = server - time.time_ns() // 1000000
+
     def handshake(self):
-        self.roundtrip("/timestamp")
+        self._sync_time()
         path = Path(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", "~/.cache/vinput/wetype/identity.json")).expanduser()
         cached = False
         try:

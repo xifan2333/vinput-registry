@@ -54,7 +54,7 @@ vinput scene use __raw__
 - 本地 5.592 秒中文公开样例，两次实时推送均识别为「开放时间，早上9点至下午5点。」；原型 finish 后约 0.8–1.1 秒定稿。
 - 最初临时结果可能不准确（样例出现过「开饭时间」），服务端定稿会继续修正。
 - 用户实际口述确认效果很好；这不是系统性多语言准确率评测。
-- 自动测试：`python3 -m unittest discover -s tests -p 'test_wetype_streaming.py'`，覆盖密码学已知向量、协议编解码、会话结束和取消。
+- 自动测试：`python3 -m unittest discover -s tests -p 'test_wetype_streaming.py'`，覆盖密码学已知向量、协议编解码、时钟对表、连接回退、会话结束和取消。
 - 协议参考：[VoiceKey 的 WeType 实现](https://github.com/J3n5en/voicekey/blob/main/crates/core/src/wetype.rs)，客户端参数 `2.2.3(657)`。Python WebSocket/Opus 基础代码沿用本仓库豆包输入法提供商，WeType 协议使用 Python 独立实现。
 
 这是输入法客户端的非官方接口，服务端协议或可用性可能变化。录音会发送到微信输入法云端识别服务。

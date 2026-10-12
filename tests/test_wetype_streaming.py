@@ -57,6 +57,111 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 w.fields(data)
 
+    def test_timestamp_sync_uses_server_clock(self):
+        # Captured from a real /timestamp response: protobuf field 1 = server epoch ms.
+        server_ms = 1791806083065
+        local_ms = 1791806345104  # local clock skewed 4m22s ahead, as observed on a real host
+        client = w.Client.__new__(w.Client)
+        client.time_offset_ms = 0
+        client.roundtrip = MagicMock(return_value=(w.field(1, server_ms), {}))
+        with patch.object(w.time, "time_ns", return_value=local_ms * 1_000_000):
+            client._sync_time()
+            self.assertEqual(client.time_offset_ms, server_ms - local_ms)
+            self.assertEqual(client._now_ms(), server_ms)
+
+    def test_signing_time_includes_offset(self):
+        client = w.Client.__new__(w.Client)
+        client.task = 0
+        client.uin = "0"
+        client.key = None
+        client.time_offset_ms = -123456
+        client.ws = MagicMock()
+        client.ws.recv_binary.return_value = w.field(4, w.field(2, 200) + w.field(5, b""))
+        client.roundtrip("/timestamp")
+        http = dict(w.fields(client.ws.send_binary.call_args.args[0]))[5]
+        headers = {dict(w.fields(kv))[1].decode(): dict(w.fields(kv))[2].decode() for n, kv in w.fields(http) if n == 5}
+        drift = int(headers["Kb-TimeStamp"]) - time.time_ns() // 1000000
+        self.assertTrue(abs(drift + 123456) < 3000, drift)
+
+    def test_timestamp_sync_tolerates_unusable_response(self):
+        client = w.Client.__new__(w.Client)
+        client.time_offset_ms = 0
+        for body in (b"", b"\x80", b"\x08\x02", b"\x0a\x02\x00\x01"):  # empty, truncated, status=2, non-varint
+            client.roundtrip = MagicMock(return_value=(body, {}))
+            client._sync_time()
+        self.assertEqual(client.time_offset_ms, 0)
+
+    def _fake_dial(self, addrs, connect):
+        ws = w.WebSocketClient.__new__(w.WebSocketClient)
+        ws.host, ws.port, ws.timeout = "wetype.weixin.qq.com", 443, 15
+        attempts: list = []
+
+        class FakeSock:
+            def __init__(self, family, kind, proto):
+                self.budget = 0.0
+
+            def settimeout(self, t):
+                self.budget = t
+
+            def connect(self, sockaddr):
+                attempts.append((sockaddr[0], self.budget))
+                connect(self, sockaddr)
+
+            def close(self):
+                pass
+
+        with patch.object(w.socket, "getaddrinfo", return_value=addrs), patch.object(w.socket, "socket", FakeSock):
+            sock = ws._dial()
+        return sock, attempts
+
+    def test_dial_probes_past_blackholed_ipv6(self):
+        addrs = [
+            (w.socket.AF_INET6, w.socket.SOCK_STREAM, 0, "", ("240e::1", 443, 0, 0)),
+            (w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443)),
+        ]
+
+        def connect(fake, sockaddr):
+            if ":" in sockaddr[0]:
+                raise w.socket.timeout("blackhole")
+
+        sock, attempts = self._fake_dial(addrs, connect)
+        self.assertIsNotNone(sock)
+        self.assertEqual([a for a, _ in attempts], ["240e::1", "101.1.2.3"])
+        self.assertEqual(attempts[0][1], w.CONNECT_PROBE_SECONDS)  # blackhole ate the probe, not timeout
+
+    def test_dial_retries_slow_address_with_full_timeout(self):
+        addrs = [(w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443))]
+
+        def connect(fake, sockaddr):
+            if fake.budget <= w.CONNECT_PROBE_SECONDS:
+                raise w.socket.timeout("too slow for probe")
+
+        sock, attempts = self._fake_dial(addrs, connect)
+        self.assertIsNotNone(sock)
+        self.assertEqual(attempts, [("101.1.2.3", w.CONNECT_PROBE_SECONDS), ("101.1.2.3", 15)])
+
+    def test_dial_raises_when_every_address_fails(self):
+        addrs = [(w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443))]
+        ws = w.WebSocketClient.__new__(w.WebSocketClient)
+        ws.host, ws.port, ws.timeout = "wetype.weixin.qq.com", 443, 15
+
+        class DeadSock:
+            def __init__(self, *args):
+                pass
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, sockaddr):
+                raise OSError(101, "Network is unreachable")
+
+            def close(self):
+                pass
+
+        with patch.object(w.socket, "getaddrinfo", return_value=addrs), patch.object(w.socket, "socket", DeadSock):
+            with self.assertRaises(OSError):
+                ws._dial()
+
     def test_compressed_voice_response_and_finish_request(self):
         client = w.Client.__new__(w.Client)
         client.aes = w.AES()
@@ -75,6 +180,7 @@ class ProtocolTests(unittest.TestCase):
         client.task = 0
         client.uin = "0"
         client.key = None
+        client.time_offset_ms = 0
         client.ws = MagicMock()
         http = w.field(2, 200) + w.field(5, b"body")
         for key, value in [("Kb-CompressionType", "2"), ("Other", "value")]:
