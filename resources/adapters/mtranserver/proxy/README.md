@@ -25,7 +25,7 @@ Managed local LLM adaptor that exposes MTranServer through an OpenAI-compatible 
 
 ## Scene Prompt Specification
 
-The scene system prompt should follow the convention `translate to <target_lang>`:
+The scene prompt should include the directive `translate to <target_lang>`:
 
 - Examples:
   - `translate to en`
@@ -33,7 +33,9 @@ The scene system prompt should follow the convention `translate to <target_lang>
   - `translate to ja`
   - `translate to de`
 
-The target language code is parsed via case-insensitive regex (`translate to ([\w-]+)`). If the system prompt does not match this pattern, the target language defaults to `en`.
+The target language code is parsed via case-insensitive regex (`translate to ([\w-]+)`). If the prompt does not match this pattern, the target language defaults to `en`.
+
+The adapter extracts text enclosed in `<vinput-asr>...</vinput-asr>` (standard vinput ASR packaging) and strips trailing constraints instructions, forwarding only the clean transcribed text to the upstream MTranServer `/translate` endpoint.
 
 ## Notes
 

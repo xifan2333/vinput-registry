@@ -34,9 +34,14 @@ def get_required_port() -> int:
     return port
 
 
-def parse_target_lang(system_prompt: str) -> str:
-    match = re.search(r"translate\s+to\s+([\w-]+)", system_prompt, re.IGNORECASE)
+def parse_target_lang(text: str) -> str:
+    match = re.search(r"translate\s+to\s+([\w-]+)", text, re.IGNORECASE)
     return match.group(1) if match else "en"
+
+
+def extract_text(content: str) -> str:
+    match = re.search(r"<vinput-asr>\n?(.*?)\n?</vinput-asr>", content, re.DOTALL)
+    return match.group(1).strip() if match else content.strip()
 
 
 def call_mtran(text: str, to_lang: str) -> str:
@@ -82,21 +87,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         messages = body.get("messages", [])
-        system_prompt = ""
-        user_text = ""
-        for message in messages:
-            if message.get("role") == "system":
-                system_prompt = message.get("content", "")
-            elif message.get("role") == "user":
-                user_text = message.get("content", "")
+        content = "\n".join(msg.get("content", "") for msg in messages if isinstance(msg, dict))
+        to_lang = parse_target_lang(content)
+        user_text = extract_text(content)
 
-        to_lang = parse_target_lang(system_prompt)
-
-        try:
-            result = call_mtran(user_text, to_lang)
-        except (URLError, Exception) as exc:
-            self.send_error(502, str(exc))
-            return
+        if not user_text:
+            result = ""
+        else:
+            try:
+                result = call_mtran(user_text, to_lang)
+            except (URLError, Exception) as exc:
+                self.send_error(502, str(exc))
+                return
 
         resp = json.dumps(make_chat_response(result, body.get("model", "mtranserver")), ensure_ascii=False)
         payload = resp.encode("utf-8")

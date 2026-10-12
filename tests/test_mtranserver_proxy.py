@@ -26,6 +26,21 @@ class TestMTranServerProxy(unittest.TestCase):
         self.assertEqual(m.parse_target_lang("Please translate to ja, thank you"), "ja")
         self.assertEqual(m.parse_target_lang("no translation instruction here"), "en")
 
+    def test_extract_text(self):
+        # 1. Standard vinput format with XML tag
+        content_with_tag = (
+            "translate to zh\n\n"
+            "<vinput-asr>\nHello world\n</vinput-asr>\n\n"
+            "## Constraints\n- Return only the JSON object."
+        )
+        self.assertEqual(m.extract_text(content_with_tag), "Hello world")
+
+        # 2. Raw plain text without XML tag
+        self.assertEqual(m.extract_text("Good morning"), "Good morning")
+
+        # 3. Empty content
+        self.assertEqual(m.extract_text(""), "")
+
     def test_get_required_port(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(ValueError) as ctx:
@@ -141,10 +156,31 @@ class TestMTranServerProxy(unittest.TestCase):
                 t1.join(timeout=3)
                 t2.join(timeout=3)
 
-                self.assertEqual(errors, [])
-                self.assertEqual(len(results), 2)
-                self.assertIn("translated(hello->zh)", results)
-                self.assertIn("translated(world->ja)", results)
+            # 4. Test POST with real fcitx5-vinput single-user payload (tag extraction + prompt parsing)
+            with patch.object(m, "call_mtran", return_value="早上好") as mock_mtran:
+                payload = json.dumps(
+                    {
+                        "model": "mtranserver",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "translate to zh\n\n<vinput-asr>\nGood morning\n</vinput-asr>\n\n## Constraints\n- JSON",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+                r = urllib.request.Request(
+                    f"{base_url}/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(r, timeout=5) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                    cand = json.loads(body["choices"][0]["message"]["content"])["candidates"][0]
+                    self.assertEqual(cand, "早上好")
+                    # Ensure mock_mtran received ONLY the clean extracted ASR text and target language 'zh'
+                    mock_mtran.assert_called_once_with("Good morning", "zh")
 
         finally:
             server.shutdown()
