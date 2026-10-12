@@ -7,18 +7,13 @@ import re
 import sys
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
-
-DEFAULT_MTRAN_URL = "http://localhost:8989"
-
-mtran_url = DEFAULT_MTRAN_URL
-mtran_token = ""
 
 
 def get_required_port() -> int:
@@ -34,17 +29,25 @@ def get_required_port() -> int:
     return port
 
 
-def parse_target_lang(system_prompt: str) -> str:
-    match = re.search(r"translate\s+to\s+([\w-]+)", system_prompt, re.IGNORECASE)
+def parse_target_lang(text: str) -> str:
+    match = re.search(r"translate\s+to\s+([\w-]+)", text, re.IGNORECASE)
     return match.group(1) if match else "en"
 
 
+def extract_text(content: str) -> str:
+    match = re.search(r"<vinput-asr>\n?(.*?)\n?</vinput-asr>", content, re.DOTALL)
+    return match.group(1).strip() if match else content.strip()
+
+
 def call_mtran(text: str, to_lang: str) -> str:
+    url = os.getenv("MTRAN_URL", "").strip().rstrip("/") or "http://127.0.0.1:8989"
+    token = os.getenv("MTRAN_TOKEN", "").strip()
+
     body = json.dumps({"from": "auto", "to": to_lang, "text": text, "html": False}).encode()
     headers = {"Content-Type": "application/json"}
-    if mtran_token:
-        headers["Authorization"] = f"Bearer {mtran_token}"
-    req = Request(f"{mtran_url}/translate", data=body, headers=headers, method="POST")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(f"{url}/translate", data=body, headers=headers, method="POST")
     with urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return data.get("result", "")
@@ -82,21 +85,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         messages = body.get("messages", [])
-        system_prompt = ""
-        user_text = ""
-        for message in messages:
-            if message.get("role") == "system":
-                system_prompt = message.get("content", "")
-            elif message.get("role") == "user":
-                user_text = message.get("content", "")
+        content = "\n".join(msg.get("content", "") for msg in messages if isinstance(msg, dict))
+        to_lang = parse_target_lang(content)
+        user_text = extract_text(content)
 
-        to_lang = parse_target_lang(system_prompt)
-
-        try:
-            result = call_mtran(user_text, to_lang)
-        except (URLError, Exception) as exc:
-            self.send_error(502, str(exc))
-            return
+        if not user_text:
+            result = ""
+        else:
+            try:
+                result = call_mtran(user_text, to_lang)
+            except (URLError, Exception) as exc:
+                self.send_error(502, str(exc))
+                return
 
         resp = json.dumps(make_chat_response(result, body.get("model", "mtranserver")), ensure_ascii=False)
         payload = resp.encode("utf-8")
@@ -151,8 +151,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global mtran_url, mtran_token
-
     try:
         port = get_required_port()
     except ValueError as exc:
@@ -160,13 +158,9 @@ def main() -> int:
         sys.stderr.flush()
         return EXIT_USAGE_ERROR
 
-    mtran_url = os.getenv("MTRAN_URL", DEFAULT_MTRAN_URL).strip().rstrip("/")
-    if not mtran_url:
-        mtran_url = DEFAULT_MTRAN_URL
-    mtran_token = os.getenv("MTRAN_TOKEN", "").strip()
-
     try:
-        server = HTTPServer(("127.0.0.1", port), ProxyHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", port), ProxyHandler)
+        server.daemon_threads = True
     except Exception as exc:
         sys.stderr.write(f"[mtranserver-proxy] Failed to bind port {port}: {exc}\n")
         sys.stderr.flush()
