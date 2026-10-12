@@ -17,7 +17,7 @@ import re
 import sys
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 EXIT_RUNTIME_ERROR = 1
@@ -196,7 +196,8 @@ def main() -> int:
     CjkTrimHandler.collapse_cjk_spaces = get_bool_env("CJK_TRIM_COLLAPSE_CJK_SPACES", default=True)
 
     try:
-        server = HTTPServer(("127.0.0.1", port), CjkTrimHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", port), CjkTrimHandler)
+        server.daemon_threads = True
     except Exception as exc:
         sys.stderr.write(f"[cjk-trim] Failed to bind port {port}: {exc}\n")
         sys.stderr.flush()
