@@ -23,6 +23,18 @@ Managed local LLM adaptor that exposes MTranServer through an OpenAI-compatible 
 - `MTRAN_URL` (optional, default: `http://localhost:8989`): Upstream MTranServer endpoint.
 - `MTRAN_TOKEN` (optional): Bearer authorization token for upstream MTranServer if authentication is required.
 
+## Scene Prompt Specification
+
+The scene system prompt should follow the convention `translate to <target_lang>`:
+
+- Examples:
+  - `translate to en`
+  - `translate to zh`
+  - `translate to ja`
+  - `translate to de`
+
+The target language code is parsed via case-insensitive regex (`translate to ([\w-]+)`). If the system prompt does not match this pattern, the target language defaults to `en`.
+
 ## Notes
 
 - This resource is intended to be materialized into local config and executed locally.
