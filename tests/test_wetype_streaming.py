@@ -57,6 +57,77 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 w.fields(data)
 
+    def _fake_dial(self, addrs, connect):
+        ws = w.WebSocketClient.__new__(w.WebSocketClient)
+        ws.host, ws.port, ws.timeout = "wetype.weixin.qq.com", 443, 15
+        attempts: list = []
+
+        class FakeSock:
+            def __init__(self, family, kind, proto):
+                self.budget = 0.0
+
+            def settimeout(self, t):
+                self.budget = t
+
+            def connect(self, sockaddr):
+                attempts.append((sockaddr[0], self.budget))
+                connect(self, sockaddr)
+
+            def close(self):
+                pass
+
+        with patch.object(w.socket, "getaddrinfo", return_value=addrs), patch.object(w.socket, "socket", FakeSock):
+            sock = ws._dial()
+        return sock, attempts
+
+    def test_dial_probes_past_blackholed_ipv6(self):
+        addrs = [
+            (w.socket.AF_INET6, w.socket.SOCK_STREAM, 0, "", ("240e::1", 443, 0, 0)),
+            (w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443)),
+        ]
+
+        def connect(fake, sockaddr):
+            if ":" in sockaddr[0]:
+                raise w.socket.timeout("blackhole")
+
+        sock, attempts = self._fake_dial(addrs, connect)
+        self.assertIsNotNone(sock)
+        self.assertEqual([a for a, _ in attempts], ["240e::1", "101.1.2.3"])
+        self.assertEqual(attempts[0][1], w.CONNECT_PROBE_SECONDS)  # blackhole ate the probe, not timeout
+
+    def test_dial_retries_slow_address_with_full_timeout(self):
+        addrs = [(w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443))]
+
+        def connect(fake, sockaddr):
+            if fake.budget <= w.CONNECT_PROBE_SECONDS:
+                raise w.socket.timeout("too slow for probe")
+
+        sock, attempts = self._fake_dial(addrs, connect)
+        self.assertIsNotNone(sock)
+        self.assertEqual(attempts, [("101.1.2.3", w.CONNECT_PROBE_SECONDS), ("101.1.2.3", 15)])
+
+    def test_dial_raises_when_every_address_fails(self):
+        addrs = [(w.socket.AF_INET, w.socket.SOCK_STREAM, 0, "", ("101.1.2.3", 443))]
+        ws = w.WebSocketClient.__new__(w.WebSocketClient)
+        ws.host, ws.port, ws.timeout = "wetype.weixin.qq.com", 443, 15
+
+        class DeadSock:
+            def __init__(self, *args):
+                pass
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, sockaddr):
+                raise OSError(101, "Network is unreachable")
+
+            def close(self):
+                pass
+
+        with patch.object(w.socket, "getaddrinfo", return_value=addrs), patch.object(w.socket, "socket", DeadSock):
+            with self.assertRaises(OSError):
+                ws._dial()
+
     def test_compressed_voice_response_and_finish_request(self):
         client = w.Client.__new__(w.Client)
         client.aes = w.AES()

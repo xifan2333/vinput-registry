@@ -118,6 +118,9 @@ class OpusEncoder:
                 pass
 
 
+CONNECT_PROBE_SECONDS = 0.25
+
+
 class WebSocketClient:
     def __init__(self, url: str, headers: dict[str, str], timeout: float) -> None:
         parsed = urlparse(url)
@@ -139,7 +142,7 @@ class WebSocketClient:
         self.socket = self._connect()
 
     def _connect(self) -> socket.socket:
-        raw_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        raw_sock = self._dial()
         raw_sock.settimeout(self.timeout)
 
         if self.scheme == "wss":
@@ -175,6 +178,23 @@ class WebSocketClient:
             sock.close()
             raise
         return sock
+
+    def _dial(self) -> socket.socket:
+        # shortcut: sequential probe pass, not a parallel Happy Eyeballs race — a blackholed
+        # address costs CONNECT_PROBE_SECONDS instead of timeout, at +probe on slow links.
+        addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        last: OSError | None = None
+        for probe in (True, False):
+            for family, kind, proto, _canon, sockaddr in addrs:
+                sock = socket.socket(family, kind, proto)
+                sock.settimeout(min(CONNECT_PROBE_SECONDS, self.timeout) if probe else self.timeout)
+                try:
+                    sock.connect(sockaddr)
+                    return sock
+                except OSError as exc:
+                    last = exc
+                    sock.close()
+        raise last or OSError(f"cannot connect to {self.host}:{self.port}")
 
     def _read_http_response(self, sock: socket.socket) -> bytes:
         data = bytearray()
