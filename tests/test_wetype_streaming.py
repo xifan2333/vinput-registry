@@ -57,6 +57,40 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 w.fields(data)
 
+    def test_timestamp_sync_uses_server_clock(self):
+        # Captured from a real /timestamp response: protobuf field 1 = server epoch ms.
+        server_ms = 1791806083065
+        local_ms = 1791806345104  # local clock skewed 4m22s ahead, as observed on a real host
+        client = w.Client.__new__(w.Client)
+        client.time_offset_ms = 0
+        client.roundtrip = MagicMock(return_value=(w.field(1, server_ms), {}))
+        with patch.object(w.time, "time_ns", return_value=local_ms * 1_000_000):
+            client._sync_time()
+            self.assertEqual(client.time_offset_ms, server_ms - local_ms)
+            self.assertEqual(client._now_ms(), server_ms)
+
+    def test_signing_time_includes_offset(self):
+        client = w.Client.__new__(w.Client)
+        client.task = 0
+        client.uin = "0"
+        client.key = None
+        client.time_offset_ms = -123456
+        client.ws = MagicMock()
+        client.ws.recv_binary.return_value = w.field(4, w.field(2, 200) + w.field(5, b""))
+        client.roundtrip("/timestamp")
+        http = dict(w.fields(client.ws.send_binary.call_args.args[0]))[5]
+        headers = {dict(w.fields(kv))[1].decode(): dict(w.fields(kv))[2].decode() for n, kv in w.fields(http) if n == 5}
+        drift = int(headers["Kb-TimeStamp"]) - time.time_ns() // 1000000
+        self.assertTrue(abs(drift + 123456) < 3000, drift)
+
+    def test_timestamp_sync_tolerates_unusable_response(self):
+        client = w.Client.__new__(w.Client)
+        client.time_offset_ms = 0
+        for body in (b"", b"\x80", b"\x08\x02", b"\x0a\x02\x00\x01"):  # empty, truncated, status=2, non-varint
+            client.roundtrip = MagicMock(return_value=(body, {}))
+            client._sync_time()
+        self.assertEqual(client.time_offset_ms, 0)
+
     def test_compressed_voice_response_and_finish_request(self):
         client = w.Client.__new__(w.Client)
         client.aes = w.AES()
@@ -75,6 +109,7 @@ class ProtocolTests(unittest.TestCase):
         client.task = 0
         client.uin = "0"
         client.key = None
+        client.time_offset_ms = 0
         client.ws = MagicMock()
         http = w.field(2, 200) + w.field(5, b"body")
         for key, value in [("Kb-CompressionType", "2"), ("Other", "value")]:
