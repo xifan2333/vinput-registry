@@ -7,7 +7,7 @@ import re
 import sys
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -166,7 +166,8 @@ def main() -> int:
     mtran_token = os.getenv("MTRAN_TOKEN", "").strip()
 
     try:
-        server = HTTPServer(("127.0.0.1", port), ProxyHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", port), ProxyHandler)
+        server.daemon_threads = True
     except Exception as exc:
         sys.stderr.write(f"[mtranserver-proxy] Failed to bind port {port}: {exc}\n")
         sys.stderr.flush()
