@@ -9,6 +9,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import secrets
 import select
 import socket
@@ -337,18 +338,25 @@ def _remove_trailing(text):
 
 
 def _extract_text(body):
-    if body.get("model") != MODEL or body.get("stream", False) is not False:
-        raise ValueError("Only the dedicated organization model is supported")
+    if body.get("stream", False) is not False:
+        raise ValueError("Only non-streaming chat completions are supported")
     messages = body.get("messages")
-    if not isinstance(messages, list) or len(messages) != 1 or messages[0].get("role") != "user":
-        raise ValueError("Expected one vinput user message")
-    content = messages[0].get("content")
-    prefix = "<vinput-asr>\n"
-    if not isinstance(content, str) or not content.startswith(prefix):
-        raise ValueError("Expected the vinput text wrapper")
-    text, marker, suffix = content[len(prefix) :].rpartition("\n</vinput-asr>")
-    if not marker or not suffix.startswith("\n\n## Constraints\n") or not text.strip():
-        raise ValueError("Missing vinput text wrapper")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("Expected non-empty messages array")
+    combined = ""
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                combined += content + "\n"
+
+    match = re.search(r"<vinput-asr>\s*(.*?)\s*</vinput-asr>", combined, re.DOTALL)
+    if not match:
+        raise ValueError("Missing <vinput-asr> wrapper")
+
+    text = match.group(1).strip()
+    if not text:
+        raise ValueError("Enclosed ASR text is empty")
     return text
 
 
@@ -565,12 +573,12 @@ def _organize(text, state, cache, work):
         return text
 
 
-def _chat_response(text):
+def _chat_response(text, model=MODEL):
     return {
         "id": "chatcmpl-" + uuid.uuid4().hex,
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": MODEL,
+        "model": model,
         "choices": [
             {
                 "index": 0,
@@ -634,7 +642,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             result = output[0] if completed.is_set() else text
             if server.no_trailing:
                 result = _remove_trailing(result)
-            self._send_json(_chat_response(result))
+            resp_model = str(body.get("model") or MODEL)
+            self._send_json(_chat_response(result, model=resp_model))
         except (BrokenPipeError, ConnectionResetError, OSError):
             work.abort()
         finally:
