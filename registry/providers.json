@@ -25,7 +25,10 @@
           "name": "VINPUT_ASR_RESOURCE_ID",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "cf82714e4cdf0b118c13d957bc6629b1a8a239b9199e144ea0395968d2a85c68",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.elevenlabs.batch",
@@ -55,7 +58,10 @@
           "name": "VINPUT_ASR_ELEVENLABS_NO_VERBATIM",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "cb0ecd71202264c5d8c9afc687f1a11ad3885fd6ce243792bd7dc37a70e48324",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.elevenlabs.streaming",
@@ -85,7 +91,10 @@
           "name": "VINPUT_ASR_ELEVENLABS_NO_VERBATIM",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "17d839f18eef0da1e9f995a1b4c4f159ca5f349ae43eb368914b42ce0055c3d0",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.bailian.batch",
@@ -111,7 +120,10 @@
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "f34d85a5bbcab99b8d010713e222467f2ce0a178fb776b686078490c4efbe315",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.bailian.streaming",
@@ -137,7 +149,10 @@
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "a14068b524ba8381b0908125c264b00a9e9f6ed865850b555fefa8cafa4f9c0c",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.bailian.qwen-audio3.streaming",
@@ -199,7 +214,10 @@
           "name": "VINPUT_ASR_FINISH_GRACE_SECS",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "15e7c39397f4a1c29c1297b93dbdf8ec19704a5687cf63c073b5781bd9016378",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.doubao.streaming",
@@ -225,7 +243,10 @@
           "name": "VINPUT_ASR_RESOURCE_ID",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "1b3a748b619582118a36e006c77d8a52b431dc35316f50ba4199992a9bdde3a4",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.doubaoime.streaming",
@@ -238,7 +259,10 @@
         "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
-      "envs": []
+      "envs": [],
+      "version": "1.0.0",
+      "sha256": "25aa69c4aaa2c495392a8172cf78fb45deaf4155c257183dc6c7bb18334aacdd",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.wetype.streaming",
@@ -251,7 +275,10 @@
         "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py"
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
-      "envs": []
+      "envs": [],
+      "version": "1.0.0",
+      "sha256": "119a7f9a7cd0d6b942ec591c5ec9e03a196026cd4a1d3d15041f76d3396639eb",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.vinput.remote.streaming",
@@ -277,7 +304,10 @@
           "name": "VINPUT_ASR_DEBOUNCE_MS",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "d5caa3900e0502b9265bdef93f58e425a5511b2867f173c8c9a6f40badcbedb0",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.openai-compatible.batch",
@@ -303,7 +333,10 @@
           "name": "VINPUT_ASR_MODEL",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "bbb5ea5e4b916f8c4be66f20752ee898e63dcd3b9ec422b5a7760b653a1655a3",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.openai-compatible.streaming",
@@ -337,7 +370,10 @@
           "name": "VINPUT_ASR_BINARY_MODE",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "f8e8beda10727a0c2ea23397e36b0305de4407e6c254a0de48c34901f3ba900e",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.mimo.batch",
@@ -363,7 +399,10 @@
           "name": "VINPUT_ASR_LANGUAGE",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "cb16b51d5ffaa886ff180a36b17b17e059de76416dd04063677a60656a196de3",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.xfyun.streaming",
@@ -413,7 +452,10 @@
           "name": "VINPUT_ASR_FINISH_GRACE_SECS",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "aa0c3d55d4e84720fbb514f3f964bb01e86b8213d229341b187ab22fe800601c",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.soniox.streaming",
@@ -447,7 +489,10 @@
           "name": "VINPUT_ASR_ENABLE_ENDPOINT_DETECTION",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "63267f06abfce9cd1b8439d8b072cf0c3b5e59a77e1af408418d7fc10243430e",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "provider.vllm.streaming",
@@ -469,7 +514,10 @@
           "name": "VINPUT_ASR_MODEL",
           "required": false
         }
-      ]
+      ],
+      "version": "1.0.0",
+      "sha256": "56d785e0cb50777ef4273f6fff64e156b9d5b7dd4394d8aa940eb2a39803f9f9",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }
