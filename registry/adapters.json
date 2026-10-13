@@ -2,6 +2,22 @@
   "version": 1,
   "items": [
     {
+      "id": "adapter.doubaoime.organize",
+      "short_id": "doubaoime-organize",
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/doubaoime/organize/README.md",
+      "envs": [
+        { "name": "DOUBAOIME_IDENTITY_PATH", "required": false },
+        { "name": "DOUBAOIME_PORT", "required": true },
+        { "name": "DOUBAOIME_NO_TRAILING_PUNCTUATION", "required": false }
+      ]
+    },
+    {
       "id": "adapter.mtranserver.proxy",
       "short_id": "mtran-proxy",
       "command": "python3",

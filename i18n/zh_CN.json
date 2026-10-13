@@ -1,4 +1,6 @@
 {
+  "adapter.doubaoime.organize.title": "豆包输入法整理",
+  "adapter.doubaoime.organize.description": "豆包输入法文本整理适配器。",
   "provider.doubao.batch.title": "豆包（非流式）",
   "provider.doubao.batch.description": "通过豆包语音 / 火山引擎录音文件极速版接口调用云端 ASR。",
   "provider.elevenlabs.batch.title": "ElevenLabs（非流式）",

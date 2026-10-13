@@ -1,4 +1,6 @@
 {
+  "adapter.doubaoime.organize.title": "Doubao IME Organization",
+  "adapter.doubaoime.organize.description": "Doubao IME text organization adapter.",
   "provider.doubao.batch.title": "Doubao (Batch)",
   "provider.doubao.batch.description": "Use the Doubao / Volcengine fast file recognition API for cloud ASR.",
   "provider.elevenlabs.batch.title": "ElevenLabs (Batch)",
