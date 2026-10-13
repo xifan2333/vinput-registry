@@ -224,10 +224,6 @@ def register_device(request: dict) -> tuple[dict, dict]:
 
 
 DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
-LEGACY_IDENTITIES = (
-    Path.home() / ".cache/vinput/doubaoime-stable/identity.json",
-    Path.home() / ".cache/vinput/doubaoime-asr/credentials.json",
-)
 IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
 
 
@@ -242,22 +238,6 @@ def save_identity(path: Path, state: dict):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-
-
-def migrated_identity():
-    for source in LEGACY_IDENTITIES:
-        try:
-            state = json.loads(source.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(state, dict) or not all(state.get(key) and str(state[key]) != "0" for key in IDENTITY_FIELDS):
-            continue
-        result: dict = {key: str(state[key]) for key in IDENTITY_FIELDS}
-        installed = state.get("first_install_time")
-        if isinstance(installed, int) and installed > 0:
-            result["first_install_time"] = installed
-        return result
-    return None
 
 
 def _ensure_identity(path: Path) -> dict:
@@ -277,8 +257,7 @@ def _ensure_identity(path: Path) -> dict:
         if path.exists():
             state = json.loads(path.read_text(encoding="utf-8"))
         else:
-            state = migrated_identity() if path == DEFAULT_IDENTITY else None
-            state = state if state is not None else new_installation()
+            state = new_installation()
         if not isinstance(state, dict):
             raise ValueError("Identity cache must be a JSON object")
         if state.get("device_id") or state.get("install_id"):
