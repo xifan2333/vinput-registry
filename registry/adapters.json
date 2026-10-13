@@ -12,10 +12,22 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/doubaoime/organize/README.md",
       "envs": [
-        { "name": "DOUBAOIME_IDENTITY_PATH", "required": false },
-        { "name": "DOUBAOIME_PORT", "required": true },
-        { "name": "DOUBAOIME_NO_TRAILING_PUNCTUATION", "required": false }
-      ]
+        {
+          "name": "DOUBAOIME_IDENTITY_PATH",
+          "required": false
+        },
+        {
+          "name": "DOUBAOIME_PORT",
+          "required": true
+        },
+        {
+          "name": "DOUBAOIME_NO_TRAILING_PUNCTUATION",
+          "required": false
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "40d9a2f0242c078d48913b3861116182c734fc5f7caab640d4d3e47e4fbc82f0",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "adapter.mtranserver.proxy",
@@ -28,10 +40,22 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/mtranserver/proxy/README.md",
       "envs": [
-        { "name": "MTRAN_PORT", "required": true },
-        { "name": "MTRAN_URL", "required": false },
-        { "name": "MTRAN_TOKEN", "required": false }
-      ]
+        {
+          "name": "MTRAN_PORT",
+          "required": true
+        },
+        {
+          "name": "MTRAN_URL",
+          "required": false
+        },
+        {
+          "name": "MTRAN_TOKEN",
+          "required": false
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "30eb3255cee073ed653a55c9dd9ffb38b352dbd07fe59150844576390ae7b9b4",
+      "vinput_version": ">= 2.0.0"
     },
     {
       "id": "adapter.cjk-trim.proxy",
@@ -44,8 +68,14 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/cjk-trim/proxy/README.md",
       "envs": [
-        { "name": "CJK_TRIM_PORT", "required": true }
-      ]
+        {
+          "name": "CJK_TRIM_PORT",
+          "required": true
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "9a3635c99bd3fd5d811ced7105d9f750b3460dad9bfd34413e3376d80eca712c",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }
