@@ -20,7 +20,7 @@ The managed script path is `~/.local/share/vinput/providers/doubaoime/streaming`
 
 CLI equivalents are `--identity`, `--finish-grace`, and `--no-trailing-punctuation`. Set the punctuation option on both the provider and organization adapter when using the organization scene.
 
-The default cache imports a complete identity from legacy ASR cache paths (`~/.cache/vinput/doubaoime-asr/credentials.json`).
+On first use, an anonymous device is registered transparently and cached locally at `~/.cache/vinput/doubaoime/credentials.json`.
 
 ## JSONL Protocol
 

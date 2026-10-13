@@ -166,33 +166,15 @@ class TestIdentityAndMigration(unittest.TestCase):
             self.assertEqual(loaded["device_id"], "dev-123")
             self.assertEqual(loaded["install_id"], "inst-456")
 
-    def test_legacy_identity_migrated_to_new_path(self):
+    def test_clean_registration_ignores_legacy_cache_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             target_path = Path(tmpdir) / "doubaoime" / "credentials.json"
-            legacy_path = Path(tmpdir) / "doubaoime-asr" / "credentials.json"
-            legacy_path.parent.mkdir(parents=True, exist_ok=True)
-            legacy_data = {
-                "device_id": "legacy-dev",
-                "install_id": "legacy-inst",
-                "cdid": "legacy-cdid",
-                "openudid": "legacy-open",
-                "clientudid": "legacy-client",
-                "first_install_time": 1700000000000,
-            }
-            legacy_path.write_text(json.dumps(legacy_data), encoding="utf-8")
-
-            with (
-                patch.object(provider, "DEFAULT_IDENTITY", target_path),
-                patch.object(provider, "LEGACY_IDENTITIES", (legacy_path,)),
-            ):
-                migrated = provider.migrated_identity()
-                self.assertIsNotNone(migrated)
-                assert migrated is not None
-                self.assertEqual(migrated["device_id"], "legacy-dev")
-                self.assertEqual(migrated["install_id"], "legacy-inst")
-
+            fake_identifiers = {"device_id": "new-dev", "install_id": "new-inst"}
+            with patch.object(provider, "register_device", return_value=(fake_identifiers, {})) as reg_mock:
                 loaded = provider._ensure_identity(target_path)
-                self.assertEqual(loaded["device_id"], "legacy-dev")
+                reg_mock.assert_called_once()
+                self.assertEqual(loaded["device_id"], "new-dev")
+                self.assertEqual(loaded["install_id"], "new-inst")
                 self.assertTrue(target_path.exists())
 
     def test_fresh_registration_saves_identity(self):
