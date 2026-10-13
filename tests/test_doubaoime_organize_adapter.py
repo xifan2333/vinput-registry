@@ -129,17 +129,20 @@ class TestDoubaoImeOrganizeAdapter(unittest.TestCase):
                 self.assertEqual(data["object"], "list")
                 self.assertEqual(data["data"][0]["id"], "doubaoime-organize")
 
-            # 2. POST /v1/chat/completions without wrapper tag returns 400
-            req_400 = urllib.request.Request(
-                f"{base_url}/v1/chat/completions",
-                data=json.dumps({"messages": [{"role": "user", "content": "plain text"}]}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with self.assertRaises(urllib.error.HTTPError) as ctx:
-                urllib.request.urlopen(req_400, timeout=5)
-            self.assertEqual(ctx.exception.code, 400)
-            ctx.exception.close()
+            # 2. POST /v1/chat/completions without wrapper tag returns 400 and logs to stderr
+            stderr_captured = []
+            with patch.object(organize.sys.stderr, "write", side_effect=stderr_captured.append):
+                req_400 = urllib.request.Request(
+                    f"{base_url}/v1/chat/completions",
+                    data=json.dumps({"messages": [{"role": "user", "content": "plain text"}]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req_400, timeout=5)
+                self.assertEqual(ctx.exception.code, 400)
+                ctx.exception.close()
+                self.assertTrue(any("[doubaoime-organize]" in line for line in stderr_captured))
 
             # 3. POST /v1/chat/completions with valid wrapper returns 200
             with patch.object(organize, "_organize", return_value="整理后的句子。"):

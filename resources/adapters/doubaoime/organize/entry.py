@@ -566,10 +566,16 @@ def _organize(text, state, cache, work):
                 return text
         finally:
             work.release()
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as err:
         cache.invalidate()
+        sys.stderr.write(f"[doubaoime-organize] Upstream HTTP error: {err.code} {err.reason}\n")
+        sys.stderr.flush()
         return text
-    except (OSError, ValueError, KeyError, TimeoutError):
+    except TimeoutError as err:
+        sys.stderr.write(f"[doubaoime-organize] Organization timed out: {err}\n")
+        sys.stderr.flush()
+        return text
+    except (OSError, ValueError, KeyError):
         return text
 
 
@@ -598,13 +604,13 @@ class OrganizationServer(http.server.ThreadingHTTPServer):
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.rstrip("/") != "/v1/models":
-            self.send_error(404)
+            self.send_error(404, "Endpoint not found")
             return
         self._send_json({"object": "list", "data": [{"id": MODEL, "object": "model", "owned_by": "doubaoime"}]})
 
     def do_POST(self):
         if self.path.rstrip("/") != "/v1/chat/completions":
-            self.send_error(404)
+            self.send_error(404, "Endpoint not found")
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -615,6 +621,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError("Expected a JSON object")
             text = _extract_text(body)
         except (ValueError, KeyError, TypeError, AttributeError) as error:
+            sys.stderr.write(f"[doubaoime-organize] {error}\n")
+            sys.stderr.flush()
             self._send_json({"error": {"message": str(error)}}, 400)
             return
         work = RequestWork(time.monotonic() + 8.0)
@@ -661,6 +669,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
+    def log_error(self, format: str, *args: object) -> None:
+        sys.stderr.write(f"[doubaoime-organize] {format % args}\n")
+        sys.stderr.flush()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Doubao IME organization adapter")
@@ -682,8 +694,19 @@ def main():
     except ValueError:
         sys.stderr.write("[doubaoime-organize] DOUBAOIME_PORT must be an integer between 1 and 65535.\n")
         return 2
-    server = OrganizationServer(("127.0.0.1", port), Handler)
-    server.identity = _ensure_identity(args.identity)
+    try:
+        server = OrganizationServer(("127.0.0.1", port), Handler)
+    except Exception as exc:
+        sys.stderr.write(f"[doubaoime-organize] Failed to bind port {port}: {exc}\n")
+        sys.stderr.flush()
+        return 1
+
+    try:
+        server.identity = _ensure_identity(args.identity)
+    except Exception as exc:
+        sys.stderr.write(f"[doubaoime-organize] Failed to initialize identity: {exc}\n")
+        sys.stderr.flush()
+        return 1
     server.no_trailing = args.no_trailing_punctuation
     server.crypto = CryptoCache()
     server.daemon_threads = True
