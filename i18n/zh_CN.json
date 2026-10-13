@@ -1,4 +1,6 @@
 {
+  "provider.doubaoime.v2.streaming.title": "豆包输入法 v2（流式）",
+  "provider.doubaoime.v2.streaming.description": "豆包输入法语音识别提供商。",
   "provider.doubao.batch.title": "豆包（非流式）",
   "provider.doubao.batch.description": "通过豆包语音 / 火山引擎录音文件极速版接口调用云端 ASR。",
   "provider.elevenlabs.batch.title": "ElevenLabs（非流式）",

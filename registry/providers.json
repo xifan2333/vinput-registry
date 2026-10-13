@@ -250,6 +250,32 @@
       ]
     },
     {
+      "id": "provider.doubaoime.v2.streaming",
+      "short_id": "doubaoime-v2",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/v2.streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/v2.streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/v2.streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/v2.streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_CREDENTIAL_PATH",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LIBOPUS_PATH",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_NO_TRAILING_PUNCTUATION",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "provider.wetype.streaming",
       "short_id": "wetype-stream",
       "stream": true,

@@ -1,4 +1,6 @@
 {
+  "provider.doubaoime.v2.streaming.title": "Doubao IME v2 (Streaming)",
+  "provider.doubaoime.v2.streaming.description": "Doubao IME streaming speech recognition provider.",
   "provider.doubao.batch.title": "Doubao (Batch)",
   "provider.doubao.batch.description": "Use the Doubao / Volcengine fast file recognition API for cloud ASR.",
   "provider.elevenlabs.batch.title": "ElevenLabs (Batch)",
