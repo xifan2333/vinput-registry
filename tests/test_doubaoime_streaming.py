@@ -1,16 +1,14 @@
-"""Offline regression coverage for Doubao IME client 1.4.6 compatibility."""
+"""Offline regression coverage for Doubao IME streaming ASR."""
 
+import asyncio
 import base64
 import importlib.util
 import json
-import os
-import queue
 import sys
 import tempfile
 import unittest
-from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 ENTRY = Path(__file__).resolve().parents[1] / "resources/providers/doubaoime/streaming/entry.py"
 spec = importlib.util.spec_from_file_location("doubaoime_streaming_entry", ENTRY)
@@ -20,160 +18,306 @@ sys.modules[spec.name] = provider
 spec.loader.exec_module(provider)
 
 
-def response(event, results=None):
-    data = provider.encode_field_string(4, event)
-    if results is not None:
-        data += provider.encode_field_string(7, json.dumps({"results": results}, ensure_ascii=False))
-    return data
+class FakeEncoder:
+    def __init__(self, bitrate: int):
+        self.bitrate = bitrate
 
-
-class FakeClient:
-    def __init__(self, *_args):
-        self.responses = queue.Queue()
-        self.responses.put(response("TaskStarted"))
-        self.responses.put(response("SessionStarted"))
-        self.sent = []
-
-    def send_binary(self, data):
-        fields = provider.parse_protobuf_fields(data)
-        self.sent.append(fields)
-        if provider.get_proto_string(fields, 5) == "FinishSession":
-            self.responses.put(response("TaskResponse", [{"text": "测试成功。"}]))
-            self.responses.put(response("SessionFinished"))
-
-    def recv_binary(self):
-        return self.responses.get(timeout=2)
+    def encode(self, pcm: bytes) -> bytes:
+        return b"\xfc" * 20
 
     def close(self):
-        self.responses.put(None)
+        pass
 
 
-class DoubaoStreamingTests(unittest.TestCase):
-    def test_legacy_cache_migrates_key_without_reregistering_device(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "credentials.json"
-            path.write_text(
-                json.dumps({"device_id": "old-device", "token": "old-settings-token", "route_healthy": True})
-            )
-            with (
-                patch.dict(os.environ, {"VINPUT_ASR_CREDENTIAL_PATH": str(path)}, clear=True),
-                patch.object(provider, "register_device") as register,
-            ):
-                creds = provider.ensure_credentials(1)
-            register.assert_not_called()
-            self.assertEqual(creds.device_id, "old-device")
-            self.assertEqual(creds.token, provider.DEFAULT_APP_KEY)
-            self.assertEqual(json.loads(path.read_text())["token"], provider.DEFAULT_APP_KEY)
+class TestCryptoAndEncoding(unittest.TestCase):
+    def test_tt_encrypt_header_and_structure(self):
+        payload = b"hello doubao"
+        salt = bytes(range(32))
+        encrypted = provider.encode_tt_encrypt(payload, salt=salt)
+        # ttEncrypt magic prefix: 746305100000 (6 bytes)
+        self.assertTrue(encrypted.startswith(bytes.fromhex("746305100000")))
+        # Salt follows magic (32 bytes)
+        self.assertEqual(encrypted[6:38], salt)
+        # Followed by AES-CBC encrypted blocks (aligned to 16 bytes)
+        self.assertEqual((len(encrypted) - 38) % 16, 0)
+        self.assertGreater(len(encrypted), 38)
 
-    def test_explicit_device_and_token_overrides_are_preserved(self):
-        with tempfile.TemporaryDirectory() as directory:
-            env = {
-                "VINPUT_ASR_CREDENTIAL_PATH": str(Path(directory) / "credentials.json"),
-                "VINPUT_ASR_DEVICE_ID": "custom-device",
-                "VINPUT_ASR_TOKEN": "custom-token",
+    def test_protobuf_varint_and_fields(self):
+        for value in (0, 1, 127, 128, 300, 16384, 1000000):
+            encoded = provider.encode_varint(value)
+            decoded, index = provider.decode_varint(encoded, 0)
+            self.assertEqual(decoded, value)
+            self.assertEqual(index, len(encoded))
+
+        # Test field encoding
+        data = (
+            provider.encode_field_string(1, "doubao")
+            + provider.encode_field_int(2, 42)
+            + provider.encode_field_bytes(3, b"\x01\x02\x03")
+        )
+        fields = provider.parse_protobuf_fields(data)
+        self.assertEqual(provider.get_proto_string(fields, 1), "doubao")
+        self.assertEqual(provider.get_proto_int(fields, 2), 42)
+        self.assertEqual(fields[3], b"\x01\x02\x03")
+
+    def test_websocket_request_and_response_roundtrip(self):
+        req = provider.WebSocketRequest(
+            namespace="ASR",
+            event="StartTask",
+            task_id="task-123",
+            appkey="test-key",
+            payload='{"did":"123"}',
+            audio=b"\x00\x01",
+            seq_id=1,
+        )
+        serialized = req.SerializeToString()
+        fields = provider.parse_protobuf_fields(serialized)
+        self.assertEqual(provider.get_proto_string(fields, 2), "test-key")
+        self.assertEqual(provider.get_proto_string(fields, 3), "ASR")
+        self.assertEqual(provider.get_proto_string(fields, 5), "StartTask")
+        self.assertEqual(provider.get_proto_string(fields, 6), '{"did":"123"}')
+        self.assertEqual(fields[7], b"\x00\x01")
+        self.assertEqual(provider.get_proto_string(fields, 8), "task-123")
+        self.assertEqual(provider.get_proto_int(fields, 9), 1)
+
+        # Test response decoding
+        res_data = (
+            provider.encode_field_string(1, "task-123")
+            + provider.encode_field_string(4, "TaskStarted")
+            + provider.encode_field_int(5, 200)
+            + provider.encode_field_string(6, "OK")
+            + provider.encode_field_string(7, '{"results":[{"text":"你好"}]}')
+            + provider.encode_field_int(9, 1)
+        )
+        res = provider.decode_response(res_data)
+        self.assertEqual(res.task_id, "task-123")
+        self.assertEqual(res.event, "TaskStarted")
+        self.assertEqual(res.status_code, 200)
+
+        update = provider.parse_update(res)
+        self.assertIsNotNone(update)
+        assert update is not None
+        self.assertEqual(update.text, "你好")
+
+    def test_decode_response_raises_on_failure_events(self):
+        failed_data = (
+            provider.encode_field_string(1, "task-123")
+            + provider.encode_field_string(4, "TaskFailed")
+            + provider.encode_field_int(5, 400)
+            + provider.encode_field_string(6, "Invalid token")
+        )
+        with self.assertRaises(provider.ASRError) as ctx:
+            provider.decode_response(failed_data)
+        self.assertIn("TaskFailed: 400 Invalid token", str(ctx.exception))
+
+
+class TestPunctuationAndText(unittest.TestCase):
+    def test_remove_trailing_punctuation(self):
+        self.assertEqual(provider.remove_trailing_punctuation("你好，世界！"), "你好，世界")
+        self.assertEqual(provider.remove_trailing_punctuation("今天天气很好。"), "今天天气很好")
+        # Preserved closing punctuation
+        self.assertEqual(provider.remove_trailing_punctuation("我说：【好的】"), "我说：【好的】")
+        self.assertEqual(provider.remove_trailing_punctuation("进度 100%"), "进度 100%")
+        self.assertEqual(provider.remove_trailing_punctuation("温度 25℃"), "温度 25℃")
+        # Empty string
+        self.assertEqual(provider.remove_trailing_punctuation(""), "")
+
+        # Per line trimming
+        multiline = "第一行。\n第二行！\n第三行"
+        self.assertEqual(
+            provider.remove_trailing_punctuation(multiline, per_line=True),
+            "第一行\n第二行\n第三行",
+        )
+
+    def test_transcript_state_merging_and_vad(self):
+        state = provider.TranscriptState()
+
+        # Interim hypotheses update current text without committing
+        self.assertEqual(state.apply("早上", finished=False), "早上")
+        self.assertEqual(state.apply("早上九点", finished=False), "早上九点")
+        self.assertEqual(state.committed, "")
+
+        # VAD segment finished commits the segment
+        self.assertEqual(state.apply("早上9点。", finished=True), "早上9点。")
+        self.assertEqual(state.committed, "早上9点。")
+
+        # Duplicate segment final is ignored
+        self.assertIsNone(state.apply("早上9点。", finished=True))
+
+        # Next segment builds upon committed text
+        self.assertEqual(state.apply("去开会", finished=False), "早上9点。去开会")
+        self.assertEqual(state.apply("去开会。", finished=True), "早上9点。去开会。")
+        self.assertEqual(state.committed, "早上9点。去开会。")
+
+
+class TestIdentityAndMigration(unittest.TestCase):
+    def test_existing_identity_loaded(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "credentials.json"
+            identity_data = {
+                "device_id": "dev-123",
+                "install_id": "inst-456",
+                "cdid": "cdid-789",
+                "openudid": "open-abc",
+                "clientudid": "client-def",
             }
-            with patch.dict(os.environ, env, clear=True), patch.object(provider, "register_device") as register:
-                creds = provider.ensure_credentials(1)
-            register.assert_not_called()
-            self.assertEqual((creds.device_id, creds.token), ("custom-device", "custom-token"))
+            path.write_text(json.dumps(identity_data), encoding="utf-8")
+            loaded = provider._ensure_identity(path)
+            self.assertEqual(loaded["device_id"], "dev-123")
+            self.assertEqual(loaded["install_id"], "inst-456")
 
-    def test_fresh_registration_uses_current_key(self):
-        with tempfile.TemporaryDirectory() as directory:
-            env = {"VINPUT_ASR_CREDENTIAL_PATH": str(Path(directory) / "credentials.json")}
+    def test_legacy_identity_migrated_to_new_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "doubaoime" / "credentials.json"
+            legacy_path = Path(tmpdir) / "doubaoime-asr" / "credentials.json"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_data = {
+                "device_id": "legacy-dev",
+                "install_id": "legacy-inst",
+                "cdid": "legacy-cdid",
+                "openudid": "legacy-open",
+                "clientudid": "legacy-client",
+                "first_install_time": 1700000000000,
+            }
+            legacy_path.write_text(json.dumps(legacy_data), encoding="utf-8")
+
             with (
-                patch.dict(os.environ, env, clear=True),
-                patch.object(
-                    provider, "register_device", return_value=provider.DeviceCredentials(device_id="new-device")
-                ) as register,
+                patch.object(provider, "DEFAULT_IDENTITY", target_path),
+                patch.object(provider, "LEGACY_IDENTITIES", (legacy_path,)),
             ):
-                creds = provider.ensure_credentials(3)
-            register.assert_called_once_with(3)
-            self.assertEqual(creds.token, provider.DEFAULT_APP_KEY)
+                migrated = provider.migrated_identity()
+                self.assertIsNotNone(migrated)
+                assert migrated is not None
+                self.assertEqual(migrated["device_id"], "legacy-dev")
+                self.assertEqual(migrated["install_id"], "legacy-inst")
 
-    def test_session_defaults_and_existing_overrides(self):
-        with patch.dict(os.environ, {}, clear=True):
-            config = json.loads(provider.build_session_config("device"))
-        self.assertEqual(config["extra"]["input_mode"], "stream")
-        self.assertEqual(config["extra"]["app_name"], "oime")
-        self.assertFalse(config["extra"]["enable_asr_threepass"])
-        with patch.dict(os.environ, {"VINPUT_ASR_APP_NAME": "custom", "VINPUT_ASR_ENABLE_ASR_THREEPASS": "true"}):
-            config = json.loads(provider.build_session_config("device"))
-        self.assertEqual(config["extra"]["app_name"], "custom")
-        self.assertTrue(config["extra"]["enable_asr_threepass"])
+                loaded = provider._ensure_identity(target_path)
+                self.assertEqual(loaded["device_id"], "legacy-dev")
+                self.assertTrue(target_path.exists())
 
-    def test_cumulative_results_replace_corrections_and_ignore_auxiliary_candidates(self):
-        state = provider.SessionState()
+    def test_fresh_registration_saves_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "new_credentials.json"
+            fake_identifiers = {"device_id": "registered-dev", "install_id": "registered-inst"}
+            with patch.object(provider, "register_device", return_value=(fake_identifiers, {})) as reg_mock:
+                state = provider._ensure_identity(path)
+                reg_mock.assert_called_once()
+                self.assertEqual(state["device_id"], "registered-dev")
+                self.assertEqual(state["install_id"], "registered-inst")
+                self.assertTrue(path.exists())
+                # Permissions restricted to owner (0o600)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+
+class TestStreamingLifecycle(unittest.TestCase):
+    def test_run_provider_success_flow(self):
         events = []
-        with patch.object(provider, "write_stdout", side_effect=events.append):
-            provider.handle_server_message(
-                response("TaskResponse", [{"text": "早上酒点"}, {"text": "辅助候选"}]), state, "r"
+
+        async def fake_transcribe_stream(source, on_update=None, *, on_start=None):
+            if on_start:
+                on_start()
+            # Consume all audio chunks
+            async for _ in source:
+                pass
+            update = provider.ASRUpdate(
+                text="识别成功。",
+                vad_finished=True,
+                stream_finished=True,
+                sequence=1,
+                payload={},
             )
-            provider.handle_server_message(
-                response("TaskResponse", [{"text": "早上9点。", "is_interim": False, "is_vad_finished": True}]),
-                state,
-                "r",
-            )
-            self.assertEqual([e["type"] for e in events], ["partial", "partial"])
-            provider.handle_server_message(response("SessionFinished"), state, "r")
-            provider.emit_fallback_final(state)
-        self.assertEqual(events[0]["text"], "早上酒点")
-        self.assertEqual(events[-1]["text"], "早上9点。")
-        self.assertTrue(events[-1]["utterance_final"])
+            if on_update:
+                on_update(update)
+            return provider.ASRResult(text="识别成功。", task_id="t-1", updates=(update,))
 
-    def test_empty_primary_does_not_promote_auxiliary(self):
-        state = provider.SessionState()
-        with patch.object(provider, "write_stdout") as emit:
-            provider.handle_server_message(response("TaskResponse", [{"text": ""}, {"text": "辅助"}]), state, "r")
-        emit.assert_not_called()
-        self.assertEqual(state.get_visible_text(), "")
+        fake_client = MagicMock()
+        fake_client.transcribe_stream = fake_transcribe_stream
 
-    def test_legacy_segment_final_is_partial_until_finish(self):
-        state = provider.SessionState()
-        events = []
-        with patch.object(provider, "write_stdout", side_effect=events.append):
-            for index, text in enumerate(["第一句。", "第二句。"]):
-                provider.handle_server_message(
-                    response("TaskResponse", [{"index": index, "text": text, "extra": {"nonstream_result": True}}]),
-                    state,
-                    "r",
-                )
-            self.assertTrue(all(e["type"] == "partial" for e in events))
-            provider.emit_fallback_final(state)
-        self.assertEqual(events[-1]["text"], "第一句。第二句。")
-        self.assertEqual(sum(e["type"] == "final" for e in events), 1)
+        # 320 bytes = 10 ms mono 16 kHz PCM
+        pcm_chunk = bytes(320)
+        audio_msg = json.dumps({"type": "audio", "audio_base64": base64.b64encode(pcm_chunk).decode()}) + "\n"
+        finish_msg = json.dumps({"type": "finish"}) + "\n"
 
-    def run_session(self, end):
-        # Include a partial PCM frame to exercise padding and terminal framing.
-        audio = base64.b64encode(bytes(642)).decode()
-        lines = json.dumps({"type": "audio", "audio_base64": audio}) + "\n" + json.dumps({"type": end}) + "\n"
-        client = FakeClient()
-        events = []
+        async def lines_gen():
+            yield audio_msg
+            yield finish_msg
+
         with (
-            patch.object(provider, "WebSocketClient", return_value=client),
+            patch.object(provider, "ASRClient", return_value=fake_client),
             patch.object(
-                provider, "ensure_credentials", return_value=provider.DeviceCredentials(device_id="test", token="test")
+                provider,
+                "ensure_identity",
+                return_value={"device_id": "dev-1", "install_id": "inst-1"},
             ),
-            patch.object(provider, "OpusEncoder") as encoder,
-            patch.object(provider.sys, "stdin", StringIO(lines)),
-            patch.object(provider, "write_stdout", side_effect=events.append),
         ):
-            encoder.return_value.encode.return_value = b"opus"
-            self.assertEqual(provider.run(), 0)
-        return client.sent, events
+            code = asyncio.run(
+                provider.run_provider(
+                    lines_gen(),
+                    events.append,
+                    finish_grace=2.0,
+                    no_trailing_punctuation=True,
+                )
+            )
 
-    def test_finish_sends_empty_terminal_audio_and_exactly_one_final(self):
-        sent, events = self.run_session("finish")
-        audio = [f for f in sent if provider.get_proto_string(f, 5) == "TaskRequest"]
-        self.assertEqual([provider.get_proto_int(f, 9) for f in audio], [1, 3, 9])
-        self.assertEqual(audio[-1].get(7, b""), b"")
-        self.assertEqual(sum(e["type"] == "final" for e in events), 1)
-        self.assertEqual(next(e["text"] for e in events if e["type"] == "final"), "测试成功。")
+        self.assertEqual(code, 0)
+        event_types = [e["type"] for e in events]
+        self.assertIn("session_started", event_types)
+        self.assertIn("partial", event_types)
+        self.assertIn("final", event_types)
+        self.assertIn("closed", event_types)
+
+        # Verified trailing punctuation removal
+        final_event = next(e for e in events if e["type"] == "final")
+        self.assertEqual(final_event["text"], "识别成功")
+
+    def test_run_provider_cancel_flow(self):
+        events = []
+
+        async def fake_transcribe_stream(source, on_update=None, *, on_start=None):
+            if on_start:
+                on_start()
+            async for _ in source:
+                pass
+            return provider.ASRResult(text="", task_id="t-1", updates=())
+
+        fake_client = MagicMock()
+        fake_client.transcribe_stream = fake_transcribe_stream
+
+        async def lines_gen():
+            yield json.dumps({"type": "audio", "audio_base64": base64.b64encode(bytes(320)).decode()}) + "\n"
+            yield json.dumps({"type": "cancel"}) + "\n"
+
+        with (
+            patch.object(provider, "ASRClient", return_value=fake_client),
+            patch.object(
+                provider,
+                "ensure_identity",
+                return_value={"device_id": "dev-1", "install_id": "inst-1"},
+            ),
+        ):
+            code = asyncio.run(provider.run_provider(lines_gen(), events.append, finish_grace=2.0))
+
+        self.assertEqual(code, 0)
+        # Cancelled sessions must not emit 'final'
+        self.assertFalse(any(e["type"] == "final" for e in events))
         self.assertEqual(events[-1]["type"], "closed")
 
-    def test_cancel_closes_without_finish_or_final(self):
-        sent, events = self.run_session("cancel")
-        self.assertFalse(any(provider.get_proto_string(f, 5) == "FinishSession" for f in sent))
-        self.assertFalse(any(e["type"] == "final" for e in events))
+    def test_audio_received_after_finish_emits_error(self):
+        events = []
+
+        async def lines_gen():
+            yield json.dumps({"type": "finish"}) + "\n"
+            yield json.dumps({"type": "audio", "audio_base64": base64.b64encode(bytes(320)).decode()}) + "\n"
+
+        with patch.object(
+            provider,
+            "ensure_identity",
+            return_value={"device_id": "dev-1", "install_id": "inst-1"},
+        ):
+            code = asyncio.run(provider.run_provider(lines_gen(), events.append, finish_grace=1.0))
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any(e["type"] == "error" and "Audio received after finish" in e["message"] for e in events))
         self.assertEqual(events[-1]["type"], "closed")
 
 
