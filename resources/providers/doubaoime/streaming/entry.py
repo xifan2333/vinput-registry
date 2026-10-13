@@ -1,164 +1,383 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
+import argparse
+import asyncio
 import base64
 import ctypes
 import ctypes.util
+import fcntl
+import gzip
 import hashlib
 import json
 import os
-import queue
 import secrets
+import signal
 import socket
 import ssl
 import struct
 import sys
+import tempfile
 import threading
 import time
+import unicodedata
 import uuid
-from dataclasses import dataclass
+from collections.abc import AsyncIterable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
-REGISTER_URL = "https://log-klink.zijieapi.com/service/2/device_register/"
-# ASR application identifier advertised by the 1.4.6 client (not a user credential).
-DEFAULT_APP_KEY = "OrnqKvSSrs"
-DEFAULT_URL = "wss://frontier-audio-ime-ws.doubao.com/ocean/api/v1/ws"
-DEFAULT_AID = "401734"
-DEFAULT_TIMEOUT = 30
-DEFAULT_FINISH_GRACE_SECS = 15.0
-DEFAULT_FRAME_DURATION_MS = 20
-DEFAULT_SAMPLE_RATE = 16000
-DEFAULT_CHANNELS = 1
-DEFAULT_APP_NAME = "oime"
-DEFAULT_CREDENTIAL_PATH = "~/.cache/vinput/doubaoime-asr/credentials.json"
-SEGMENT_START_ADVANCE_SECS = 3.0
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-EXIT_RUNTIME_ERROR = 1
-EXIT_USAGE_ERROR = 2
-CONCURRENCY_QUOTA_STATUS_CODE = 40200011
-
-USER_AGENT = (
-    "com.bytedance.android.doubaoime/100406010 "
-    "(Linux; U; Android 16; en_US; Pixel 7 Pro; "
-    "Build/BP2A.250605.031.A2; Cronet/TTNetVersion:94cf429a "
-    "2025-11-17 QuicVersion:1f89f732 2025-05-08)"
-)
-
-APP_CONFIG = {
-    "aid": 401734,
-    "app_name": "oime",
-    "version_code": 100406010,
-    "version_name": "1.4.6",
-    "manifest_version_code": 100406010,
-    "update_version_code": 100406010,
-    "channel": "official",
-    "package": "com.bytedance.android.doubaoime",
-}
-
-DEFAULT_DEVICE_CONFIG = {
-    "device_platform": "android",
-    "os": "android",
-    "os_api": "34",
-    "os_version": "16",
-    "device_type": "Pixel 7 Pro",
-    "device_brand": "google",
-    "device_model": "Pixel 7 Pro",
-    "resolution": "1080*2400",
-    "dpi": "420",
-    "language": "zh",
-    "timezone": 8,
-    "access": "wifi",
-    "rom": "UP1A.231005.007",
-    "rom_version": "UP1A.231005.007",
-}
-
-FRAME_STATE_FIRST = 1
-FRAME_STATE_MIDDLE = 3
-FRAME_STATE_LAST = 9
-OPUS_APPLICATION_VOIP = 2048
-OPUS_MAX_PACKET_SIZE = 4000
 
 
-def write_stdout(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+def _gf_mul(left, right):
+    result = 0
+    while right:
+        if right & 1:
+            result ^= left
+        left = ((left << 1) ^ (0x11B if left & 0x80 else 0)) & 0xFF
+        right >>= 1
+    return result
 
 
-def write_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+def _gf_pow(value, exponent):
+    result = 1
+    while exponent:
+        if exponent & 1:
+            result = _gf_mul(result, value)
+        value = _gf_mul(value, value)
+        exponent >>= 1
+    return result
 
 
-def normalize_transcript_text(text: str) -> str:
-    return " ".join(text.split()).strip()
+def _sbox(value):
+    inverse = 0 if value == 0 else _gf_pow(value, 254)
+    result = inverse ^ ((inverse << 1) | (inverse >> 7)) ^ ((inverse << 2) | (inverse >> 6))
+    result ^= ((inverse << 3) | (inverse >> 5)) ^ ((inverse << 4) | (inverse >> 4)) ^ 0x63
+    return result & 0xFF
 
 
-def combine_transcript(committed_text: str, current_text: str) -> str:
-    committed = normalize_transcript_text(committed_text)
-    current = normalize_transcript_text(current_text)
+def _rot_word(word):
+    return word[1:] + word[:1]
 
-    if not committed:
-        return current
-    if not current:
-        return committed
-    if current == committed or current.startswith(committed):
-        return current
-    if committed.endswith(current):
-        return committed
 
-    # Chinese text normally has no spaces between server-side segments. Keep a
-    # separator only where concatenating ASCII words would join them together.
-    separator = (
-        " "
-        if committed[-1].isascii() and committed[-1].isalnum() and current[0].isascii() and current[0].isalnum()
-        else ""
+def _expand_key(key):
+    if len(key) not in (16, 24, 32):
+        raise ValueError("AES key must be 16, 24, or 32 bytes")
+    nk = len(key) // 4
+    rounds = nk + 6
+    words = [list(key[index : index + 4]) for index in range(0, len(key), 4)]
+    rcon = 1
+    while len(words) < 4 * (rounds + 1):
+        word = words[-1][:]
+        if len(words) % nk == 0:
+            word = [_sbox(item) for item in _rot_word(word)]
+            word[0] ^= rcon
+            rcon = _gf_mul(rcon, 2)
+        elif nk > 6 and len(words) % nk == 4:
+            word = [_sbox(item) for item in word]
+        word = [word[index] ^ words[-nk][index] for index in range(4)]
+        words.append(word)
+    return [[byte for word in words[index : index + 4] for byte in word] for index in range(0, len(words), 4)]
+
+
+def _aes_block(block, key):
+    rounds = len(key) // 4 + 6
+    round_keys = _expand_key(key)
+    state = list(block)
+
+    def add_round_key(round_key):
+        for index in range(16):
+            state[index] ^= round_key[index]
+
+    def substitute():
+        for index in range(16):
+            state[index] = _sbox(state[index])
+
+    def shift_rows():
+        original = state[:]
+        for row in range(4):
+            for column in range(4):
+                state[4 * column + row] = original[4 * ((column + row) % 4) + row]
+
+    def mix_columns():
+        for column in range(4):
+            offset = column * 4
+            a = state[offset : offset + 4]
+            state[offset] = _gf_mul(a[0], 2) ^ _gf_mul(a[1], 3) ^ a[2] ^ a[3]
+            state[offset + 1] = a[0] ^ _gf_mul(a[1], 2) ^ _gf_mul(a[2], 3) ^ a[3]
+            state[offset + 2] = a[0] ^ a[1] ^ _gf_mul(a[2], 2) ^ _gf_mul(a[3], 3)
+            state[offset + 3] = _gf_mul(a[0], 3) ^ a[1] ^ a[2] ^ _gf_mul(a[3], 2)
+
+    add_round_key(round_keys[0])
+    for round_index in range(1, rounds):
+        substitute()
+        shift_rows()
+        mix_columns()
+        add_round_key(round_keys[round_index])
+    substitute()
+    shift_rows()
+    add_round_key(round_keys[rounds])
+    return bytes(state)
+
+
+def _aes_cbc_encrypt(data, key, iv):
+    if len(iv) != 16 or len(data) % 16:
+        raise ValueError("AES-CBC requires a 16-byte IV and aligned data")
+    result = bytearray()
+    previous = iv
+    for offset in range(0, len(data), 16):
+        block = bytes(left ^ right for left, right in zip(data[offset : offset + 16], previous, strict=True))
+        previous = _aes_block(block, key)
+        result.extend(previous)
+    return bytes(result)
+
+
+def encode_tt_encrypt(gzip_bytes, salt=None):
+    salt = secrets.token_bytes(32) if salt is None else salt
+    if len(salt) != 32:
+        raise ValueError("ttEncrypt salt must contain exactly 32 bytes")
+    constant = bytes.fromhex(
+        "4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58"
     )
-    return committed + separator + current
+    digest = hashlib.sha512(hashlib.sha512(salt).digest() + constant).digest()
+    key, iv = digest[:16], digest[16:32]
+    payload = hashlib.sha512(gzip_bytes).digest() + gzip_bytes
+    padding = 16 - len(payload) % 16
+    payload += bytes([padding]) * padding
+    return bytes.fromhex("746305100000") + salt + _aes_cbc_encrypt(payload, key, iv)
 
 
-def coerce_optional_float(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
+def new_installation() -> dict:
+    return {
+        "openudid": secrets.token_hex(10),
+        "clientudid": str(uuid.uuid4()),
+        "cdid": str(uuid.uuid4()),
+        "first_install_time": int(time.time() * 1000),
+    }
+
+
+def registration_request(state: dict) -> dict:
+    request_id = str(uuid.uuid4())
+    header = {
+        "aid": 401734,
+        "app_name": "oime",
+        "channel": "official",
+        "package": "com.bytedance.android.doubaoime",
+        "app_version": "1.5.1",
+        "app_version_minor": "6",
+        "version_code": 100501006,
+        "update_version_code": 100501006,
+        "manifest_version_code": 100501006,
+        "not_request_sender": 1,
+        "release_build": "",
+        "custom": {},
+        "device_platform": "android",
+        "os": "Android",
+        "os_version": "14",
+        "os_api": 34,
+        "device_model": "Python protocol test",
+        "device_brand": "generic",
+        "device_manufacturer": "generic",
+        "cpu_abi": "arm64-v8a",
+        "language": "zh",
+        "timezone": 8,
+        "tz_name": "Asia/Shanghai",
+        "tz_offset": 28800,
+        "access": "wifi",
+        "openudid": state["openudid"],
+        "clientudid": state["clientudid"],
+        "cdid": state["cdid"],
+        "git_hash": "b416399",
+        "sdk_version_code": 4030263,
+        "sdk_target_version": 30,
+        "sdk_version": "4.3.2-rc.13",
+        "sdk_flavor": "cnInner",
+        "guest_mode": 0,
+        "req_id": request_id,
+        "apk_first_install_time": state["first_install_time"],
+        "is_system_app": 0,
+    }
+    body = {"magic_tag": "ss_app_log", "_gen_time": int(time.time() * 1000), "header": header}
+    return {
+        "url": "https://log.snssdk.com/service/2/device_register/",
+        "params": {"req_id": request_id, "tt_data": "a"},
+        "headers": {"Content-Type": "application/octet-stream;tt-data=a"},
+        "body": body,
+    }
+
+
+def register_device(request: dict) -> tuple[dict, dict]:
+    raw = json.dumps(request["body"], ensure_ascii=False, separators=(",", ":")).encode()
+    content = encode_tt_encrypt(gzip.compress(raw, mtime=0))
+    target = request["url"] + "?" + urlencode(request["params"])
+    with urlopen(Request(target, data=content, headers=request["headers"]), timeout=20) as response:
+        body = json.loads(response.read())
+    did = body.get("device_id_str") or str(body.get("device_id") or "")
+    iid = body.get("install_id_str") or str(body.get("install_id") or "")
+    if not did or not iid or did == "0" or iid == "0":
+        raise RuntimeError("Registration did not return nonzero device and installation IDs")
+    return {"device_id": did, "install_id": iid}, body
+
+
+DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
+LEGACY_IDENTITIES = (
+    Path.home() / ".cache/vinput/doubaoime-stable/identity.json",
+    Path.home() / ".cache/vinput/doubaoime-asr/credentials.json",
+)
+IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
+
+
+def save_identity(path: Path, state: dict):
+    descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(state, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def migrated_identity():
+    for source in LEGACY_IDENTITIES:
         try:
-            return float(value.strip())
-        except ValueError:
-            return None
+            state = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(state, dict) or not all(state.get(key) and str(state[key]) != "0" for key in IDENTITY_FIELDS):
+            continue
+        result: dict = {key: str(state[key]) for key in IDENTITY_FIELDS}
+        installed = state.get("first_install_time")
+        if isinstance(installed, int) and installed > 0:
+            result["first_install_time"] = installed
+        return result
     return None
 
 
-def get_optional_env(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    return value or default
+def _ensure_identity(path: Path) -> dict:
+    path = Path(path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(path.suffix + ".lock").open("a") as lock:
+        os.fchmod(lock.fileno(), 0o600)
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Identity lock deadline expired") from None
+                time.sleep(0.05)
+        if path.exists():
+            state = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            state = migrated_identity() if path == DEFAULT_IDENTITY else None
+            state = state if state is not None else new_installation()
+        if not isinstance(state, dict):
+            raise ValueError("Identity cache must be a JSON object")
+        if state.get("device_id") or state.get("install_id"):
+            if not all(state.get(key) and str(state[key]) != "0" for key in IDENTITY_FIELDS):
+                raise ValueError("Identity cache contains an incomplete or zero identity")
+            if not path.exists():
+                save_identity(path, state)
+            path.chmod(0o600)
+            return state
+        if not all(state.get(key) for key in ("cdid", "openudid", "clientudid", "first_install_time")):
+            raise ValueError("Identity cache contains an incomplete installation")
+        # Save the installation before registering so retries keep the same identity.
+        save_identity(path, state)
+        identifiers, _ = register_device(registration_request(state))
+        state.update(identifiers)
+        save_identity(path, state)
+        return state
 
 
-def get_optional_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return default
-    return int(value)
+async def ensure_identity(path=DEFAULT_IDENTITY):
+    return await background(_ensure_identity, path)
 
 
-def get_optional_float_env(name: str, default: float) -> float:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return default
-    return float(value)
+PRESERVED = frozenset("]})>\u300b\u201d'\"\u3011\u2019\uff09%\u2103:\uff1a")
 
 
-def get_optional_bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
+def remove_trailing_punctuation(text, *, per_line=False):
+    def trim(value):
+        end = len(value)
+        while end and value[end - 1] not in PRESERVED and unicodedata.category(value[end - 1]).startswith("P"):
+            end -= 1
+        return value[:end]
+
+    if not per_line:
+        return trim(text)
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if index < len(lines) - 1 and line.endswith("\r"):
+            lines[index] = trim(line[:-1]) + "\r"
+        else:
+            lines[index] = trim(line)
+    return "\n".join(lines)
 
 
-def json_dumps_compact(data: dict[str, Any]) -> str:
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+class OpusEncoder:
+    def __init__(self, bitrate: int):
+        library = os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip() or ctypes.util.find_library("opus")
+        if library is None:
+            raise RuntimeError("libopus is required for speech_opus")
+        self.lib = ctypes.CDLL(library)
+        self.lib.opus_encoder_create.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+        self.lib.opus_encoder_create.restype = ctypes.c_void_p
+        self.lib.opus_encoder_ctl.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        self.lib.opus_encoder_ctl.restype = ctypes.c_int
+        self.lib.opus_encode.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int16),
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_ubyte),
+            ctypes.c_int32,
+        ]
+        self.lib.opus_encode.restype = ctypes.c_int32
+        self.lib.opus_encoder_destroy.argtypes = [ctypes.c_void_p]
+        error = ctypes.c_int()
+        self.handle = self.lib.opus_encoder_create(16000, 1, 2049, ctypes.byref(error))
+        if not self.handle or error.value:
+            raise RuntimeError(f"Opus encoder creation failed: {error.value}")
+        try:
+            # Constant bitrate, one 10 ms packet per request.
+            for request, value in [(4006, 0), (4002, bitrate), (4040, 5003)]:
+                code = self.lib.opus_encoder_ctl(self.handle, request, ctypes.c_int(value))
+                if code:
+                    raise RuntimeError(f"Opus configuration failed: {code}")
+        except BaseException:
+            self.close()
+            raise
+
+    def encode(self, pcm: bytes) -> bytes:
+        if not self.handle:
+            raise RuntimeError("Opus encoder is closed")
+        if len(pcm) != 320:
+            raise ValueError("Opus frame must contain exactly 160 samples (10 ms)")
+        samples = (ctypes.c_int16 * 160).from_buffer_copy(pcm)
+        output = (ctypes.c_ubyte * 1275)()
+        length = self.lib.opus_encode(self.handle, samples, 160, output, len(output))
+        if length < 0:
+            raise RuntimeError(f"Opus encoding failed: {length}")
+        return bytes(output[:length])
+
+    def close(self):
+        if self.handle:
+            self.lib.opus_encoder_destroy(self.handle)
+            self.handle = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
 
 
 def encode_varint(value: int) -> bytes:
@@ -263,161 +482,53 @@ def get_proto_int(fields: dict[int, Any], field_number: int) -> int:
 
 
 @dataclass
-class DeviceCredentials:
-    device_id: str = ""
-    install_id: str = ""
-    cdid: str = ""
-    openudid: str = ""
-    clientudid: str = ""
-    token: str = ""
-    route_healthy: bool = False
+class WebSocketRequest:
+    namespace: str = ""
+    event: str = ""
+    task_id: str = ""
+    appkey: str = ""
+    payload: str = ""
+    audio: bytes = b""
+    seq_id: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "device_id": self.device_id,
-            "install_id": self.install_id,
-            "cdid": self.cdid,
-            "openudid": self.openudid,
-            "clientudid": self.clientudid,
-            "token": self.token,
-            "route_healthy": self.route_healthy,
-        }
+    def SerializeToString(self):
+        result = b""
+        for number, value in (
+            (2, self.appkey),
+            (3, self.namespace),
+            (5, self.event),
+            (6, self.payload),
+            (8, self.task_id),
+        ):
+            if value:
+                result += encode_field_string(number, value)
+        if self.audio:
+            result += encode_field_bytes(7, self.audio)
+        if self.seq_id:
+            result += encode_field_int(9, self.seq_id)
+        return result
 
 
 @dataclass
-class SessionState:
-    session_started: bool = False
-    error: str | None = None
-    error_code: int = 0
-    closed: bool = False
-    finished: bool = False
-    committed_text: str = ""
-    current_partial_text: str = ""
-    current_partial_start_time: float | None = None
-    last_final_text: str = ""
+class WebSocketResponse:
+    task_id: str = ""
+    event: str = ""
+    status_code: int = 0
+    status_text: str = ""
+    payload: str = ""
+    seq_id: int = 0
 
-    def has_usable_final(self) -> bool:
-        return bool(normalize_transcript_text(self.last_final_text))
-
-    def get_visible_text(self) -> str:
-        return normalize_transcript_text(combine_transcript(self.committed_text, self.current_partial_text))
-
-    def record_partial(self, text: str, start_time: float | None = None) -> str:
-        normalized = normalize_transcript_text(text)
-        starts_new_segment = False
-
-        # Doubao IME periodically starts a new result segment during long speech,
-        # while still marking it as interim. The new segment has a clearly
-        # advanced start_time and its text no longer contains the earlier
-        # hypothesis. Preserve the preceding hypothesis before replacing the
-        # current partial, otherwise the eventual final contains only the tail.
-        if (
-            self.current_partial_text
-            and start_time is not None
-            and self.current_partial_start_time is not None
-            and start_time > self.current_partial_start_time + SEGMENT_START_ADVANCE_SECS
-        ):
-            starts_new_segment = True
-            self.committed_text = combine_transcript(self.committed_text, self.current_partial_text)
-
-        self.current_partial_text = normalized
-        if self.current_partial_start_time is None or starts_new_segment:
-            self.current_partial_start_time = start_time
-        return self.get_visible_text()
-
-    def record_final(self, text: str) -> str:
-        full_text = normalize_transcript_text(combine_transcript(self.committed_text, text))
-        self.committed_text = full_text
-        self.current_partial_text = ""
-        self.current_partial_start_time = None
-        self.last_final_text = full_text
-        return full_text
-
-
-class OpusEncoder:
-    def __init__(self, sample_rate: int, channels: int) -> None:
-        self.lib = None
-        env_path = get_optional_env("VINPUT_ASR_LIBOPUS_PATH")
-        if env_path:
-            try:
-                self.lib = ctypes.CDLL(env_path)
-            except OSError as exc:
-                raise RuntimeError(f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}") from exc
-        else:
-            candidates = []
-            discovered = ctypes.util.find_library("opus")
-            if discovered:
-                candidates.append(discovered)
-            candidates.extend(["libopus.so.0", "libopus.so"])
-            for candidate in candidates:
-                try:
-                    self.lib = ctypes.CDLL(candidate)
-                    break
-                except OSError:
-                    continue
-        if self.lib is None:
-            raise RuntimeError("Failed to locate system libopus.")
-
-        self.lib.opus_encoder_create.argtypes = [
-            ctypes.c_int32,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_int),
-        ]
-        self.lib.opus_encoder_create.restype = ctypes.c_void_p
-        self.lib.opus_encode.argtypes = [
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_int16),
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_ubyte),
-            ctypes.c_int32,
-        ]
-        self.lib.opus_encode.restype = ctypes.c_int32
-        self.lib.opus_encoder_destroy.argtypes = [ctypes.c_void_p]
-        self.lib.opus_encoder_destroy.restype = None
-
-        error = ctypes.c_int()
-        self.encoder = self.lib.opus_encoder_create(
-            sample_rate,
-            channels,
-            OPUS_APPLICATION_VOIP,
-            ctypes.byref(error),
+    @classmethod
+    def FromString(cls, data):
+        fields = parse_protobuf_fields(data)
+        return cls(
+            get_proto_string(fields, 1),
+            get_proto_string(fields, 4),
+            get_proto_int(fields, 5),
+            get_proto_string(fields, 6),
+            get_proto_string(fields, 7),
+            get_proto_int(fields, 9),
         )
-        if not self.encoder or error.value != 0:
-            raise RuntimeError(f"libopus encoder init failed: {error.value}")
-
-        self.lib.opus_encoder_ctl.restype = ctypes.c_int
-        for request, value in ((4002, 16000), (4010, 5)):  # Bitrate and complexity.
-            result = self.lib.opus_encoder_ctl(
-                ctypes.c_void_p(self.encoder), ctypes.c_int(request), ctypes.c_int(value)
-            )
-            if result != 0:
-                raise RuntimeError(f"libopus encoder configuration failed: {result}")
-
-    def encode(self, pcm_frame: bytes, samples_per_frame: int) -> bytes:
-        if self.lib is None or self.encoder is None:
-            raise RuntimeError("libopus encoder is not initialized.")
-        pcm_array = (ctypes.c_int16 * samples_per_frame).from_buffer_copy(pcm_frame)
-        output = (ctypes.c_ubyte * OPUS_MAX_PACKET_SIZE)()
-        encoded_size = self.lib.opus_encode(
-            self.encoder,
-            pcm_array,
-            samples_per_frame,
-            output,
-            OPUS_MAX_PACKET_SIZE,
-        )
-        if encoded_size < 0:
-            raise RuntimeError(f"libopus encode failed: {encoded_size}")
-        return bytes(output[:encoded_size])
-
-    def __del__(self) -> None:
-        encoder = getattr(self, "encoder", None)
-        lib = getattr(self, "lib", None)
-        if encoder and lib:
-            try:
-                lib.opus_encoder_destroy(encoder)
-            except Exception:
-                pass
 
 
 class WebSocketClient:
@@ -436,49 +547,47 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self.socket = self._connect()
+        self.response_headers: dict[str, str] = {}
         self._recv_buffer = b""
         self._closed = False
+        self._send_lock = threading.Lock()
+        self.socket = self._connect()
 
     def _connect(self) -> socket.socket:
         raw_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         raw_sock.settimeout(self.timeout)
 
-        if self.scheme == "wss":
-            context = ssl.create_default_context()
-            try:
-                sock = context.wrap_socket(raw_sock, server_hostname=self.host)
-            except Exception:
-                raw_sock.close()
-                raise
-        else:
-            sock = raw_sock
-
-        key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
-        host_header = self.host
-        if not ((self.scheme == "wss" and self.port == 443) or (self.scheme == "ws" and self.port == 80)):
-            host_header = f"{self.host}:{self.port}"
-        lines = [
-            f"GET {self.path} HTTP/1.1",
-            f"Host: {host_header}",
-            "Upgrade: websocket",
-            "Connection: Upgrade",
-            f"Sec-WebSocket-Key: {key}",
-            "Sec-WebSocket-Version: 13",
-        ]
-        for name, value in self.headers.items():
-            lines.append(f"{name}: {value}")
-        request = "\r\n".join(lines) + "\r\n\r\n"
+        sock = raw_sock
         try:
+            if self.scheme == "wss":
+                context = ssl.create_default_context()
+                sock = context.wrap_socket(raw_sock, server_hostname=self.host)
+            else:
+                sock = raw_sock
+
+            key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
+            lines = [
+                f"GET {self.path} HTTP/1.1",
+                f"Host: {self.host}:{self.port}",
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                f"Sec-WebSocket-Key: {key}",
+                "Sec-WebSocket-Version: 13",
+            ]
+            for name, value in self.headers.items():
+                lines.append(f"{name}: {value}")
+            request = "\r\n".join(lines) + "\r\n\r\n"
             sock.sendall(request.encode("utf-8"))
-            response = self._read_http_response(sock)
+
+            response, overflow = self._read_http_response(sock)
+            self._recv_buffer = overflow
             self._validate_handshake(response, key)
-        except Exception:
+            return sock
+        except BaseException:
             sock.close()
             raise
-        return sock
 
-    def _read_http_response(self, sock: socket.socket) -> bytes:
+    def _read_http_response(self, sock: socket.socket) -> tuple[bytes, bytes]:
         data = bytearray()
         while b"\r\n\r\n" not in data:
             chunk = sock.recv(4096)
@@ -487,13 +596,13 @@ class WebSocketClient:
             data.extend(chunk)
             if len(data) > 65536:
                 raise RuntimeError("WebSocket handshake failed: response too large.")
-        return bytes(data)
+
+        response, overflow = bytes(data).split(b"\r\n\r\n", 1)
+        return response, overflow
 
     def _validate_handshake(self, response: bytes, key: str) -> None:
-        header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
+        header_blob = response.decode("utf-8", errors="replace")
         lines = header_blob.split("\r\n")
-        if not lines or "101" not in lines[0]:
-            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
 
         headers: dict[str, str] = {}
         for line in lines[1:]:
@@ -502,27 +611,37 @@ class WebSocketClient:
             name, value = line.split(":", 1)
             headers[name.strip().lower()] = value.strip()
 
+        if not lines or "101" not in lines[0]:
+            status_line = lines[0] if lines else "invalid response"
+            details = [f"WebSocket handshake failed: {status_line}"]
+            log_id = headers.get("x-tt-logid")
+            if log_id:
+                details.append(f"log_id={log_id}")
+            connect_id = headers.get("x-api-connect-id")
+            if connect_id:
+                details.append(f"connect_id={connect_id}")
+            if " 403" in f" {status_line} ":
+                details.append("Doubao IME rejected the anonymous WebSocket handshake")
+            raise RuntimeError(", ".join(details))
+
         accept = headers.get("sec-websocket-accept")
         expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
         if accept != expected:
             raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
+        self.response_headers = headers
 
-    def close(self) -> None:
-        if self._closed:
-            return
+    def close(self):
+        self._closed = True
         try:
-            self._send_frame(0x8, b"")
+            self.socket.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
-        try:
-            self.socket.close()
-        finally:
-            self._closed = True
+        self.socket.close()
 
     def send_binary(self, payload: bytes) -> None:
         self._send_frame(0x2, payload)
 
-    def recv_binary(self) -> bytes | None:
+    def recv_message(self) -> tuple[int, bytes] | None:
         fragments = bytearray()
         current_opcode: int | None = None
 
@@ -540,10 +659,10 @@ class WebSocketClient:
                 continue
             if opcode == 0xA:
                 continue
-            if opcode not in {0x0, 0x2}:
+            if opcode not in {0x0, 0x1, 0x2}:
                 continue
 
-            if opcode == 0x2:
+            if opcode in {0x1, 0x2}:
                 current_opcode = opcode
                 fragments = bytearray(payload)
             else:
@@ -551,13 +670,18 @@ class WebSocketClient:
                     continue
                 fragments.extend(payload)
 
+            if len(fragments) > 4 * 1024 * 1024:
+                raise ValueError("WebSocket message exceeds 4 MB")
             if not fin:
                 continue
-            return bytes(fragments)
+
+            if current_opcode is None:
+                continue
+            return current_opcode, bytes(fragments)
 
     def _send_frame(self, opcode: int, payload: bytes) -> None:
         if self._closed:
-            return
+            raise ConnectionError("WebSocket connection is closed")
 
         first = 0x80 | (opcode & 0x0F)
         mask_key = secrets.token_bytes(4)
@@ -574,7 +698,8 @@ class WebSocketClient:
             header.extend(struct.pack("!Q", length))
 
         masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-        self.socket.sendall(bytes(header) + mask_key + masked)
+        with self._send_lock:
+            self.socket.sendall(bytes(header) + mask_key + masked)
 
     def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
@@ -597,6 +722,9 @@ class WebSocketClient:
             if raw_length is None:
                 return None
             length = struct.unpack("!Q", raw_length)[0]
+
+        if length > 4 * 1024 * 1024:
+            raise ValueError("WebSocket frame exceeds 4 MB")
 
         mask_key = b""
         if masked:
@@ -627,656 +755,576 @@ class WebSocketClient:
         return data
 
 
-def generate_openudid() -> str:
-    return secrets.token_hex(8)
+async def background(function, *args):
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
 
-
-def generate_uuid() -> str:
-    return str(uuid.uuid4())
-
-
-def http_post_json(
-    url: str,
-    *,
-    params: dict[str, Any],
-    body: Any,
-    headers: dict[str, str],
-    timeout: int,
-) -> dict[str, Any]:
-    full_url = url + "?" + urlencode(sorted(params.items()))
-    payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    request = Request(full_url, data=payload, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def load_credentials(path: Path) -> DeviceCredentials | None:
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return DeviceCredentials(
-        device_id=str(data.get("device_id", "")),
-        install_id=str(data.get("install_id", "")),
-        cdid=str(data.get("cdid", "")),
-        openudid=str(data.get("openudid", "")),
-        clientudid=str(data.get("clientudid", "")),
-        token=str(data.get("token", "")),
-        route_healthy=data.get("route_healthy") is True,
-    )
-
-
-def save_credentials(path: Path, credentials: DeviceCredentials) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(credentials.to_dict(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def register_device(timeout: int) -> DeviceCredentials:
-    cdid = generate_uuid()
-    openudid = generate_openudid()
-    clientudid = generate_uuid()
-
-    header = {
-        "device_id": 0,
-        "install_id": 0,
-        **APP_CONFIG,
-        **DEFAULT_DEVICE_CONFIG,
-        "openudid": openudid,
-        "clientudid": clientudid,
-        "cdid": cdid,
-        "region": "CN",
-        "tz_name": "Asia/Shanghai",
-        "tz_offset": 28800,
-        "sim_region": "cn",
-        "carrier_region": "cn",
-        "cpu_abi": "arm64-v8a",
-        "build_serial": "unknown",
-        "not_request_sender": 0,
-        "sig_hash": "",
-        "google_aid": "",
-        "mc": "",
-        "serial_number": "",
-    }
-    body = {
-        "magic_tag": "ss_app_log",
-        "header": header,
-        "_gen_time": int(time.time() * 1000),
-    }
-    params = {
-        "device_platform": "android",
-        "os": "android",
-        "ssmix": "a",
-        "_rticket": int(time.time() * 1000),
-        "cdid": cdid,
-        "channel": APP_CONFIG["channel"],
-        "aid": str(APP_CONFIG["aid"]),
-        "app_name": APP_CONFIG["app_name"],
-        "version_code": str(APP_CONFIG["version_code"]),
-        "version_name": APP_CONFIG["version_name"],
-        "manifest_version_code": str(APP_CONFIG["manifest_version_code"]),
-        "update_version_code": str(APP_CONFIG["update_version_code"]),
-        "resolution": DEFAULT_DEVICE_CONFIG["resolution"],
-        "dpi": DEFAULT_DEVICE_CONFIG["dpi"],
-        "device_type": DEFAULT_DEVICE_CONFIG["device_type"],
-        "device_brand": DEFAULT_DEVICE_CONFIG["device_brand"],
-        "language": DEFAULT_DEVICE_CONFIG["language"],
-        "os_api": DEFAULT_DEVICE_CONFIG["os_api"],
-        "os_version": DEFAULT_DEVICE_CONFIG["os_version"],
-        "ac": "wifi",
-    }
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Content-Type": "application/json",
-    }
-    response = http_post_json(
-        REGISTER_URL,
-        params=params,
-        body=body,
-        headers=headers,
-        timeout=timeout,
-    )
-
-    device_id = str(response.get("device_id", "") or response.get("device_id_str", ""))
-    install_id = str(response.get("install_id", "") or response.get("install_id_str", ""))
-    if not device_id or device_id == "0":
-        raise RuntimeError("Doubao IME device registration failed.")
-
-    return DeviceCredentials(
-        device_id=device_id,
-        install_id=install_id,
-        cdid=cdid,
-        openudid=openudid,
-        clientudid=clientudid,
-    )
-
-
-def ensure_credentials(timeout: int) -> DeviceCredentials:
-    credential_path = Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
-    credentials = load_credentials(credential_path) or DeviceCredentials()
-
-    env_device_id = get_optional_env("VINPUT_ASR_DEVICE_ID")
-    env_token = get_optional_env("VINPUT_ASR_TOKEN")
-    if env_device_id:
-        credentials.device_id = env_device_id
-
-    if not credentials.device_id:
-        credentials = register_device(timeout)
-    if not credentials.cdid:
-        credentials.cdid = generate_uuid()
-    # Cached settings tokens belong to the old backend. Preserve explicit
-    # overrides, but migrate automatic credentials without discarding device IDs.
-    credentials.token = env_token or DEFAULT_APP_KEY
-
-    save_credentials(credential_path, credentials)
-    return credentials
-
-
-def _credentials_pinned_by_env() -> bool:
-    return bool(get_optional_env("VINPUT_ASR_DEVICE_ID") or get_optional_env("VINPUT_ASR_TOKEN"))
-
-
-def _resolve_credential_path() -> Path:
-    return Path(os.path.expanduser(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", DEFAULT_CREDENTIAL_PATH)))
-
-
-def _invalidate_credentials_after_route_failure(state: SessionState) -> None:
-    if _credentials_pinned_by_env() or not (
-        state.error_code == CONCURRENCY_QUOTA_STATUS_CODE or "service discovery failure" in (state.error or "").lower()
-    ):
-        return
-    try:
-        _resolve_credential_path().unlink()
-        write_stderr("Doubao IME route failed; cached credentials invalidated.")
-    except FileNotFoundError:
-        pass
-
-
-def build_websocket_url(device_id: str) -> str:
-    base_url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
-    parsed = urlparse(base_url)
-    query = {"aid": get_optional_env("VINPUT_ASR_AID", DEFAULT_AID), "device_id": device_id}
-    if parsed.query:
-        for part in parsed.query.split("&"):
-            if not part:
-                continue
-            if "=" in part:
-                key, value = part.split("=", 1)
+    def complete(value=None, error=None):
+        if not future.done():
+            if error is None:
+                future.set_result(value)
             else:
-                key, value = part, ""
-            query.setdefault(key, value)
-    query_string = urlencode(query)
-    path = parsed.path or "/"
-    return f"{parsed.scheme}://{parsed.netloc}{path}?{query_string}"
+                future.set_exception(error)
 
-
-def build_start_task(request_id: str, token: str) -> bytes:
-    payload = bytearray()
-    payload.extend(encode_field_string(2, token))
-    payload.extend(encode_field_string(3, "ASR"))
-    payload.extend(encode_field_string(5, "StartTask"))
-    payload.extend(encode_field_string(8, request_id))
-    return bytes(payload)
-
-
-def build_start_session(request_id: str, token: str, config_json: str) -> bytes:
-    payload = bytearray()
-    payload.extend(encode_field_string(2, token))
-    payload.extend(encode_field_string(3, "ASR"))
-    payload.extend(encode_field_string(5, "StartSession"))
-    payload.extend(encode_field_string(6, config_json))
-    payload.extend(encode_field_string(8, request_id))
-    return bytes(payload)
-
-
-def build_finish_session(request_id: str, token: str) -> bytes:
-    payload = bytearray()
-    payload.extend(encode_field_string(2, token))
-    payload.extend(encode_field_string(3, "ASR"))
-    payload.extend(encode_field_string(5, "FinishSession"))
-    payload.extend(encode_field_string(8, request_id))
-    return bytes(payload)
-
-
-def build_asr_request(
-    audio_data: bytes,
-    request_id: str,
-    frame_state: int,
-    timestamp_ms: int,
-) -> bytes:
-    metadata = json.dumps({"extra": {}, "timestamp_ms": timestamp_ms}, ensure_ascii=False)
-    payload = bytearray()
-    payload.extend(encode_field_string(3, "ASR"))
-    payload.extend(encode_field_string(5, "TaskRequest"))
-    payload.extend(encode_field_string(6, metadata))
-    payload.extend(encode_field_bytes(7, audio_data))
-    payload.extend(encode_field_string(8, request_id))
-    payload.extend(encode_field_int(9, frame_state))
-    return bytes(payload)
-
-
-def build_session_config(device_id: str) -> str:
-    config = {
-        "audio_info": {
-            "channel": DEFAULT_CHANNELS,
-            "format": "speech_opus",
-            "sample_rate": DEFAULT_SAMPLE_RATE,
-        },
-        "enable_punctuation": get_optional_bool_env("VINPUT_ASR_ENABLE_PUNCTUATION", True),
-        "enable_speech_rejection": get_optional_bool_env("VINPUT_ASR_ENABLE_SPEECH_REJECTION", True),
-        "extra": {
-            "app_name": get_optional_env("VINPUT_ASR_APP_NAME", DEFAULT_APP_NAME),
-            "cell_compress_rate": 8,
-            "did": device_id,
-            "enable_asr_threepass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_THREEPASS", False),
-            "enable_asr_twopass": get_optional_bool_env("VINPUT_ASR_ENABLE_ASR_TWOPASS", True),
-            "input_mode": "stream",
-        },
-    }
-    return json_dumps_compact(config)
-
-
-def emit_final_text(
-    state: SessionState,
-    text: str,
-    *,
-    utterance_final: bool = False,
-    words: list | None = None,
-    allow_same_text: bool = False,
-) -> bool:
-    final_text = normalize_transcript_text(text)
-    if not final_text:
-        return False
-    if not allow_same_text and final_text == normalize_transcript_text(state.last_final_text):
-        return False
-
-    recorded = state.record_final(final_text)
-    if isinstance(words, list) and words:
-        write_stdout(
-            {
-                "type": "final_timestamps",
-                "text": recorded,
-                "segment_final": True,
-                "utterance_final": utterance_final,
-                "words": words,
-            }
-        )
-    else:
-        write_stdout(
-            {
-                "type": "final",
-                "text": recorded,
-                "segment_final": True,
-                "utterance_final": utterance_final,
-            }
-        )
-    return True
-
-
-def emit_fallback_final(state: SessionState) -> bool:
-    visible_text = state.get_visible_text()
-    if not visible_text:
-        return False
-
-    if normalize_transcript_text(visible_text) == normalize_transcript_text(state.last_final_text):
-        write_stdout(
-            {
-                "type": "final",
-                "text": normalize_transcript_text(state.last_final_text),
-                "segment_final": True,
-                "utterance_final": True,
-            }
-        )
-        return True
-
-    return emit_final_text(
-        state,
-        visible_text,
-        utterance_final=True,
-        allow_same_text=True,
-    )
-
-
-def extract_words(results: list) -> list | None:
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        words = result.get("words")
-        if isinstance(words, list) and words:
-            return words
-        alternatives = result.get("alternatives")
-        if not isinstance(alternatives, list):
-            continue
-        for item in alternatives:
-            if not isinstance(item, dict):
-                continue
-            words = item.get("words")
-            if isinstance(words, list) and words:
-                return words
-    return None
-
-
-def parse_server_response(message: bytes) -> dict[str, Any]:
-    fields = parse_protobuf_fields(message)
-    message_type = get_proto_string(fields, 4)
-    result_json = get_proto_string(fields, 7)
-    parsed: dict[str, Any] = {
-        "message_type": message_type,
-        "status_code": get_proto_int(fields, 5),
-        "status_message": get_proto_string(fields, 6),
-    }
-    if result_json:
+    def work():
         try:
-            parsed["result"] = json.loads(result_json)
-        except json.JSONDecodeError:
-            parsed["result"] = None
-    else:
-        parsed["result"] = None
-    return parsed
-
-
-def handle_server_message(message: bytes, state: SessionState, request_id: str) -> None:
-    parsed = parse_server_response(message)
-    message_type = parsed["message_type"]
-
-    if message_type == "TaskStarted":
-        return
-    if message_type == "SessionStarted":
-        if not state.session_started:
-            write_stdout({"type": "session_started", "session_id": request_id})
-            state.session_started = True
-        return
-    if message_type == "SessionFinished":
-        state.finished = True
-        return
-    if message_type in {"TaskFailed", "SessionFailed"}:
-        error_message = parsed["status_message"] or f"{message_type} ({parsed['status_code']})"
-        if state.has_usable_final():
-            write_stderr(f"Doubao IME terminal error ignored after final result: {error_message}")
-            state.finished = True
-            return
-        state.error = error_message
-        state.error_code = parsed["status_code"]
-        write_stdout({"type": "error", "message": error_message})
-        state.finished = True
-        return
-
-    result = parsed["result"]
-    if not isinstance(result, dict):
-        return
-    results = result.get("results")
-    if not isinstance(results, list):
-        return
-
-    # The 1.4.6 backend returns cumulative text first, then auxiliary candidates.
-    # Replace earlier hypotheses; appending them duplicates corrected sentences.
-    if results and not any(isinstance(item, dict) and "index" in item for item in results):
-        first = results[0]
-        text = first.get("text", "") if isinstance(first, dict) else ""
-        if isinstance(text, str) and text.strip():
-            state.committed_text = ""
-            state.current_partial_text = normalize_transcript_text(text)
-            state.current_partial_start_time = None
-            write_stdout({"type": "partial", "text": state.current_partial_text})
-        return
-
-    text = ""
-    text_start_time: float | None = None
-    is_interim = True
-    vad_finished = False
-    nonstream_result = False
-    for item in results:
-        if not isinstance(item, dict):
-            continue
-        candidate_text = item.get("text")
-        if isinstance(candidate_text, str) and candidate_text.strip():
-            text = candidate_text
-            text_start_time = coerce_optional_float(item.get("start_time"))
-        if item.get("is_interim") is False:
-            is_interim = False
-        if item.get("is_vad_finished"):
-            vad_finished = True
-        extra = item.get("extra")
-        if isinstance(extra, dict) and extra.get("nonstream_result"):
-            nonstream_result = True
-
-    if not text:
-        return
-
-    if nonstream_result or (not is_interim and vad_finished):
-        write_stdout({"type": "partial", "text": state.record_final(text)})
-        return
-
-    write_stdout(
-        {
-            "type": "partial",
-            "text": state.record_partial(text, start_time=text_start_time),
-        }
-    )
-
-
-def send_audio_frame(
-    client: WebSocketClient,
-    encoder: OpusEncoder,
-    request_id: str,
-    pcm_frame: bytes,
-    frame_state: int,
-    frame_index: int,
-    samples_per_frame: int,
-    start_timestamp_ms: int,
-) -> int:
-    opus_frame = encoder.encode(pcm_frame, samples_per_frame)
-    timestamp_ms = start_timestamp_ms + frame_index * DEFAULT_FRAME_DURATION_MS
-    client.send_binary(build_asr_request(opus_frame, request_id, frame_state, timestamp_ms))
-    return frame_index + 1
-
-
-def run() -> int:
-    # Use a separate thread to read stdin lines to avoid blocking the vinput-daemon event loop,
-    # which could cause first several seconds of audio to be dropped.
-    input_queue: queue.Queue = queue.Queue()
-
-    def read_stdin() -> None:
-        try:
-            for raw_line in sys.stdin:
-                input_queue.put(raw_line)
-        finally:
-            input_queue.put(None)
-
-    threading.Thread(target=read_stdin, daemon=True).start()
-    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
-    credentials = ensure_credentials(timeout)
-    request_id = str(uuid.uuid4())
-    token = credentials.token
-
-    client = WebSocketClient(
-        build_websocket_url(credentials.device_id),
-        {
-            "User-Agent": USER_AGENT,
-            "proto-version": "v2",
-            "x-custom-keepalive": "true",
-        },
-        timeout,
-    )
-
-    client.send_binary(build_start_task(request_id, token))
-    start_task_response = client.recv_binary()
-    if start_task_response is None:
-        raise RuntimeError("Doubao IME websocket closed before task start.")
-
-    state = SessionState()
-    handle_server_message(start_task_response, state, request_id)
-    if state.error:
-        _invalidate_credentials_after_route_failure(state)
-        return EXIT_RUNTIME_ERROR
-
-    client.send_binary(build_start_session(request_id, token, build_session_config(credentials.device_id)))
-    start_session_response = client.recv_binary()
-    if start_session_response is None:
-        raise RuntimeError("Doubao IME websocket closed before session start.")
-    handle_server_message(start_session_response, state, request_id)
-    if state.error:
-        _invalidate_credentials_after_route_failure(state)
-        return EXIT_RUNTIME_ERROR
-
-    stop_event = threading.Event()
-
-    def reader() -> None:
-        try:
-            while not stop_event.is_set():
-                message = client.recv_binary()
-                if message is None:
-                    break
-                handle_server_message(message, state, request_id)
-                if state.finished:
-                    break
-        except Exception as exc:
-            if not stop_event.is_set() and not state.has_usable_final():
-                state.error = str(exc)
-                write_stdout({"type": "error", "message": str(exc)})
-            elif not stop_event.is_set():
-                write_stderr(f"Doubao IME terminal exception ignored after final result: {exc}")
-        finally:
-            stop_event.set()
-            input_queue.put(None)
-
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
-
-    encoder = OpusEncoder(DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS)
-    samples_per_frame = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_DURATION_MS // 1000
-    bytes_per_frame = samples_per_frame * 2
-    pcm_buffer = bytearray()
-    frame_index = 0
-    start_timestamp_ms = int(time.time() * 1000)
-    sent_audio = False
-    finish_requested = False
-    cancelled = False
-
-    def finish_session() -> None:
-        nonlocal frame_index, sent_audio, finish_requested
-        if finish_requested:
-            return
-        if pcm_buffer:
-            padded = bytes(pcm_buffer)
-            if len(padded) < bytes_per_frame:
-                padded += b"\x00" * (bytes_per_frame - len(padded))
-            frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_MIDDLE
-            frame_index = send_audio_frame(
-                client,
-                encoder,
-                request_id,
-                padded,
-                frame_state,
-                frame_index,
-                samples_per_frame,
-                start_timestamp_ms,
-            )
-            pcm_buffer.clear()
-            sent_audio = True
-        if sent_audio:
-            client.send_binary(
-                build_asr_request(
-                    b"",
-                    request_id,
-                    FRAME_STATE_LAST,
-                    start_timestamp_ms + frame_index * DEFAULT_FRAME_DURATION_MS,
-                )
-            )
-        client.send_binary(build_finish_session(request_id, token))
-        finish_requested = True
-
-    try:
-        for raw_line in iter(input_queue.get, None):
-            if stop_event.is_set():
-                break
-
-            line = raw_line.strip()
-            if not line:
-                continue
-
+            value = function(*args)
+        except BaseException as error:
             try:
-                event = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
-
-            event_type = str(event.get("type", "")).strip()
-            if event_type == "audio":
-                audio_base64 = event.get("audio_base64")
-                if not isinstance(audio_base64, str) or not audio_base64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
-                pcm_chunk = base64.b64decode(audio_base64)
-                pcm_buffer.extend(pcm_chunk)
-
-                while len(pcm_buffer) >= bytes_per_frame:
-                    frame = bytes(pcm_buffer[:bytes_per_frame])
-                    del pcm_buffer[:bytes_per_frame]
-                    frame_state = FRAME_STATE_FIRST if frame_index == 0 else FRAME_STATE_MIDDLE
-                    frame_index = send_audio_frame(
-                        client,
-                        encoder,
-                        request_id,
-                        frame,
-                        frame_state,
-                        frame_index,
-                        samples_per_frame,
-                        start_timestamp_ms,
-                    )
-                    sent_audio = True
-                    # Bound audio buffered during registration to 4x realtime.
-                    time.sleep(0.005)
-
-                continue
-
-            if event_type == "finish":
-                finish_session()
-                break
-
-            if event_type == "cancel":
-                cancelled = True
-                break
-
-            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
-    finally:
-        if not cancelled and state.session_started and not state.finished:
-            try:
-                finish_session()
-            except Exception:
+                loop.call_soon_threadsafe(complete, None, error)
+            except RuntimeError:
                 pass
-        if finish_requested and not stop_event.is_set():
-            thread.join(timeout=finish_grace_secs)
-        stop_event.set()
-        try:
+        else:
+            try:
+                loop.call_soon_threadsafe(complete, value)
+            except RuntimeError:
+                pass
+
+    threading.Thread(target=work, daemon=True).start()
+    return await future
+
+
+@asynccontextmanager
+async def connect_ws(url, headers, timeout):
+    client = None
+    abandoned = threading.Event()
+
+    def open_connection():
+        nonlocal client
+        client = WebSocketClient(url, headers, timeout)
+        client.socket.settimeout(None)
+        if abandoned.is_set():
             client.close()
-        finally:
-            thread.join(timeout=1.0)
-        if not cancelled:
-            emit_fallback_final(state)
-        if not state.closed:
-            write_stdout({"type": "closed"})
-            state.closed = True
+            raise ConnectionError("Connection cancelled")
+        return client
 
-    if state.error:
-        _invalidate_credentials_after_route_failure(state)
-        return EXIT_RUNTIME_ERROR
-    return 0
+    class Connection:
+        def __init__(self, connected: WebSocketClient):
+            self.client = connected
 
+        async def send(self, data):
+            await background(self.client.send_binary, data)
 
-def main() -> int:
+        async def recv(self):
+            message = await background(self.client.recv_message)
+            if message is None:
+                raise ConnectionError("WebSocket closed before final result")
+            opcode, data = message
+            if opcode != 2:
+                raise ValueError("Expected a binary WebSocket message")
+            return data
+
     try:
-        return run()
-    except ValueError as exc:
-        write_stderr(str(exc))
-        return EXIT_USAGE_ERROR
-    except Exception as exc:
-        write_stderr(str(exc))
-        return EXIT_RUNTIME_ERROR
+        connected = await background(open_connection)
+        yield Connection(connected)
+    finally:
+        abandoned.set()
+        if client is not None:
+            client.close()
+
+
+APP_KEY = "OrnqKvSSrs"
+
+
+class ASRError(RuntimeError):
+    def __init__(self, response: WebSocketResponse):
+        self.code = response.status_code
+        self.event = response.event
+        super().__init__(f"{response.event}: {response.status_code} {response.status_text}")
+
+
+@dataclass(frozen=True)
+class ASRConfig:
+    device_id: str
+    install_id: str = ""
+    endpoint: str = "wss://frontier-audio-ime-ws.doubao.com/ocean/api/v1/ws"
+    appkey: str | None = field(default=None, repr=False)
+    codec: str = "speech_opus"
+    opus_bitrate: int = 32000
+    chunk_ms: int = 10
+    open_timeout: float = 4.0
+    response_timeout: float = 10.0
+    retries: int = 2
+    headers: dict[str, str] = field(default_factory=dict)
+    extra: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.device_id or self.device_id == "0":
+            raise ValueError("A nonzero device_id is required")
+        if self.codec not in {"pcm", "speech_opus"}:
+            raise ValueError("codec must be pcm or speech_opus")
+        if self.chunk_ms <= 0 or self.chunk_ms % 10:
+            raise ValueError("chunk_ms must be a positive multiple of 10")
+        if self.codec == "speech_opus" and self.chunk_ms != 10:
+            raise ValueError("speech_opus requires one 10 ms Opus packet per WebSocket request")
+        if self.retries < 0:
+            raise ValueError("retries must be nonnegative")
+
+
+@dataclass(frozen=True)
+class ASRUpdate:
+    text: str
+    vad_finished: bool
+    stream_finished: bool
+    sequence: int
+    payload: dict
+
+
+@dataclass(frozen=True)
+class ASRResult:
+    text: str
+    task_id: str
+    updates: tuple[ASRUpdate, ...]
+
+
+class TranscriptState:
+    """Append completed VAD segments; replace hypotheses within one segment."""
+
+    def __init__(self):
+        self.committed = ""
+        self.text = ""
+        self.current = ""
+        self.finished = False
+
+    def apply(self, text: str, finished: bool) -> str | None:
+        # Drop empty interim hypotheses and duplicate segment finals.
+        if (not text and not finished) or (finished and self.finished and text == self.current):
+            return None
+        self.text = self.committed + text
+        self.current = text
+        self.finished = finished
+        if finished:
+            self.committed = self.text
+        return self.text
+
+
+def decode_response(data: bytes | str) -> WebSocketResponse:
+    if not isinstance(data, bytes):
+        raise ValueError("ASR server returned text instead of a binary Protobuf message")
+    try:
+        response = WebSocketResponse.FromString(data)
+    except ValueError as error:
+        raise ValueError("Invalid ASR Protobuf response") from error
+    if response.event in {"SessionFailed", "TaskFailed"}:
+        raise ASRError(response)
+    return response
+
+
+def parse_update(response: WebSocketResponse) -> ASRUpdate | None:
+    """Decode recognition fields independently of the WebSocket lifecycle."""
+    if not response.payload:
+        return None
+    body = json.loads(response.payload)
+    if not isinstance(body, dict):
+        raise ValueError("ASR payload must be a JSON object")
+    results = body.get("results", [])
+    if results is None:
+        return None
+    if not isinstance(results, list):
+        raise ValueError("ASR results must be an array")
+    if not results or not isinstance(results[0], dict) or not isinstance(results[0].get("text"), str):
+        return None
+    extra = body.get("extra")
+    if extra is None:
+        extra = {}
+    if not isinstance(extra, dict):
+        raise ValueError("ASR recognition extra must be an object")
+    result = results[0]
+    return ASRUpdate(
+        result["text"],
+        bool(result.get("is_vad_finished")),
+        bool(result.get("stream_asr_finish")),
+        extra.get("seq_id", response.seq_id),
+        body,
+    )
+
+
+class ASRClient:
+    def __init__(self, config: ASRConfig):
+        self.config = config
+        key = config.appkey
+        if key is None:
+            key = APP_KEY
+        self._appkey = key
+        if not self._appkey:
+            raise ValueError("ASR application key is empty")
+
+    async def transcribe(self, pcm: bytes, on_update: Callable[[ASRUpdate], None] | None = None) -> ASRResult:
+        """Transcribe buffered audio; callback updates restart after a retry.
+
+        Only the successful attempt's updates are included in the returned result.
+        """
+        if len(pcm) % 2:
+            raise ValueError("PCM bytes must contain complete 16-bit samples")
+        if not pcm:
+            raise ValueError("Audio is empty")
+        for attempt in range(self.config.retries + 1):
+            try:
+                return await self._transcribe(pcm, on_update)
+            except (OSError, TimeoutError, ConnectionError):
+                if attempt == self.config.retries:
+                    raise
+                # A buffered file can restart from the beginning after a transport
+                # failure. Each attempt owns a fresh task, avoiding stale results.
+                await asyncio.sleep(min(0.2 * 2**attempt, 1.0))
+        raise AssertionError("Unreachable retry state")
+
+    async def transcribe_stream(
+        self,
+        source: AsyncIterable[bytes],
+        on_update: Callable[[ASRUpdate], None] | None = None,
+        *,
+        on_start: Callable[[], None] | None = None,
+    ) -> ASRResult:
+        """Consume live 16 kHz mono PCM; report updates before the source ends.
+
+        The producer owns pacing. A live source cannot be replayed after a
+        disconnect, so transport and source errors propagate without retry.
+        """
+        return await self._transcribe_stream(source, on_update, on_start)
+
+    async def _transcribe(self, pcm: bytes, on_update: Callable[[ASRUpdate], None] | None) -> ASRResult:
+        async def paced_audio():
+            chunk_size = self.config.chunk_ms * 32
+            began = asyncio.get_running_loop().time()
+            for offset in range(0, len(pcm), chunk_size):
+                yield pcm[offset : offset + chunk_size]
+                target = began + min(offset + chunk_size, len(pcm)) / 32000
+                await asyncio.sleep(max(0, target - asyncio.get_running_loop().time()))
+
+        return await self._transcribe_stream(paced_audio(), on_update)
+
+    async def _transcribe_stream(
+        self,
+        source: AsyncIterable[bytes],
+        on_update: Callable[[ASRUpdate], None] | None,
+        on_start: Callable[[], None] | None = None,
+    ) -> ASRResult:
+        config = self.config
+        task_id = str(uuid.uuid4())
+        query = {"device_id": config.device_id, "aid": "401734"}
+        if config.install_id:
+            query["iid"] = config.install_id
+        separator = "&" if "?" in config.endpoint else "?"
+        url = config.endpoint + separator + urlencode(query)
+        headers = {"proto-version": "v2", "sdk-version": "2", "x-custom-keepalive": "true", **config.headers}
+        async with connect_ws(url, headers, config.open_timeout) as ws:
+
+            async def send(event: str, *, payload: dict | None = None, audio: bytes = b"", sequence: int = 0):
+                request = WebSocketRequest(
+                    namespace="ASR",
+                    event=event,
+                    task_id=task_id,
+                    appkey=self._appkey if event != "TaskRequest" else "",
+                    payload=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                    if payload is not None
+                    else "",
+                    audio=audio,
+                    seq_id=sequence,
+                )
+                await ws.send(request.SerializeToString())
+
+            async def receive() -> WebSocketResponse:
+                while True:
+                    response = decode_response(await ws.recv())
+                    if response.task_id and response.task_id != task_id:
+                        continue
+                    if response.event == "Ping":
+                        await send("Pong")
+                        continue
+                    if response.event == "Pong":
+                        continue
+                    return response
+
+            async def wait_for(event: str):
+                deadline = asyncio.get_running_loop().time() + config.response_timeout
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError(f"Timed out waiting for {event}")
+                    response = await asyncio.wait_for(receive(), remaining)
+                    if response.event == event:
+                        return response
+
+            await send("StartTask")
+            await wait_for("TaskStarted")
+            extra = {
+                "enable_punctuation": True,
+                "enable_asr_twopass": True,
+                "enable_asr_threepass": True,
+                "end_smooth_window_ms": 800,
+                "did": config.device_id,
+                "app_name": "oime",
+                "app_version": "1.5.1",
+                **config.extra,
+            }
+            await send(
+                "StartSession",
+                payload={
+                    "audio_info": {"sample_rate": 16000, "channel": 1, "format": config.codec},
+                    "extra": extra,
+                },
+            )
+            await wait_for("SessionStarted")
+            if on_start is not None:
+                on_start()
+
+            audio_finished = False
+
+            async def send_audio():
+                nonlocal audio_finished
+                chunk_size = config.chunk_ms * 32
+                iterator = source.__aiter__()
+                encoder = None
+                pending = bytearray()
+                sequence = 0
+
+                async def send_frame(frame):
+                    nonlocal sequence
+                    if encoder is not None:
+                        frame = encoder.encode(frame.ljust(chunk_size, b"\0"))
+                    sequence += 1
+                    await send(
+                        "TaskRequest",
+                        audio=frame,
+                        sequence=sequence,
+                        payload={"extra": {}, "timestamp_ms": int(time.time() * 1000)},
+                    )
+
+                try:
+                    if config.codec == "speech_opus":
+                        encoder = OpusEncoder(config.opus_bitrate)
+                    async for chunk in iterator:
+                        if not isinstance(chunk, bytes):
+                            raise TypeError("Live PCM chunks must be bytes")
+                        if len(chunk) % 2:
+                            raise ValueError("PCM bytes must contain complete 16-bit samples")
+                        pending.extend(chunk)
+                        while len(pending) >= chunk_size:
+                            frame = bytes(pending[:chunk_size])
+                            del pending[:chunk_size]
+                            await send_frame(frame)
+                    if pending:
+                        await send_frame(bytes(pending))
+                    if not sequence:
+                        raise ValueError("Audio is empty")
+                    # A fast server can reply before send() returns. Mark EOF
+                    # before sending FinishSession; awaiting sender still checks errors.
+                    audio_finished = True
+                    await send("FinishSession")
+                finally:
+                    if encoder is not None:
+                        encoder.close()
+                    close = getattr(iterator, "aclose", None)
+                    if close is not None:
+                        await close()
+
+            sender = asyncio.create_task(send_audio())
+            updates: list[ASRUpdate] = []
+            transcript = TranscriptState()
+            incoming = asyncio.create_task(receive())
+            finish_deadline = None
+            try:
+                while True:
+                    if sender.done():
+                        await sender
+                        if finish_deadline is None:
+                            finish_deadline = asyncio.get_running_loop().time() + config.response_timeout
+                        remaining = finish_deadline - asyncio.get_running_loop().time()
+                        if remaining <= 0:
+                            raise TimeoutError("ASR session did not finish before its deadline")
+                        response = await asyncio.wait_for(incoming, remaining)
+                    else:
+                        completed, _ = await asyncio.wait({incoming, sender}, return_when=asyncio.FIRST_COMPLETED)
+                        if incoming not in completed:
+                            continue
+                        response = await incoming
+                    update = parse_update(response)
+                    if update is not None:
+                        text = transcript.apply(update.text, update.vad_finished)
+                        if text is not None:
+                            update = replace(update, text=text)
+                            updates.append(update)
+                            if on_update:
+                                on_update(update)
+                    if response.event in {"SessionFinished", "TaskFinished"}:
+                        break
+                    incoming = asyncio.create_task(receive())
+                if not audio_finished:
+                    raise RuntimeError("ASR session finished before the audio source ended")
+                await sender
+                if response.event != "TaskFinished":
+                    await send("FinishTask")
+                return ASRResult(transcript.text, task_id, tuple(updates))
+            finally:
+                for task in (sender, incoming):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(sender, incoming, return_exceptions=True)
+
+
+MAX_BUFFER_BYTES = 320000
+
+
+class AudioInput:
+    def __init__(self):
+        self.queue = asyncio.Queue(maxsize=1001)
+        self.buffered = 0
+        self.finish_deadline = None
+        self.cancelled = False
+        self.changed = asyncio.Event()
+
+    def finish(self, grace):
+        if self.finish_deadline is None:
+            self.finish_deadline = asyncio.get_running_loop().time() + grace
+            self.queue.put_nowait(None)
+            self.changed.set()
+
+    async def read(self, lines, grace):
+        async for line in lines:
+            if not line.strip():
+                continue
+            message = json.loads(line)
+            if not isinstance(message, dict):
+                raise ValueError("Provider input must be a JSON object")
+            kind = message.get("type")
+            if kind == "cancel":
+                self.cancelled = True
+                self.changed.set()
+                return
+            if kind == "finish":
+                self.finish(grace)
+            elif kind == "audio":
+                if self.finish_deadline is not None:
+                    raise ValueError("Audio received after finish")
+                audio = base64.b64decode(message["audio_base64"], validate=True)
+                if len(audio) % 2:
+                    raise ValueError("PCM must contain complete 16-bit samples")
+                if audio:
+                    if self.buffered + len(audio) > MAX_BUFFER_BYTES or self.queue.qsize() >= 1000:
+                        raise ValueError("Audio buffer exceeded 10 seconds while the provider was unavailable")
+                    self.buffered += len(audio)
+                    self.queue.put_nowait(audio)
+                if message.get("commit") is True:
+                    self.finish(grace)
+            elif kind != "finish":
+                raise ValueError(f"Unsupported provider input: {kind}")
+        self.finish(grace)
+
+    async def chunks(self):
+        while True:
+            item = await self.queue.get()
+            if item is None:
+                return
+            self.buffered -= len(item)
+            yield item
+
+
+async def run_provider(lines, emit, *, identity_path=DEFAULT_IDENTITY, finish_grace=9.0, no_trailing_punctuation=False):
+    if not 0 < finish_grace <= 9:
+        raise ValueError("Finish grace must be greater than zero and at most 9 seconds")
+    audio = AudioInput()
+
+    def partial(update):
+        if update.text:
+            text = remove_trailing_punctuation(update.text) if no_trailing_punctuation else update.text
+            emit({"type": "partial", "text": text})
+
+    async def recognize():
+        state = await ensure_identity(identity_path)
+        client = ASRClient(
+            ASRConfig(str(state["device_id"]), str(state["install_id"]), response_timeout=finish_grace, retries=0)
+        )
+        return await client.transcribe_stream(
+            audio.chunks(), partial, on_start=lambda: emit({"type": "session_started", "session_id": str(uuid.uuid4())})
+        )
+
+    reader = asyncio.create_task(audio.read(lines, finish_grace))
+    recognition = asyncio.create_task(recognize())
+    changed = asyncio.create_task(audio.changed.wait())
+    try:
+        while True:
+            tasks: set[asyncio.Task[Any]] = {recognition}
+            if not reader.done():
+                tasks.add(reader)
+            if not changed.done():
+                tasks.add(changed)
+            timeout = (
+                None if audio.finish_deadline is None else audio.finish_deadline - asyncio.get_running_loop().time()
+            )
+            if timeout is not None and timeout <= 0:
+                raise TimeoutError("Timed out waiting for the final transcript")
+            done, _ = await asyncio.wait(tasks, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                raise TimeoutError("Timed out waiting for the final transcript")
+            if reader.done():
+                await reader
+            if audio.cancelled:
+                return 0
+            if recognition in done:
+                result = await recognition
+                text = remove_trailing_punctuation(result.text) if no_trailing_punctuation else result.text
+                if not text:
+                    raise ValueError("No speech was recognized")
+                emit({"type": "final", "text": text})
+                return 0
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        emit({"type": "error", "message": f"{type(error).__name__}: {error}"})
+        return 1
+    finally:
+        for task in (reader, recognition, changed):
+            task.cancel()
+        await asyncio.gather(reader, recognition, changed, return_exceptions=True)
+        emit({"type": "closed"})
+
+
+async def stdin_lines():
+    reader = asyncio.StreamReader(limit=1_000_000)
+    protocol = asyncio.StreamReaderProtocol(reader)
+    transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: protocol, sys.stdin.buffer)
+    try:
+        while line := await reader.readline():
+            yield line
+    finally:
+        transport.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Doubao IME streaming provider")
+    parser.add_argument(
+        "--identity", type=Path, default=Path(os.getenv("VINPUT_ASR_CREDENTIAL_PATH") or DEFAULT_IDENTITY)
+    )
+    parser.add_argument("--finish-grace", type=float, default=float(os.getenv("VINPUT_ASR_FINISH_GRACE_SECS") or "9"))
+    parser.add_argument(
+        "--no-trailing-punctuation",
+        action="store_true",
+        default=(os.getenv("VINPUT_ASR_NO_TRAILING_PUNCTUATION") or "").lower() in {"1", "true", "yes"},
+        help="Remove final punctuation locally, preserving punctuation within the text",
+    )
+    args = parser.parse_args()
+    if not 0 < args.finish_grace <= 9:
+        parser.error("finish grace must be greater than zero and at most 9 seconds")
+
+    async def run():
+        task = asyncio.current_task()
+        assert task is not None
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            asyncio.get_running_loop().add_signal_handler(sig, task.cancel)
+        return await run_provider(
+            stdin_lines(),
+            lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
+            identity_path=args.identity,
+            finish_grace=args.finish_grace,
+            no_trailing_punctuation=args.no_trailing_punctuation,
+        )
+
+    try:
+        raise SystemExit(asyncio.run(run()))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
