@@ -9,6 +9,7 @@ Validates:
 5. i18n key parity and completeness for all registered items
 """
 
+import hashlib
 import json
 import re
 import sys
@@ -45,6 +46,33 @@ def validate_mirrors(urls: list[str], item_id: str) -> list[str]:
     for i, prefix in enumerate(EXPECTED_MIRRORS):
         if not urls[i].startswith(prefix):
             errors.append(f"[{item_id}] mirror #{i + 1} expected to start with '{prefix}', got '{urls[i]}'")
+    return errors
+
+
+def validate_resource_version_and_sha(item: dict[str, Any], script_path: Path, item_id: str) -> list[str]:
+    errors = []
+    version = item.get("version", "")
+    if not version:
+        errors.append(f"[{item_id}] Missing 'version' field")
+    elif not re.match(r"^\d+\.\d+\.\d+$", version):
+        errors.append(f"[{item_id}] Invalid version format '{version}', expected SemVer (e.g. '1.0.0')")
+
+    declared_sha = item.get("sha256", "")
+    if not declared_sha:
+        errors.append(f"[{item_id}] Missing 'sha256' field")
+    elif not re.match(r"^[a-f0-9]{64}$", declared_sha):
+        errors.append(f"[{item_id}] Invalid sha256 format: '{declared_sha}'")
+    elif script_path.is_file():
+        actual_sha = hashlib.sha256(script_path.read_bytes()).hexdigest()
+        if actual_sha != declared_sha:
+            errors.append(f"[{item_id}] sha256 mismatch: declared '{declared_sha}', actual '{actual_sha}'")
+
+    vinput_ver = item.get("vinput_version", "")
+    if not vinput_ver:
+        errors.append(f"[{item_id}] Missing 'vinput_version' field")
+    elif not re.match(r"^(>=|<=|>|<|=)?\s*\d+\.\d+\.\d+(\s*,\s*(>=|<=|>|<|=)?\s*\d+\.\d+\.\d+)?$", vinput_ver):
+        errors.append(f"[{item_id}] Invalid vinput_version format '{vinput_ver}', expected e.g. '>= 2.0.0'")
+
     return errors
 
 
@@ -87,6 +115,7 @@ def validate_providers() -> tuple[list[str], set[str]]:
                 errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
             if not readme_path.is_file():
                 errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
+            errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
 
         script_urls = item.get("script_urls", [])
         errors.extend(validate_mirrors(script_urls, item_id))
@@ -133,6 +162,7 @@ def validate_adapters() -> tuple[list[str], set[str]]:
                 errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
             if not readme_path.is_file():
                 errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
+            errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
 
         script_urls = item.get("script_urls", [])
         errors.extend(validate_mirrors(script_urls, item_id))
