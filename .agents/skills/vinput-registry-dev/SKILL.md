@@ -28,8 +28,10 @@ Verify repository roles before making changes:
   - `providers.json`: Cloud ASR provider definitions (Streaming and Batch).
   - `models.json`: Local ASR model catalog with `vinput_model` runtime specs.
   - `adapters.json`: Managed local LLM scene adapter bridge scripts.
+  - `triggers.json`: Managed Trigger/Receiver peripheral scripts.
 - `resources/providers/<group>/<name>/`: Standalone Python 3 scripts (`entry.py` + `README.md`).
 - `resources/adapters/<group>/<name>/`: Standalone Python 3 adapter scripts (`entry.py` + `README.md`).
+- `resources/triggers/<group>/<name>/`: Standalone Python 3 trigger scripts (`entry.py` + `README.md`).
 - `i18n/`: Multilingual display text (`en_US.json`, `zh_CN.json`).
 - `scripts/`: Maintenance and validation utilities (`validate_registry.py`, `check_upstream_models.py`).
 
@@ -42,9 +44,11 @@ Verify repository roles before making changes:
    - Providers: `provider.<folder>.<name>` (streaming providers **must** end with `.streaming`).
    - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
    - Adapters: `adapter.<folder>.<name>`.
+   - Triggers: `trigger.<folder>.<name>`.
    - `short_id` is required for CLI/GUI display, but never used for internal resolution.
 3. **Environment Variable Rules**:
    - Cloud ASR Providers must use the `VINPUT_ASR_*` namespace.
+   - Triggers must use the `VINPUT_TRIGGER_*` namespace.
    - LLM Adapters have naming freedom (can use target-specific names like `MTRAN_URL`, `OLLAMA_HOST`), but must follow the **Minimally Viable Env Set** rule.
 4. **Mirror Fallback URLs**: `script_urls` must provide 3 fallback mirrors in order:
    - `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
@@ -79,6 +83,14 @@ mise run lint
 ## 5. Progressive Reference Guides (Read as Needed)
 
 Follow progressive disclosure: consult specific reference files depending on your current task:
+
+### Task: Writing or Debugging a Trigger / Receiver
+Read **[references/trigger-protocol.md](references/trigger-protocol.md)**
+- Three-stream JSONL wire contract (client stdout commands vs daemon stdin broadcasts vs stderr notifications).
+- The `ime` boolean routing flag (input-method sessions vs silent background receivers).
+- Two-phase `cancel` semantics (recording abort vs postprocessing raw commit).
+- Stateless `inject` text injection (partial/final stages).
+- Hardware key boundaries (no daemon key forwarding).
 
 ### Task: Writing or Debugging a Cloud ASR Provider
 Read **[references/provider-protocol.md](references/provider-protocol.md)**
