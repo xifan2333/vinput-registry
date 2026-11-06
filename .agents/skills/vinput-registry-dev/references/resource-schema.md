@@ -12,6 +12,8 @@ Every catalog item in `registry/*.json` requires:
    - Providers: `provider.<folder>.<name>` (must end with `.streaming` if stream=true)
    - Models: `model.<source>.<model_name>` (e.g., `model.sherpa-onnx.<name>`)
    - Adapters: `adapter.<folder>.<name>`
+   - Triggers: `trigger.<folder>.<name>`
+   - Receivers: `receiver.<folder>.<name>`
 2. **`short_id`**: Concise identifier for CLI/GUI display. Never used for internal file lookup.
 3. **`script_urls` / `urls`**: Array with at least 3 fallback sources in order:
    - Primary GitHub raw URL: `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
@@ -20,7 +22,20 @@ Every catalog item in `registry/*.json` requires:
 
 ---
 
-## 2. Local ASR Models Specification (`registry/models.json`)
+## 2. Trigger & Receiver Scripts (`registry/triggers.json` & `registry/receivers.json`)
+
+### Rules
+1. **`id`**: Must be `trigger.<folder>.<name>` or `receiver.<folder>.<name>`.
+2. **Lifecycle**: Long-lived child process managed via `ProcessSession`.
+3. **Environment Variable Namespace**:
+   - Trigger variables **must** begin with `VINPUT_TRIGGER_` (e.g., `VINPUT_TRIGGER_DEVICE_PATH`, `VINPUT_TRIGGER_CAPTURE_DEVICE`).
+   - Receiver variables **must** begin with `VINPUT_RECEIVER_*`.
+4. **Dependencies**: Scripts must rely exclusively on the Python 3 standard library (zero pip dependencies).
+5. **Protocol**: Both kinds share the identical client pipe protocol (see `client-protocol.md`); the registry type expresses primary role only.
+
+---
+
+## 3. Local ASR Models Specification (`registry/models.json`)
 
 When a model archive is downloaded and extracted, `fcitx5-vinput` flattens the directory and **writes `vinput_model` out as `vinput-model.json`**. The daemon strictly validates this file before initializing the recognizer.
 
@@ -93,7 +108,7 @@ When a model archive is downloaded and extracted, `fcitx5-vinput` flattens the d
 
 ---
 
-## 3. Cloud ASR Providers (`registry/providers.json`)
+## 4. Cloud ASR Providers (`registry/providers.json`)
 
 ### Rules
 1. **`stream` property**:
@@ -105,7 +120,7 @@ When a model archive is downloaded and extracted, `fcitx5-vinput` flattens the d
 
 ---
 
-## 4. LLM Scene Adapters (`registry/adapters.json`) & The Minimally Viable Env Set Principle
+## 5. LLM Scene Adapters (`registry/adapters.json`) & The Minimally Viable Env Set Principle
 
 ### 1. Naming Freedom
 Unlike ASR Providers, LLM Adapters are standalone local bridge/proxy processes (e.g., exposing an OpenAI-compatible `/v1/chat/completions` endpoint for local translation or specialized inference tools).
@@ -178,7 +193,7 @@ Description of adapter bridge.
 
 ---
 
-## 5. i18n Catalogs (`i18n/en_US.json` & `i18n/zh_CN.json`)
+## 6. i18n Catalogs (`i18n/en_US.json` & `i18n/zh_CN.json`)
 
 Every registered item (`provider.*`, `model.*`, `adapter.*`) must have complete entries in both languages:
 ```json
