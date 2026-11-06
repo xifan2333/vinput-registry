@@ -6,7 +6,7 @@ This document details the communication protocol between `vinput-daemon` and Clo
 
 ## 1. Streaming Provider Protocol (Duplex JSONL)
 
-Streaming providers are long-running child processes spawned by `vinput-daemon` when recording starts. They maintain a bidirectional stream over standard pipes.
+Streaming providers are long-running child processes spawned by `vinput-daemon` when recording starts. They maintain a bidirectional stream over standard pipes: `stdin` carries input, `stdout` carries results, and `stderr` carries notifications to the user (see section 4).
 
 ### Trigger / Identifier
 - Resource ID **must** end with `.streaming` (e.g. `provider.bailian.streaming`, `provider.openai-compatible.streaming`).
@@ -100,11 +100,32 @@ Batch providers are short-lived child processes spawned by `vinput-daemon` after
 
 ---
 
-## 4. Standard Error (`stderr`) & Exit Codes
+## 4. Standard Error (`stderr`): Notification Protocol
 
-### `stderr` Role
-- **Strictly for diagnostics**: Connection status, error traces, debug logs.
-- When a provider exits with non-zero code or fails, `vinput-daemon` captures the last line of `stderr` (`stderr_tail_`) to display in user-facing error notifications.
+The three streams have one job each: **`stdin` is input, `stdout` is the result, and `stderr` is the user-notification channel.** The host splits `stderr` into lines and forwards every non-empty line through its shared `NotificationBridge` directly to the freedesktop desktop notification service (`org.freedesktop.Notifications`). `stderr` is not a diagnostic log sink.
+
+### Notification lines
+
+Two line shapes are accepted:
+
+```json
+{"title": "OpenAI compatible ASR", "body": "Missing VINPUT_ASR_API_KEY."}
+```
+
+- A JSON object containing both string fields `title` and `body` supplies both notification texts. The helper owns their wording and localization.
+- Any other non-empty line is used verbatim as `body`; the host supplies its localized application name as `title`. This includes malformed JSON and JSON objects missing either required field.
+
+Each line must end with `\n` and be flushed immediately. One line is one notification, delivered as soon as it is flushed and independently of the recognition result: a provider may notify while a session is running, and that session may still succeed. The host may suppress repeated notifications with the same `(title, body)` inside a short sliding window.
+
+Provider notification bodies SHOULD be concise, single-line, user-facing sentences without a duplicated brand prefix or traceback. Connection traces, retry logs, and debugging output MUST NOT be written to `stderr`, because the host displays every non-empty line to the user.
+
+### Relationship to the streaming `stdout` `error` event
+- A streaming `stdout` `{"type":"error","message":...}` event **ends the session as failed**; its `message` reports the terminal failure.
+- A `stderr` notification never changes the session result; it informs the user but is not a verdict on the run.
+- A failing streaming provider may therefore emit both a `stdout` `error` event and a `stderr` notification. Batch providers have no structured `stdout` error event and report user-facing failure details through `stderr`.
+
+### Applies to adapters too
+Adapters (`resources/adapters/`) use the same `stderr` notification contract and feed the same host-side `NotificationBridge`. Their request/result transport is HTTP, so `stdin` and `stdout` currently carry nothing.
 
 ### Exit Codes
 - `0`: Success.
