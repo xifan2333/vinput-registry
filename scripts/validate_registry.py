@@ -3,7 +3,7 @@
 
 Validates:
 1. JSON syntax across registry/ and i18n/
-2. Schema requirements for providers.json, models.json, and adapters.json
+2. Schema requirements for providers.json, models.json, adapters.json, and triggers.json
 3. Local script file and README existence for managed resources
 4. Fallback URL mirrors (raw.githubusercontent.com, gh-proxy.com, ghfast.top)
 5. i18n key parity and completeness for all registered items
@@ -131,33 +131,41 @@ def validate_providers() -> tuple[list[str], set[str]]:
     return errors, ids
 
 
-def validate_adapters() -> tuple[list[str], set[str]]:
+def validate_scripted_resource(kind: str, env_prefix: str | None) -> tuple[list[str], set[str]]:
+    """Validate a script-based resource catalog sharing the <kind>.<folder>.<name> layout.
+
+    Covers local entry/README existence, version/sha256/vinput_version fields, mirror
+    URLs, and environment variable declarations. When env_prefix is provided, every
+    declared variable must live inside that namespace.
+    """
     errors = []
     ids = set()
-    data = load_json(REGISTRY_DIR / "adapters.json")
+    data = load_json(REGISTRY_DIR / f"{kind}s.json")
     items = data.get("items", [])
 
     for item in items:
         item_id = item.get("id", "")
         if not item_id:
-            errors.append("Found adapter item without 'id'")
+            errors.append(f"Found {kind} item without 'id'")
             continue
         if item_id in ids:
-            errors.append(f"Duplicate adapter id: {item_id}")
+            errors.append(f"Duplicate {kind} id: {item_id}")
         ids.add(item_id)
 
-        if not re.match(r"^adapter\.[a-zA-Z0-9_\-.]+$", item_id):
-            errors.append(f"[{item_id}] Invalid adapter id format, expected 'adapter.<folder>.<name>'")
+        if not re.match(rf"^{kind}\.[a-zA-Z0-9_\-.]+$", item_id):
+            errors.append(f"[{item_id}] Invalid {kind} id format, expected '{kind}.<folder>.<name>'")
 
         short_id = item.get("short_id", "")
         if not short_id:
             errors.append(f"[{item_id}] Missing 'short_id'")
 
-        parts = item_id.split(".", 1)[1]
+        # Local files check
+        # id: <kind>.<folder>.<name> -> resources/<kind>s/<folder>/<name>/
+        parts = item_id.split(".", 1)[1]  # <folder>.<name>
         folder, name = parts.split(".", 1) if "." in parts else (parts, "")
         if name:
-            script_path = RESOURCES_DIR / "adapters" / folder / name / "entry.py"
-            readme_path = RESOURCES_DIR / "adapters" / folder / name / "README.md"
+            script_path = RESOURCES_DIR / f"{kind}s" / folder / name / "entry.py"
+            readme_path = RESOURCES_DIR / f"{kind}s" / folder / name / "README.md"
             if not script_path.is_file():
                 errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
             if not readme_path.is_file():
@@ -167,14 +175,25 @@ def validate_adapters() -> tuple[list[str], set[str]]:
         script_urls = item.get("script_urls", [])
         errors.extend(validate_mirrors(script_urls, item_id))
 
+        # Validate envs
         for env in item.get("envs", []):
             env_name = env.get("name", "")
             if not env_name:
-                errors.append(f"[{item_id}] Adapter env has empty name")
+                errors.append(f"[{item_id}] {kind.capitalize()} env has empty name")
+            elif env_prefix and not env_name.startswith(env_prefix):
+                errors.append(f"[{item_id}] Env '{env_name}' violates {env_prefix}* namespace convention")
             if "required" not in env or not isinstance(env["required"], bool):
                 errors.append(f"[{item_id}] Env '{env_name}' missing boolean 'required' field")
 
     return errors, ids
+
+
+def validate_adapters() -> tuple[list[str], set[str]]:
+    return validate_scripted_resource("adapter", env_prefix=None)
+
+
+def validate_triggers() -> tuple[list[str], set[str]]:
+    return validate_scripted_resource("trigger", env_prefix="VINPUT_TRIGGER_")
 
 
 def validate_models() -> tuple[list[str], set[str]]:
@@ -286,13 +305,15 @@ def main() -> int:
 
     provider_errors, provider_ids = validate_providers()
     adapter_errors, adapter_ids = validate_adapters()
+    trigger_errors, trigger_ids = validate_triggers()
     model_errors, model_ids = validate_models()
 
     all_errors.extend(provider_errors)
     all_errors.extend(adapter_errors)
+    all_errors.extend(trigger_errors)
     all_errors.extend(model_errors)
 
-    all_ids = provider_ids | adapter_ids | model_ids
+    all_ids = provider_ids | adapter_ids | trigger_ids | model_ids
     i18n_errors = validate_i18n(all_ids)
     all_errors.extend(i18n_errors)
 
@@ -304,7 +325,7 @@ def main() -> int:
 
     print(
         f"Validation passed: {len(provider_ids)} providers, {len(adapter_ids)} adapters, "
-        f"{len(model_ids)} models. All files and i18n keys verified."
+        f"{len(trigger_ids)} triggers, {len(model_ids)} models. All files and i18n keys verified."
     )
     return 0
 
