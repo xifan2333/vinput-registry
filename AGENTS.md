@@ -11,10 +11,12 @@ Guidelines, dual-planning model, and hard constraints for AI coding agents worki
 - `registry/providers.json`: Cloud ASR provider definitions (streaming and batch).
 - `registry/models.json`: Local ASR model metadata and `vinput_model` configurations (sherpa-onnx runtime).
 - `registry/adapters.json`: Managed local LLM scene adapter bridge definitions.
-- `registry/triggers.json`: Managed Trigger/Receiver peripheral script definitions (push-to-talk devices, remote inputs).
+- `registry/triggers.json`: Managed Trigger scripts (peripheral session control).
+- `registry/receivers.json`: Managed Receiver scripts (result consumers).
 - `resources/providers/<group>/<name>/`: Standalone Python 3 scripts (`entry.py` + `README.md`).
 - `resources/adapters/<group>/<name>/`: Standalone Python 3 adapter scripts (`entry.py` + `README.md`).
 - `resources/triggers/<group>/<name>/`: Standalone Python 3 trigger scripts (`entry.py` + `README.md`).
+- `resources/receivers/<group>/<name>/`: Standalone Python 3 receiver scripts (`entry.py` + `README.md`).
 - `i18n/`: Multilingual descriptions (`en_US.json`, `zh_CN.json`).
 - `scripts/`: Maintenance tools, upstream monitor (`check_upstream_models.py`), and registry validator (`validate_registry.py`).
 

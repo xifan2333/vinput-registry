@@ -28,10 +28,12 @@ Verify repository roles before making changes:
   - `providers.json`: Cloud ASR provider definitions (Streaming and Batch).
   - `models.json`: Local ASR model catalog with `vinput_model` runtime specs.
   - `adapters.json`: Managed local LLM scene adapter bridge scripts.
-  - `triggers.json`: Managed Trigger/Receiver peripheral scripts.
+  - `triggers.json`: Managed Trigger peripheral scripts (session control).
+  - `receivers.json`: Managed Receiver scripts (result consumers).
 - `resources/providers/<group>/<name>/`: Standalone Python 3 scripts (`entry.py` + `README.md`).
 - `resources/adapters/<group>/<name>/`: Standalone Python 3 adapter scripts (`entry.py` + `README.md`).
 - `resources/triggers/<group>/<name>/`: Standalone Python 3 trigger scripts (`entry.py` + `README.md`).
+- `resources/receivers/<group>/<name>/`: Standalone Python 3 receiver scripts (`entry.py` + `README.md`).
 - `i18n/`: Multilingual display text (`en_US.json`, `zh_CN.json`).
 - `scripts/`: Maintenance and validation utilities (`validate_registry.py`, `check_upstream_models.py`).
 
@@ -45,10 +47,12 @@ Verify repository roles before making changes:
    - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
    - Adapters: `adapter.<folder>.<name>`.
    - Triggers: `trigger.<folder>.<name>`.
+   - Receivers: `receiver.<folder>.<name>`.
    - `short_id` is required for CLI/GUI display, but never used for internal resolution.
 3. **Environment Variable Rules**:
    - Cloud ASR Providers must use the `VINPUT_ASR_*` namespace.
    - Triggers must use the `VINPUT_TRIGGER_*` namespace.
+   - Receivers must use the `VINPUT_RECEIVER_*` namespace.
    - LLM Adapters have naming freedom (can use target-specific names like `MTRAN_URL`, `OLLAMA_HOST`), but must follow the **Minimally Viable Env Set** rule.
 4. **Mirror Fallback URLs**: `script_urls` must provide 3 fallback mirrors in order:
    - `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
@@ -85,9 +89,11 @@ mise run lint
 Follow progressive disclosure: consult specific reference files depending on your current task:
 
 ### Task: Writing or Debugging a Trigger / Receiver
-Read **[references/trigger-protocol.md](references/trigger-protocol.md)**
+Read **[references/client-protocol.md](references/client-protocol.md)**
+- Domain split: `trigger.*` (session control, `VINPUT_TRIGGER_*`) vs `receiver.*` (result consumption, `VINPUT_RECEIVER_*`); protocol layer is symmetric.
 - Three-stream JSONL wire contract (client stdout commands vs daemon stdin broadcasts vs stderr notifications).
 - The `ime` boolean routing flag (input-method sessions vs silent background receivers).
+- Per-session `capture_device` override (near-field Bluetooth remote microphones).
 - Two-phase `cancel` semantics (recording abort vs postprocessing raw commit).
 - Stateless `inject` text injection (partial/final stages).
 - Hardware key boundaries (no daemon key forwarding).

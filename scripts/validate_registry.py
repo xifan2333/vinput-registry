@@ -3,7 +3,7 @@
 
 Validates:
 1. JSON syntax across registry/ and i18n/
-2. Schema requirements for providers.json, models.json, adapters.json, and triggers.json
+2. Schema requirements for providers.json, models.json, adapters.json, triggers.json, and receivers.json
 3. Local script file and README existence for managed resources
 4. Fallback URL mirrors (raw.githubusercontent.com, gh-proxy.com, ghfast.top)
 5. i18n key parity and completeness for all registered items
@@ -196,6 +196,10 @@ def validate_triggers() -> tuple[list[str], set[str]]:
     return validate_scripted_resource("trigger", env_prefix="VINPUT_TRIGGER_")
 
 
+def validate_receivers() -> tuple[list[str], set[str]]:
+    return validate_scripted_resource("receiver", env_prefix="VINPUT_RECEIVER_")
+
+
 def validate_models() -> tuple[list[str], set[str]]:
     errors = []
     ids = set()
@@ -306,14 +310,16 @@ def main() -> int:
     provider_errors, provider_ids = validate_providers()
     adapter_errors, adapter_ids = validate_adapters()
     trigger_errors, trigger_ids = validate_triggers()
+    receiver_errors, receiver_ids = validate_receivers()
     model_errors, model_ids = validate_models()
 
     all_errors.extend(provider_errors)
     all_errors.extend(adapter_errors)
     all_errors.extend(trigger_errors)
+    all_errors.extend(receiver_errors)
     all_errors.extend(model_errors)
 
-    all_ids = provider_ids | adapter_ids | trigger_ids | model_ids
+    all_ids = provider_ids | adapter_ids | trigger_ids | receiver_ids | model_ids
     i18n_errors = validate_i18n(all_ids)
     all_errors.extend(i18n_errors)
 
@@ -325,7 +331,8 @@ def main() -> int:
 
     print(
         f"Validation passed: {len(provider_ids)} providers, {len(adapter_ids)} adapters, "
-        f"{len(trigger_ids)} triggers, {len(model_ids)} models. All files and i18n keys verified."
+        f"{len(trigger_ids)} triggers, {len(receiver_ids)} receivers, {len(model_ids)} models. "
+        "All files and i18n keys verified."
     )
     return 0
 

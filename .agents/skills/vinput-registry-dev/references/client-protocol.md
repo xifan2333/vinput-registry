@@ -1,20 +1,33 @@
-# Trigger & Receiver Protocol Specification
+# Client Pipe Protocol Specification
 
-This document details the communication protocol between `vinput-daemon` and peripheral Triggers/Receivers in `resources/triggers/`.
+This document freezes the communication protocol between `vinput-daemon` and its managed client scripts in `resources/triggers/` and `resources/receivers/`.
 
 ---
 
 ## 1. Architectural Role & Positioning
 
-In `fcitx5-vinput`, `vinput-daemon` functions as a **dispatching hub (dispatcher)** for voice and text processing pipelines:
+In `fcitx5-vinput`, `vinput-daemon` functions as a **dispatching hub** for voice and text processing pipelines:
 - Audio capture (PipeWire), voice activity detection (VAD), speech recognition (ASR via sherpa-onnx or cloud providers), and LLM scene post-processing are encapsulated in the daemon.
-- External components are **clients** of the daemon.
-- A client can act as a **Trigger** (controller initiating/stopping sessions), a **Receiver** (consumer displaying/routing results), or **both simultaneously**.
-- Communication is conducted over a persistent bidirectional child process pipeline (Three-stream Subprocess Model).
+- External components are supervised child processes (**clients**) of the daemon.
+- At the protocol layer every client is symmetric: any client may send commands, and every client receives broadcasts. A client can act as a trigger (initiating/controlling sessions), a receiver (consuming results), or both simultaneously.
 
 ---
 
-## 2. Unix Filter Perspective: Three-Stream Wire Contract
+## 2. Domain Layer: Triggers vs Receivers
+
+The **protocol layer does not distinguish** client kinds — the wire format is identical for all. The **domain layer (registry) does distinguish** resource types by their primary role:
+
+| Resource Type | Primary Role | Examples | Env Namespace |
+| :--- | :--- | :--- | :--- |
+| `trigger.<folder>.<name>` | Session control logic | Mouse side buttons, Bluetooth remotes, foot pedals, phone web remote | `VINPUT_TRIGGER_*` |
+| `receiver.<folder>.<name>` | Consuming recognition results (reusing the daemon's capture/ASR/LLM pipeline) | Subtitle HUDs, clipboard bridges, AI forwarders | `VINPUT_RECEIVER_*` |
+
+- The registry type expresses the resource's **primary purpose** for catalog display and UI presentation.
+- The protocol does **not** restrict capabilities: a receiver may still emit `start` (e.g. to open its own background session with `"ime": false`), and a trigger may read `stdin` broadcasts.
+
+---
+
+## 3. Unix Filter Perspective: Three-Stream Wire Contract
 
 To align with standard Unix filters (`producer | consumer`) and project terminology:
 - **Daemon's input** is received from the Client's `stdout`.
@@ -41,14 +54,14 @@ All messages across `stdin` and `stdout` are strictly **JSON Lines (JSONL)**: si
 
 ---
 
-## 3. Client stdout -> Daemon Input: Command Stream
+## 4. Client stdout -> Daemon Input: Command Stream
 
 Clients write single-line JSON objects to their `stdout` to control sessions or inject text. Every command must contain `"type"`.
 
 ### 1. `start` (Initiate Recording Session)
 Begins microphone audio capture and ASR processing in the daemon.
 ```json
-{"type": "start", "ime": true, "mode": "normal", "selected_text": ""}
+{"type": "start", "ime": true, "mode": "normal", "selected_text": "", "capture_device": ""}
 ```
 - `type` (string, required): `"start"`
 - `ime` (boolean, optional, default `true`):
@@ -58,6 +71,11 @@ Begins microphone audio capture and ASR processing in the daemon.
   - `"normal"`: Standard speech-to-text dictation.
   - `"command"`: Selection rewrite command mode.
 - `selected_text` (string, optional): Required when `mode == "command"`, passing the highlighted surrounding text to LLM prompt templates.
+- `capture_device` (string, optional, default `""`):
+  - Per-session override of the globally configured capture device (`/global/capture_device`, i.e. `AudioCapture::SetTargetObject`).
+  - When omitted or empty, the session uses the global configuration (which itself falls back to the PipeWire system default source when empty).
+  - When set, the daemon connects this session's capture to the specified PipeWire source node. If the node cannot be matched, the daemon falls back to the global/default source and emits exactly one desktop notification (never fails silently).
+  - Designed for near-field recording peripherals (Bluetooth remotes with built-in microphones): the trigger script typically forwards its own configured `VINPUT_TRIGGER_CAPTURE_DEVICE` value.
 
 ### 2. `stop` (Finish Recording & Finalize)
 Concludes audio capture, flushes audio buffers to the ASR engine, and executes post-processing scenes.
@@ -100,7 +118,7 @@ Injects text directly into the processing pipeline without capturing audio from 
 
 ---
 
-## 4. Daemon Output -> Client stdin: Broadcast Stream
+## 5. Daemon Output -> Client stdin: Broadcast Stream
 
 The daemon broadcasts lifecycle state, interim partials, and final committed results to the `stdin` of all supervised clients.
 
@@ -139,7 +157,7 @@ Emitted when recognition and post-processing finish successfully.
 
 ---
 
-## 5. Client stderr -> User: Desktop Notifications
+## 6. Client stderr -> User: Desktop Notifications
 
 Client `stderr` is strictly reserved for user-visible notifications routed through `NotificationBridge`. **Never log routine operational output, debug lines, or banners to `stderr`**.
 
@@ -155,7 +173,7 @@ Client `stderr` is strictly reserved for user-visible notifications routed throu
 
 ---
 
-## 6. Hardware Keys & Peripheral Boundaries
+## 7. Hardware Keys & Peripheral Boundaries
 
 1. **No Daemon Key Remapping**: The daemon does **not** emulate virtual keyboards, forward menu navigation keys (`Up`/`Down`/`Enter`), or implement virtual key injection.
 2. **Peripheral-Local Handling**:
@@ -164,15 +182,16 @@ Client `stderr` is strictly reserved for user-visible notifications routed throu
 
 ---
 
-## 7. Reference Implementations
+## 8. Reference Implementation: Mouse Side-Button Trigger
 
-### Example A: Peripheral Mouse Side-Button Trigger (`ime: true`)
-A pure Python 3 standard library daemon that listens on `/dev/input/event*` for middle/side button presses:
+A pure trigger: it only emits commands on `stdout` and never reads `stdin`. It forwards its configured capture device so a mic-bearing remote records from its own near-field microphone:
 
 ```python
 #!/usr/bin/env python3
 """Mouse side button push-to-talk trigger."""
+
 import json
+import os
 import struct
 import sys
 
@@ -180,8 +199,12 @@ EVENT_FORMAT = "llHHI"
 EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
 BTN_SIDE = 0x113  # Linux input event code
 
+CAPTURE_DEVICE = os.environ.get("VINPUT_TRIGGER_CAPTURE_DEVICE", "")
+
 
 def send_command(cmd: dict) -> None:
+    if CAPTURE_DEVICE and cmd.get("type") == "start":
+        cmd["capture_device"] = CAPTURE_DEVICE
     sys.stdout.write(json.dumps(cmd) + "\n")
     sys.stdout.flush()
 
@@ -211,45 +234,6 @@ def main() -> None:
         )
         sys.stderr.flush()
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### Example B: Floating Subtitle Receiver (`ime: false`)
-A lightweight receiver that displays live speech on a floating HUD without touching the desktop input method:
-
-```python
-#!/usr/bin/env python3
-"""Floating subtitles receiver using wayhud and standard I/O."""
-import json
-import subprocess
-import sys
-
-
-def main() -> None:
-    hud = subprocess.Popen(
-        ["wayhud", "-n", "captions"],
-        stdin=subprocess.PIPE,
-        text=True,
-    )
-    assert hud.stdin is not None
-
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        typ = event.get("type")
-        text = event.get("text", "").strip()
-        if typ in ("partial", "committed") and text:
-            hud.stdin.write(text + "\n")
-            hud.stdin.flush()
 
 
 if __name__ == "__main__":

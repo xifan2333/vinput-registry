@@ -13,6 +13,7 @@ Every catalog item in `registry/*.json` requires:
    - Models: `model.<source>.<model_name>` (e.g., `model.sherpa-onnx.<name>`)
    - Adapters: `adapter.<folder>.<name>`
    - Triggers: `trigger.<folder>.<name>`
+   - Receivers: `receiver.<folder>.<name>`
 2. **`short_id`**: Concise identifier for CLI/GUI display. Never used for internal file lookup.
 3. **`script_urls` / `urls`**: Array with at least 3 fallback sources in order:
    - Primary GitHub raw URL: `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
@@ -21,13 +22,16 @@ Every catalog item in `registry/*.json` requires:
 
 ---
 
-## 2. Trigger & Receiver Scripts (`registry/triggers.json`)
+## 2. Trigger & Receiver Scripts (`registry/triggers.json` & `registry/receivers.json`)
 
 ### Rules
-1. **`id`**: Must be `trigger.<folder>.<name>`.
+1. **`id`**: Must be `trigger.<folder>.<name>` or `receiver.<folder>.<name>`.
 2. **Lifecycle**: Long-lived child process managed via `ProcessSession`.
-3. **Environment Variable Namespace**: All trigger environment variables **must** begin with `VINPUT_TRIGGER_` (e.g., `VINPUT_TRIGGER_DEVICE_PATH`, `VINPUT_TRIGGER_PORT`, `VINPUT_TRIGGER_API_KEY`).
+3. **Environment Variable Namespace**:
+   - Trigger variables **must** begin with `VINPUT_TRIGGER_` (e.g., `VINPUT_TRIGGER_DEVICE_PATH`, `VINPUT_TRIGGER_CAPTURE_DEVICE`).
+   - Receiver variables **must** begin with `VINPUT_RECEIVER_*`.
 4. **Dependencies**: Scripts must rely exclusively on the Python 3 standard library (zero pip dependencies).
+5. **Protocol**: Both kinds share the identical client pipe protocol (see `client-protocol.md`); the registry type expresses primary role only.
 
 ---
 
