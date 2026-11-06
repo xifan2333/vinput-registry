@@ -51,3 +51,4 @@ vinput scene use __raw__
 - 协议参考：[VoiceKey 的讯飞实现](https://github.com/J3n5en/voicekey/blob/main/crates/core/src/ifly.rs)（Rust）。Python WebSocket 基础代码沿用本仓库豆包输入法提供商模板，讯飞协议为 Python 独立实现。
 
 这是输入法客户端的非官方接口，服务端协议、凭证或可用性可能变化。仅供学习与个人使用，请勿用于商业用途。录音会发送到讯飞输入法云端识别服务。
+本 provider 代码由 AI 模型 GLM-5.3（智谱）生成，经人工确认与真机验收。
