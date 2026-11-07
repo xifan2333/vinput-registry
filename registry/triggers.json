@@ -1,4 +1,33 @@
 {
   "version": 1,
-  "items": []
+  "items": [
+    {
+      "id": "trigger.vinput.web_remote",
+      "short_id": "web-remote",
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/triggers/vinput/web_remote/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/triggers/vinput/web_remote/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/triggers/vinput/web_remote/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/triggers/vinput/web_remote/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_TRIGGER_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_TRIGGER_PORT",
+          "required": true
+        },
+        {
+          "name": "VINPUT_TRIGGER_DEBOUNCE_MS",
+          "required": false
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "3f08a81aa1c935977f7f2d0c179994fd02572eda85a2fa395f36df800a90150f",
+      "vinput_version": ">= 2.0.0"
+    }
+  ]
 }
