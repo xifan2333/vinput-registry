@@ -31,8 +31,9 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterable, Callable
+from typing import Any
 from urllib.parse import quote, urlparse
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -57,7 +58,10 @@ BUSINESS = {
 
 
 def log(message: str) -> None:
-    print(f"[iflyime] {message}", file=sys.stderr, flush=True)
+    """本地排障用。daemon 会把 provider 的每一行 stderr 当桌面通知弹给用户，
+    所以默认必须静默，只有显式设置 VINPUT_ASR_DEBUG 时才输出。"""
+    if os.getenv("VINPUT_ASR_DEBUG"):
+        print(f"[iflyime] {message}", file=sys.stderr, flush=True)
 
 
 class WebSocketClient:
@@ -368,7 +372,7 @@ def auth_url() -> str:
     ).decode("ascii")
     authorization = base64.b64encode(
         f'api_key="{API_KEY}", algorithm="hmac-sha256", headers="host date request-line", '
-        f'signature="{signature}"'.encode("utf-8")
+        f'signature="{signature}"'.encode()
     ).decode("ascii")
     return f"wss://{HOST}{PATH}?authorization={quote(authorization, safe='')}&date={quote(date, safe='')}&host={HOST}"
 
@@ -381,11 +385,7 @@ class PgsTranscript:
 
     def apply(self, result: dict[str, Any]) -> str:
         sn = int(result.get("sn") or 0)
-        words = "".join(
-            chunk.get("w", "")
-            for group in result.get("ws") or []
-            for chunk in (group.get("cw") or [])[:1]
-        )
+        words = "".join(chunk.get("w", "") for group in result.get("ws") or [] for chunk in (group.get("cw") or [])[:1])
         if result.get("pgs") == "rpl":
             rg = result.get("rg") or []
             if len(rg) == 2:
@@ -479,7 +479,7 @@ class IatClient:
                     frames += 1
                     total += len(pending)
                 await ws.send(self._build_frame(b"", 2, first))
-                log(f"上传完成: {frames}帧 {total}字节 {total/32000:.2f}秒")
+                log(f"上传完成: {frames}帧 {total}字节 {total / 32000:.2f}秒")
 
             if on_start is not None:
                 on_start()
@@ -491,9 +491,7 @@ class IatClient:
                         await sender_task
                         await asyncio.wait_for(receiver_task, timeout=self.response_timeout)
                         break
-                    done, _ = await asyncio.wait(
-                        {sender_task, receiver_task}, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done, _ = await asyncio.wait({sender_task, receiver_task}, return_when=asyncio.FIRST_COMPLETED)
                     if receiver_task in done:
                         # 服务端提前结束（例如 vad_eos 静音判定），余下音频不再上传
                         sender_task.cancel()
@@ -565,7 +563,9 @@ class AudioInput:
             yield item
 
 
-async def run_provider(lines: AsyncIterable[bytes], emit: Callable[[dict], None], *, finish_grace=5.0, open_timeout=15.0):
+async def run_provider(
+    lines: AsyncIterable[bytes], emit: Callable[[dict], None], *, finish_grace=5.0, open_timeout=15.0
+):
     if not 0 < finish_grace <= 9:
         raise ValueError("Finish grace must be greater than zero and at most 9 seconds")
     audio = AudioInput()
@@ -633,11 +633,11 @@ async def stdin_lines():
 
 def main():
     parser = argparse.ArgumentParser(description="iFlytek IME (讯飞输入法) streaming provider")
+    parser.add_argument("--finish-grace", type=float, default=float(os.getenv("VINPUT_ASR_FINISH_GRACE_SECS") or "5"))
     parser.add_argument(
-        "--finish-grace", type=float, default=float(os.getenv("VINPUT_ASR_FINISH_GRACE_SECS") or "5")
-    )
-    parser.add_argument(
-        "--timeout", type=float, default=float(os.getenv("VINPUT_ASR_TIMEOUT") or "15"),
+        "--timeout",
+        type=float,
+        default=float(os.getenv("VINPUT_ASR_TIMEOUT") or "15"),
         help="WebSocket 连接超时秒数",
     )
     args = parser.parse_args()
@@ -651,8 +651,12 @@ def main():
         assert task is not None
         for sig in (signal.SIGTERM, signal.SIGINT):
             asyncio.get_running_loop().add_signal_handler(sig, task.cancel)
-        return await run_provider(stdin_lines(), lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
-                                 finish_grace=args.finish_grace, open_timeout=args.timeout)
+        return await run_provider(
+            stdin_lines(),
+            lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
+            finish_grace=args.finish_grace,
+            open_timeout=args.timeout,
+        )
 
     try:
         raise SystemExit(asyncio.run(run()))

@@ -532,7 +532,7 @@
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
       "envs": [],
       "version": "1.0.0",
-      "sha256": "2beca2ffddc4f0065a95934df44e010cbfb623f981aff251b071c69866b188f3",
+      "sha256": "9eddb2b84cf1565eb6d91581cca19cd28eb5d67c02c9c029c3e21c0846fa4fbe",
       "vinput_version": ">= 2.0.0"
     }
   ]
