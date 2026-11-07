@@ -50,5 +50,7 @@
   "provider.vllm.streaming.title": "Local vLLM (Streaming)",
   "provider.vllm.streaming.description": "Use a local/self-hosted realtime ASR WebSocket endpoint (e.g. vLLM /v1/realtime) for streaming ASR.",
   "provider.xfyun.streaming.title": "iFlytek Spark IAT (Streaming)",
-  "provider.xfyun.streaming.description": "Use the iFlytek Spark speech dictation V2.0 WebSocket API for streaming cloud ASR."
+  "provider.xfyun.streaming.description": "Use the iFlytek Spark speech dictation V2.0 WebSocket API for streaming cloud ASR.",
+  "provider.iflyime.streaming.title": "iFlytek IME (Streaming)",
+  "provider.iflyime.streaming.description": "Streaming cloud ASR via the unofficial iFlytek IME client protocol."
 }
