@@ -489,6 +489,22 @@
       "version": "1.0.0",
       "sha256": "56d785e0cb50777ef4273f6fff64e156b9d5b7dd4394d8aa940eb2a39803f9f9",
       "vinput_version": ">= 2.0.0"
+    },
+    {
+      "id": "provider.iflyime.streaming",
+      "short_id": "iflyime-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
+      "envs": [],
+      "version": "1.0.0",
+      "sha256": "9eddb2b84cf1565eb6d91581cca19cd28eb5d67c02c9c029c3e21c0846fa4fbe",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }
