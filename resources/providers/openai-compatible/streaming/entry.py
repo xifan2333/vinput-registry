@@ -18,7 +18,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 DEFAULT_URL = "wss://api.openai.com/v1/realtime"
 DEFAULT_MODEL = "gpt-4o-transcribe"
 DEFAULT_TIMEOUT = 30
-DEFAULT_FINISH_GRACE_SECS = 0.4
 DEFAULT_TARGET_SAMPLE_RATE = 24000
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 EXIT_RUNTIME_ERROR = 1
@@ -151,8 +150,8 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self.socket = self._connect()
         self._recv_buffer = b""
+        self.socket = self._connect()
         self._closed = False
 
     def _connect(self) -> socket.socket:
@@ -181,6 +180,7 @@ class WebSocketClient:
 
         response = self._read_http_response(sock)
         self._validate_handshake(response, key)
+        self._recv_buffer = response.split(b"\r\n\r\n", 1)[1]
         return sock
 
     def _read_http_response(self, sock: socket.socket) -> bytes:
@@ -359,7 +359,11 @@ def build_url(session_model: str) -> str:
 
     parsed = urlparse(base_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.setdefault("model", session_model)
+    if session_model == "gpt-live-transcribe":
+        query.pop("model", None)
+        query["intent"] = "transcription"
+    else:
+        query.setdefault("model", session_model)
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
@@ -383,9 +387,24 @@ def build_session_update_event(transcription_model: str, target_sample_rate: int
     if prompt:
         session["audio"]["input"]["transcription"]["prompt"] = prompt
 
-    language = get_optional_env("VINPUT_ASR_LANGUAGE")
-    if language:
-        session["audio"]["input"]["transcription"]["language"] = language
+    if transcription_model == "gpt-live-transcribe":
+        transcription = session["audio"]["input"]["transcription"]
+        languages = get_optional_env("VINPUT_ASR_LANGUAGES")
+        if languages:
+            hints = json.loads(languages)
+            if not isinstance(hints, list) or not hints or not all(isinstance(hint, str) and hint for hint in hints):
+                raise ValueError("VINPUT_ASR_LANGUAGES must be a non-empty JSON array of language codes.")
+            transcription["languages"] = hints
+        delay = get_optional_env("VINPUT_ASR_DELAY", "medium")
+        if delay not in {"minimal", "low", "medium", "high", "xhigh"}:
+            raise ValueError("VINPUT_ASR_DELAY must be minimal, low, medium, high, or xhigh.")
+        transcription["delay"] = delay
+        if get_optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
+            raise ValueError("gpt-live-transcribe does not support server-side VAD.")
+    else:
+        language = get_optional_env("VINPUT_ASR_LANGUAGE")
+        if language:
+            session["audio"]["input"]["transcription"]["language"] = language
 
     if get_optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
         session["audio"]["input"]["turn_detection"] = {
@@ -427,7 +446,7 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         item_id = str(message.get("item_id", "")).strip()
         if item_id:
             state["last_item_id"] = item_id
-            state["partials"][item_id] = ""
+            state["partials"].setdefault(item_id, "")
         return
 
     if message_type == "conversation.item.input_audio_transcription.delta":
@@ -451,10 +470,13 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         state["confirmed_text"] = full_text
         if item_id:
             state["partials"].pop(item_id, None)
+        state["completed_items"].add(item_id)
         # NOTE: host ends the utterance on the first non-empty final, so surface
         # mid-stream completions as partial; a single final goes out on finish.
         if full_text:
             write_stdout({"type": "partial", "text": full_text})
+        if state["finishing"] and len(state["completed_items"]) >= state["commits_sent"]:
+            state["finished"].set()
         return
 
     if message_type == "conversation.item.input_audio_transcription.failed":
@@ -466,6 +488,7 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
                 error_message = candidate.strip()
         write_stdout({"type": "error", "message": error_message})
         state["error"] = error_message
+        state["finished"].set()
         return
 
     if message_type == "error":
@@ -477,6 +500,7 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
                 error_message = candidate.strip()
         write_stdout({"type": "error", "message": error_message})
         state["error"] = error_message
+        state["finished"].set()
         return
 
 
@@ -486,13 +510,14 @@ def run() -> int:
     session_model = get_optional_env("VINPUT_ASR_SESSION_MODEL", transcription_model)
     session_type = "realtime" if session_model != transcription_model else "transcription"
     timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
     target_sample_rate = get_optional_int_env("VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE)
+    finish_timeout = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", float(timeout))
     url = build_url(session_model)
+    session_update = build_session_update_event(transcription_model, target_sample_rate, session_type)
 
     headers = {"Authorization": f"Bearer {api_key}"}
     client = WebSocketClient(url, headers, timeout)
-    client.send_json(build_session_update_event(transcription_model, target_sample_rate, session_type))
+    client.send_json(session_update)
 
     state: dict[str, Any] = {
         "session_started": False,
@@ -501,6 +526,10 @@ def run() -> int:
         "confirmed_text": "",
         "last_item_id": "",
         "partials": {},
+        "completed_items": set(),
+        "commits_sent": 0,
+        "finishing": False,
+        "finished": threading.Event(),
     }
     stop_event = threading.Event()
 
@@ -516,6 +545,7 @@ def run() -> int:
                 state["error"] = str(exc)
                 write_stdout({"type": "error", "message": str(exc)})
         finally:
+            state["finished"].set()
             stop_event.set()
 
     thread = threading.Thread(target=reader, daemon=True)
@@ -567,6 +597,8 @@ def run() -> int:
                         }
                     )
                 if bool(event.get("commit", False)):
+                    state["commits_sent"] += 1
+                    has_audio = False
                     client.send_json(
                         {
                             "event_id": new_event_id(),
@@ -577,7 +609,9 @@ def run() -> int:
 
             if event_type == "finish":
                 saw_finish = True
+                state["finishing"] = True
                 if has_audio:
+                    state["commits_sent"] += 1
                     client.send_json(
                         {
                             "event_id": new_event_id(),
@@ -592,13 +626,17 @@ def run() -> int:
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        if saw_finish and has_audio and not stop_event.is_set():
-            thread.join(timeout=finish_grace_secs)
+        if saw_finish and state["commits_sent"] and not state.get("error"):
+            if len(state["completed_items"]) < state["commits_sent"]:
+                state["finished"].wait(timeout=finish_timeout)
+            if len(state["completed_items"]) < state["commits_sent"] and not state.get("error"):
+                state["error"] = "ASR connection ended or timed out before the final transcript."
+                write_stdout({"type": "error", "message": state["error"]})
         stop_event.set()
         client.close()
         thread.join(timeout=1.0)
         confirmed = str(state.get("confirmed_text", "")).strip()
-        if confirmed:
+        if confirmed and saw_finish and not state.get("error"):
             write_stdout(
                 {
                     "type": "final",
