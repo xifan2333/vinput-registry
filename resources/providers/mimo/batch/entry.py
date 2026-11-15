@@ -24,6 +24,7 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "Xiaomi MiMo Speech Recognition",
         "err_no_audio": "No audio received on stdin.",
         "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
         "err_http": "MiMo ASR HTTP {code}: {message}",
@@ -32,6 +33,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "err_transcribe_failed": "Transcription failed: {detail}",
     },
     "zh_CN": {
+        "title": "小米 MiMo 语音识别",
         "err_no_audio": "标准输入未接收到音频数据。",
         "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
         "err_http": "MiMo 语音识别 HTTP {code}：{message}",
@@ -72,10 +74,28 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "MiMo ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
+
+
+class VInputError(Exception):
+    """Base exception carrying exit code and message key."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Raised when a required environment variable is missing or invalid."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 @dataclass(frozen=True)
@@ -89,10 +109,10 @@ class ProviderConfig:
 
 
 def require_env(name: str) -> str:
-    """Read a mandatory environment variable or raise ValueError."""
+    """Read a mandatory environment variable or raise ConfigError."""
     val = os.getenv(name, "").strip()
     if not val:
-        raise ValueError(f"Missing {name}.")
+        raise ConfigError("err_missing_api_key")
     return val
 
 
@@ -145,7 +165,7 @@ def read_audio_input() -> bytes:
     """Read complete raw PCM audio from stdin buffer."""
     pcm_audio = sys.stdin.buffer.read()
     if not pcm_audio:
-        raise ValueError("No audio received on stdin.")
+        raise VInputError("err_no_audio")
     return pcm_audio
 
 
@@ -218,19 +238,19 @@ def parse_transcript(payload: bytes) -> str:
 
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise RuntimeError("MiMo ASR returned no choices.")
+        raise VInputError("err_transcribe_failed", detail="MiMo ASR returned no choices.")
 
     first = choices[0]
     if not isinstance(first, dict):
-        raise RuntimeError("MiMo ASR returned an invalid choice.")
+        raise VInputError("err_transcribe_failed", detail="MiMo ASR returned an invalid choice.")
 
     message = first.get("message")
     if not isinstance(message, dict):
-        raise RuntimeError("MiMo ASR returned no message content.")
+        raise VInputError("err_transcribe_failed", detail="MiMo ASR returned no message content.")
 
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("MiMo ASR returned an empty transcript.")
+        raise VInputError("err_empty_transcript")
     return content.strip()
 
 
@@ -251,8 +271,19 @@ def transcribe(audio_bytes: bytes, config: ProviderConfig) -> str:
         method="POST",
     )
 
-    with urlopen(request, timeout=config.timeout) as response:
-        return parse_transcript(response.read())
+    try:
+        with urlopen(request, timeout=config.timeout) as response:
+            return parse_transcript(response.read())
+    except HTTPError as exc:
+        payload = exc.read()
+        msg = parse_error_payload(payload)
+        raise VInputError("err_http", code=exc.code, message=msg) from exc
+    except URLError as exc:
+        raise VInputError("err_network", detail=str(exc.reason)) from exc
+    except VInputError:
+        raise
+    except Exception as exc:
+        raise VInputError("err_transcribe_failed", detail=str(exc)) from exc
 
 
 def emit_transcript(text: str) -> None:
@@ -263,38 +294,23 @@ def emit_transcript(text: str) -> None:
 
 def run() -> int:
     """Main execution flow: load config, read audio, transcribe, emit result."""
-    try:
-        config = load_config()
-    except ValueError as exc:
-        notify_error("err_missing_api_key" if "API_KEY" in str(exc) else "err_transcribe_failed", detail=str(exc))
-        return EXIT_USAGE_ERROR
-
-    try:
-        pcm_audio = read_audio_input()
-    except ValueError:
-        notify_error("err_no_audio")
-        return EXIT_USAGE_ERROR
-
-    try:
-        transcript = transcribe(pcm_audio, config)
-        emit_transcript(transcript)
-        return EXIT_SUCCESS
-    except HTTPError as exc:
-        payload = exc.read()
-        msg = parse_error_payload(payload)
-        notify_error("err_http", code=exc.code, message=msg)
-        return EXIT_RUNTIME_ERROR
-    except URLError as exc:
-        notify_error("err_network", detail=str(exc.reason))
-        return EXIT_RUNTIME_ERROR
-    except Exception as exc:
-        notify_error("err_transcribe_failed", detail=str(exc))
-        return EXIT_RUNTIME_ERROR
+    config = load_config()
+    pcm_audio = read_audio_input()
+    transcript = transcribe(pcm_audio, config)
+    emit_transcript(transcript)
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     """CLI wrapper returning standard exit code."""
-    return run()
+    try:
+        return run()
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
+    except Exception as exc:
+        notify_error("err_transcribe_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
