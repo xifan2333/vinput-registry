@@ -26,8 +26,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "cf82714e4cdf0b118c13d957bc6629b1a8a239b9199e144ea0395968d2a85c68",
+      "version": "2.0.0",
+      "sha256": "170d17c82987f570bf7e4f837b64dd2dcb157c013612af8596b44553957caf89",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -59,8 +59,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "cb0ecd71202264c5d8c9afc687f1a11ad3885fd6ce243792bd7dc37a70e48324",
+      "version": "2.0.0",
+      "sha256": "301b839093ec903bccfc7e13b479cb2b3bf3112bd8758b59460b2328ca7c6b0b",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -121,8 +121,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "a0ab04bb35f6023743b80d04cd7934858d441ae1861ed27d0beae41997104f9f",
+      "version": "2.0.0",
+      "sha256": "149d577a253bd4b1f0d270e78c20fe6616db74d3467b58000171aa58a65a59a0",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -150,8 +150,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "f34d85a5bbcab99b8d010713e222467f2ce0a178fb776b686078490c4efbe315",
+      "version": "2.0.0",
+      "sha256": "24093d3b8f5131b64dd307a192d69f04c04e1db859c8ee260522eba92429cab8",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -334,8 +334,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "bbb5ea5e4b916f8c4be66f20752ee898e63dcd3b9ec422b5a7760b653a1655a3",
+      "version": "2.0.0",
+      "sha256": "219f7d47cdb27957b4037930e9978a1f37ecbeb2e8eda150a91bf28e7e99e45e",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -400,8 +400,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "cb16b51d5ffaa886ff180a36b17b17e059de76416dd04063677a60656a196de3",
+      "version": "2.0.0",
+      "sha256": "37f2130b85d49151f47460136c5b32b1035c9b077a02fdb73b9a58cb19ef565a",
       "vinput_version": ">= 2.0.0"
     },
     {
