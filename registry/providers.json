@@ -97,6 +97,35 @@
       "vinput_version": ">= 2.0.0"
     },
     {
+      "id": "provider.assemblyai.batch",
+      "short_id": "aai-batch",
+      "stream": false,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/assemblyai/batch/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ASSEMBLYAI_VERBATIM",
+          "required": false
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "a0ab04bb35f6023743b80d04cd7934858d441ae1861ed27d0beae41997104f9f",
+      "vinput_version": ">= 2.0.0"
+    },
+    {
       "id": "provider.bailian.batch",
       "short_id": "bailian-batch",
       "stream": false,
