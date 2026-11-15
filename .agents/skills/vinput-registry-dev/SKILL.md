@@ -59,8 +59,9 @@ Verify repository roles before making changes:
    - `https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
    - `https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
 5. **i18n Parity**: Any new or updated resource must contain both `<id>.title` and `<id>.description` in both `i18n/en_US.json` and `i18n/zh_CN.json`.
-6. **Adapter Stderr Silence (Desktop Notification Coupling)**: `vinput-daemon` reads an adapter's `stderr` line-by-line and translates every non-empty line directly into a D-Bus desktop error notification (`EmitNotification`). Adapters must **never print operational logs, startup banners, options, or HTTP 200 access logs to `stderr`**. Normal operation must be 100% silent; only fatal startup failures or HTTP 4xx/5xx errors may be emitted to `stderr`.
-7. **Explicit Adapter Port Requirement (No Implicit Defaults)**: Adapters must require an explicit, namespaced port environment variable (e.g., `TEXT_CLEANER_PORT`, `MTRAN_PORT`) declared with `"required": true` in `registry/adapters.json`. Scripts must never silently fall back to an internal hardcoded default port when the env variable is missing or empty, so users always know exactly which port to set in their matching LLM provider `base_url`.
+6. **Desktop Notification Coupling (Stderr Silence)**: `vinput-daemon` translates every non-empty line of a resource's `stderr` directly into a D-Bus desktop notification (`EmitNotification`). Normal operation must be 100% silent; only fatal startup failures or localized errors may be emitted to `stderr` as JSONL (`{"title": "...", "body": "..."}`).
+7. **Command Pipe Filter Architecture**: Adapters transform text or selection commands as stateless Unix pipe filters (`stdin -> stdout` JSON). Adapters do not run as persistent HTTP servers and do not expose or require port environment variables.
+8. **Canonical Contracts & AST Rules**: All resource scripts must conform to the canonical templates in `references/templates/` (`batch_asr.py`, `streaming_asr.py`, `adapter.py`, `client.py`) and pass `.ast-grep/rules/` static verification.
 
 ---
 
@@ -88,6 +89,13 @@ mise run lint
 
 Follow progressive disclosure: consult specific reference files depending on your current task:
 
+### Task: Authoring a New Resource Script
+Read canonical templates in **[references/templates/](references/templates/)**:
+- `streaming_asr.py`: Duplex RFC 6455 WebSocket streaming speech-to-text.
+- `batch_asr.py`: One-shot standard library HTTP/multipart audio transcription.
+- `adapter.py`: Text rewriting and command transform Unix pipe filter.
+- `client.py`: Symmetric client with command emitting and broadcast listening.
+
 ### Task: Writing or Debugging a Trigger / Receiver
 Read **[references/client-protocol.md](references/client-protocol.md)**
 - Domain split: `trigger.*` (session control, `VINPUT_TRIGGER_*`) vs `receiver.*` (result consumption, `VINPUT_RECEIVER_*`); protocol layer is symmetric.
@@ -100,7 +108,7 @@ Read **[references/client-protocol.md](references/client-protocol.md)**
 
 ### Task: Writing or Debugging a Cloud ASR Provider
 Read **[references/provider-protocol.md](references/provider-protocol.md)**
-- Streaming duplex JSONL protocol (stdin `audio`, `finish`, `cancel` vs stdout `session_started`, `partial`, `final`, `error`, `closed`).
+- Streaming duplex JSONL protocol (stdin `audio`, `finish`, `cancel` vs stdout `session_started`, `partial`, `final`, `closed`).
 - Raw PCM binary streaming (`VINPUT_ASR_BINARY_MODE` / Opcode `0x2`) vs Base64 text frames.
 - Single final per utterance semantics (preventing premature cutoffs on mid-stream completions).
 - Pure Python 3 standard library RFC 6455 WebSocket client architecture.
