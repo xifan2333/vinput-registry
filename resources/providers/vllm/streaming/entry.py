@@ -32,14 +32,18 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "vLLM Streaming ASR",
         "err_network": "vLLM streaming network error: {detail}",
         "err_upstream": "vLLM streaming server error: {message}",
         "err_runtime": "vLLM streaming runtime error: {detail}",
+        "err_invalid_event": "Invalid protocol event: {detail}",
     },
     "zh_CN": {
+        "title": "vLLM 实时语音识别",
         "err_network": "vLLM 流式语音识别网络连接失败：{detail}",
         "err_upstream": "vLLM 流式语音服务端报错：{message}",
         "err_runtime": "vLLM 流式语音运行异常：{detail}",
+        "err_invalid_event": "协议事件格式错误：{detail}",
     },
 }
 
@@ -74,10 +78,28 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "vLLM Streaming ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
+
+
+class VInputError(Exception):
+    """Base exception carrying exit code and message key."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Raised when a required environment variable is missing or invalid."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def emit_event(payload: dict[str, Any]) -> None:
@@ -561,12 +583,12 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
             etype = str(event.get("type", "")).strip()
             if etype == "audio":
                 b64 = event.get("audio_base64")
                 if not isinstance(b64, str) or not b64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
+                    raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 pcm_audio = base64.b64decode(b64)
                 pending_commit = True
                 on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
@@ -581,7 +603,7 @@ def run() -> int:
             if etype == "cancel":
                 on_cancel()
                 break
-            raise ValueError(f"Unsupported event type: {etype or ''}")
+            raise VInputError("err_invalid_event", detail=f"Unsupported event type: {etype or ''}")
     finally:
         if saw_finish and not stop_event.is_set():
             thread.join(timeout=config.finish_grace_secs)
@@ -603,9 +625,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
-    except ValueError as exc:
-        notify_error("err_runtime", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR

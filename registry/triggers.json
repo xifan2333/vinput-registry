@@ -25,8 +25,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "96c1ab1a79641ce2c4ca234e75a0cecd121f49e494f8df9281131cad308cf205",
+      "version": "2.0.1",
+      "sha256": "df0a926ab946489bedbab77eb718d2e88e9ff449534c022e586d32ba697c6b1e",
       "vinput_version": ">= 2.0.0"
     }
   ]

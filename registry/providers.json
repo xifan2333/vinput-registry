@@ -26,8 +26,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "170d17c82987f570bf7e4f837b64dd2dcb157c013612af8596b44553957caf89",
+      "version": "2.0.1",
+      "sha256": "5dfd6b3ddf640576fd826f8e75dbe6c054c29e95bd47d2c08990af09f5dc1f9e",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -59,8 +59,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "301b839093ec903bccfc7e13b479cb2b3bf3112bd8758b59460b2328ca7c6b0b",
+      "version": "2.0.1",
+      "sha256": "15e1f1ffa8ac25563f458756f8acc0a3faa4a2592459573f319d2a5433d7e28c",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -92,8 +92,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "b5f716c349f5f28ea107041ff9e6abda95db733fca43c49a5e6d8d3fe31f3d82",
+      "version": "2.0.1",
+      "sha256": "dee53a61507bd78ce248d757bf61348c6fe3f4e86d47be12b8d1c176c9c365d2",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -121,8 +121,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "149d577a253bd4b1f0d270e78c20fe6616db74d3467b58000171aa58a65a59a0",
+      "version": "2.0.1",
+      "sha256": "259cc05339a80258d3b1d3c990e50d6cb0a21dc1159e799226f9273123bcae6a",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -150,8 +150,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "24093d3b8f5131b64dd307a192d69f04c04e1db859c8ee260522eba92429cab8",
+      "version": "2.0.1",
+      "sha256": "c8498034d639b60f3d6123865d37223002714d0f46cbae2afba9d47045a66364",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -179,8 +179,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "c6c6323a1b7a28578c7b076a8da3599e6f33b1f64d278f0dcee512a976491ea6",
+      "version": "2.0.1",
+      "sha256": "0c5bd6621287e140cdaaad8495c2d152c56179544e22667967450ab6864c6601",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -244,8 +244,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "c6390d1e5b8aec05fdd5c1ea54a690c8b546522bedb6406ab4021cac1d189ca7",
+      "version": "2.0.1",
+      "sha256": "58a541d61e6bdd561cc5daeca3ef659a560398f52f1d3dd28ef6426371d09dfa",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -273,8 +273,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "d8642f6f8c7a86685ca270d332a087093e475c2740b5cbca6f9a115f1c75e07a",
+      "version": "2.0.1",
+      "sha256": "eb3e464f6742d43bcbd99311a08c65bc0a1b82ec67f70cdfcd4791d63da2ac73",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -289,8 +289,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
       "envs": [],
-      "version": "2.0.0",
-      "sha256": "2e56b3a849bd74d920e0917e08e29276fa1c3654c8197899344aa8164fb075c6",
+      "version": "2.0.1",
+      "sha256": "f9c757016ab8776ee74bbeed47d619c3b445ebed25ffe1098c9668eb1400357a",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -305,8 +305,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
       "envs": [],
-      "version": "2.0.0",
-      "sha256": "3b6817754bd72989dc8369c21733e6735016d0eec013fafc9e5099c70c3a9979",
+      "version": "2.0.1",
+      "sha256": "05e920479e09a96e274dec615f79d30e4911921bbf5971235edf4b94b517dd4e",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -334,8 +334,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "219f7d47cdb27957b4037930e9978a1f37ecbeb2e8eda150a91bf28e7e99e45e",
+      "version": "2.0.1",
+      "sha256": "60a761a786f7dc0f6b71163a788362c592db4a110671a2d4223c2307f42ab22d",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -371,8 +371,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "22f29aca42083a205c128662777fdd52ef607374837f0c8cc83c1b69d3ed0769",
+      "version": "2.0.1",
+      "sha256": "60a6d6e57a79e98c417873122c248c9c58a45eb6352b5dc9549ddee399537cb3",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -400,8 +400,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "37f2130b85d49151f47460136c5b32b1035c9b077a02fdb73b9a58cb19ef565a",
+      "version": "2.0.1",
+      "sha256": "0321306f15c88da6704726422dc5f65a3a0a7e03ae04c184c664c95308d495e7",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -453,8 +453,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "5fc91a5b77461f759a070b9188079559f82920c2a39e4c3c1585ec7c94dbbe5f",
+      "version": "2.0.1",
+      "sha256": "d2cf6f4c681407eb168f9323e7e21bade9906de0829b46be8998f858bed51bf3",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -490,8 +490,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "634a9dea0c7b380e35000e7503f8732a6bd0c5beb889746eeb5ca1ed0d01584f",
+      "version": "2.0.1",
+      "sha256": "4b1dc1346a288f49be83b724d28a1c72174c285f24c215bb9dd2c250908da5bb",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -515,8 +515,8 @@
           "required": false
         }
       ],
-      "version": "2.0.0",
-      "sha256": "7bee9e69779d7f82002be2ccf3663301599f5d4595264e613da3e289e6a64217",
+      "version": "2.0.1",
+      "sha256": "83a192209909ce714e4c220677df0b61066400c958c39aff64f2cb833c6a904e",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -531,8 +531,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
       "envs": [],
-      "version": "2.0.0",
-      "sha256": "a9e692c480a31dc3ccfa1ac2190bea7ab008c546d0fc6497a49c9038c2ff7c3b",
+      "version": "2.0.1",
+      "sha256": "c0fb967eb21c8355eef8f5fab6035f58cb2d31997a6dfcdb99bb40952d7eab73",
       "vinput_version": ">= 2.0.0"
     }
   ]

@@ -41,16 +41,20 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "Bailian Qwen-Audio3 Streaming ASR",
         "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
         "err_network": "Bailian Qwen-Audio streaming network error: {detail}",
         "err_upstream": "Bailian Qwen-Audio streaming server error: {message}",
         "err_runtime": "Bailian Qwen-Audio streaming runtime error: {detail}",
+        "err_invalid_event": "Invalid protocol event: {detail}",
     },
     "zh_CN": {
+        "title": "百炼 Qwen-Audio3 实时语音识别",
         "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
         "err_network": "百炼通义语音识别流式连接失败：{detail}",
         "err_upstream": "百炼通义语音服务端报错：{message}",
         "err_runtime": "百炼通义语音运行异常：{detail}",
+        "err_invalid_event": "协议事件格式错误：{detail}",
     },
 }
 
@@ -85,10 +89,28 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "Bailian Qwen-Audio ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
+
+
+class VInputError(Exception):
+    """Base exception carrying exit code and message key."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Raised when a required environment variable is missing or invalid."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def emit_event(payload: dict[str, Any]) -> None:
@@ -160,9 +182,10 @@ class StreamingConfig:
 
 
 def require_env(name: str) -> str:
+    """Read a mandatory environment variable or raise ConfigError."""
     val = os.getenv(name, "").strip()
     if not val:
-        raise ValueError(f"Missing {name}.")
+        raise ConfigError("err_missing_api_key")
     return val
 
 
@@ -743,19 +766,19 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
+                    raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 try:
                     audio = base64.b64decode(audio_base64)
                 except ValueError as exc:
-                    raise ValueError(f"audio event has invalid base64: {exc}") from exc
+                    raise VInputError("err_invalid_event", detail=f"audio event has invalid base64: {exc}") from exc
                 if not audio:
-                    raise ValueError("audio event decoded to empty audio.")
+                    raise VInputError("err_invalid_event", detail="audio event decoded to empty audio.")
                 on_audio_chunk(audio, bool(event.get("commit", False)))
                 continue
 
@@ -768,7 +791,7 @@ def run() -> int:
                 on_cancel()
                 break
 
-            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
+            raise VInputError("err_invalid_event", detail=f"Unsupported event type: {event_type or '<missing>'}")
     finally:
         if saw_finish and not stop_event.is_set():
             thread.join(timeout=config.finish_grace_secs)
@@ -787,9 +810,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
-    except ValueError as exc:
-        notify_error("err_runtime", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR

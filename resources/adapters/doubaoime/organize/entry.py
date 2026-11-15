@@ -44,14 +44,33 @@ IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "Doubao IME Adapter",
         "err_organize_failed": "Doubao IME text organization failed: {detail}",
         "err_identity_failed": "Failed to initialize Doubao IME identity: {detail}",
     },
     "zh_CN": {
+        "title": "豆包输入法整理适配器",
         "err_organize_failed": "豆包输入法文本整理失败：{detail}",
         "err_identity_failed": "初始化豆包输入法凭据失败：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput provider/adapter errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -84,8 +103,9 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "Doubao IME Adapter", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -567,11 +587,7 @@ def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | li
 
 def run() -> int:
     """Main filter loop reading stdin and writing candidates to stdout."""
-    try:
-        config = load_config()
-    except Exception as exc:
-        notify_error("err_identity_failed", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    config = load_config()
 
     raw_input = sys.stdin.read()
     if not raw_input:
@@ -590,26 +606,29 @@ def run() -> int:
     except Exception:
         is_json = False
 
-    try:
-        if is_json and selected:
-            output = rewrite_command(text, selected, config)
-        else:
-            output = rewrite_text(text, config)
+    if is_json and selected:
+        output = rewrite_command(text, selected, config)
+    else:
+        output = rewrite_text(text, config)
 
-        if isinstance(output, list):
-            sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
-        else:
-            sys.stdout.write(f"{output}\n")
-        sys.stdout.flush()
-        return EXIT_SUCCESS
-    except Exception as exc:
-        notify_error("err_organize_failed", detail=str(exc))
-        return EXIT_RUNTIME_ERROR
+    if isinstance(output, list):
+        sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
+    else:
+        sys.stdout.write(f"{output}\n")
+    sys.stdout.flush()
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     """CLI wrapper returning standard exit code."""
-    return run()
+    try:
+        return run()
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
+    except Exception as exc:
+        notify_error("err_organize_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":

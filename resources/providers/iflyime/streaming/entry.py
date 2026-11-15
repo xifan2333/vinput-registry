@@ -51,16 +51,37 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "iFlytek IME Streaming ASR",
+        "err_invalid_event": "Invalid input event: {detail}",
         "err_network": "iFlytek IME streaming network error: {detail}",
         "err_upstream": "iFlytek IME streaming server error {code}: {detail}",
         "err_runtime": "iFlytek IME streaming runtime error: {detail}",
     },
     "zh_CN": {
+        "title": "讯飞输入法实时语音识别",
+        "err_invalid_event": "输入事件格式错误：{detail}",
         "err_network": "讯飞输入法流式语音识别网络连接失败：{detail}",
         "err_upstream": "讯飞输入法流式语音服务端报错 {code}：{detail}",
         "err_runtime": "讯飞输入法流式语音运行异常：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput provider errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -93,8 +114,9 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "iFlytek IME Streaming ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -190,13 +212,20 @@ def load_config() -> StreamingConfig:
     timeout_str = os.getenv("VINPUT_ASR_TIMEOUT", "").strip()
     grace_str = os.getenv("VINPUT_ASR_FINISH_GRACE_SECS", "").strip()
 
-    timeout = float(timeout_str) if timeout_str else DEFAULT_TIMEOUT
-    finish_grace_secs = float(grace_str) if grace_str else DEFAULT_FINISH_GRACE_SECS
+    try:
+        timeout = float(timeout_str) if timeout_str else DEFAULT_TIMEOUT
+    except ValueError as exc:
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_TIMEOUT must be a number.") from exc
+
+    try:
+        finish_grace_secs = float(grace_str) if grace_str else DEFAULT_FINISH_GRACE_SECS
+    except ValueError as exc:
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_FINISH_GRACE_SECS must be a number.") from exc
 
     if not 0 < finish_grace_secs <= MAX_FINISH_GRACE_SECS:
-        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 9 seconds.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 9 seconds.")
     if not 0 < timeout <= 60:
-        raise ValueError("VINPUT_ASR_TIMEOUT must be between 0 and 60 seconds.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_TIMEOUT must be between 0 and 60 seconds.")
 
     return StreamingConfig(
         endpoint=endpoint,
@@ -209,7 +238,7 @@ class WebSocketClient:
     def __init__(self, url: str, timeout: float) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
-            raise ValueError("Authenticated URL must use ws:// or wss://.")
+            raise VInputError("err_network", detail="Authenticated URL must use ws:// or wss://.")
 
         self.scheme = parsed.scheme
         self.host = parsed.hostname
@@ -492,9 +521,9 @@ def on_upstream_message(raw_msg: str | bytes) -> None:
     try:
         data = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Invalid iFlytek IME response JSON: {exc}") from exc
+        raise RuntimeError(f"Invalid iFlytek IME response JSON: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError("Invalid iFlytek IME response: expected a JSON object.")
+        raise RuntimeError("Invalid iFlytek IME response: expected a JSON object.")
 
     code = data.get("code", 0)
     if code != 0:
@@ -590,17 +619,17 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
+                    raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 try:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
-                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                    raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
                 on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
@@ -613,7 +642,7 @@ def run() -> int:
                 on_cancel()
                 break
 
-            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
+            raise VInputError("err_invalid_event", detail=f"Unsupported event type: {event_type or '<missing>'}")
     finally:
         if saw_finish and not _STOP_EVENT.is_set():
             _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
@@ -637,9 +666,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
-    except ValueError as exc:
-        notify_error("err_runtime", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR

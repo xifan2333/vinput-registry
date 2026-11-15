@@ -34,22 +34,43 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "iFlytek Streaming ASR",
         "err_missing_app_id": "Missing VINPUT_ASR_APP_ID.",
         "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
         "err_missing_api_secret": "Missing VINPUT_ASR_API_SECRET.",
+        "err_invalid_event": "Invalid input event: {detail}",
         "err_network": "iFlytek streaming network error: {detail}",
         "err_upstream": "iFlytek streaming server error {code}: {detail}",
         "err_runtime": "iFlytek streaming runtime error: {detail}",
     },
     "zh_CN": {
+        "title": "讯飞开放平台实时语音识别",
         "err_missing_app_id": "缺少 VINPUT_ASR_APP_ID 环境变量。",
         "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
         "err_missing_api_secret": "缺少 VINPUT_ASR_API_SECRET 环境变量。",
+        "err_invalid_event": "输入事件格式错误：{detail}",
         "err_network": "讯飞流式语音识别网络连接失败：{detail}",
         "err_upstream": "讯飞流式语音服务端报错 {code}：{detail}",
         "err_runtime": "讯飞流式语音运行异常：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput provider errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -82,8 +103,9 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "iFlytek Streaming ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -182,10 +204,10 @@ class StreamingConfig:
     context: str
 
 
-def require_env(name: str) -> str:
+def require_env(name: str, key: str = "err_missing_api_key") -> str:
     val = os.getenv(name, "").strip()
     if not val:
-        raise ValueError(f"Missing {name}.")
+        raise ConfigError(key)
     return val
 
 
@@ -201,7 +223,7 @@ def optional_int_env(name: str, default: int) -> int:
     try:
         return int(val)
     except ValueError as exc:
-        raise ValueError(f"{name} must be an integer.") from exc
+        raise ConfigError("err_runtime", detail=f"{name} must be an integer.") from exc
 
 
 def optional_float_env(name: str, default: float) -> float:
@@ -211,7 +233,7 @@ def optional_float_env(name: str, default: float) -> float:
     try:
         return float(val)
     except ValueError as exc:
-        raise ValueError(f"{name} must be a number.") from exc
+        raise ConfigError("err_runtime", detail=f"{name} must be a number.") from exc
 
 
 def optional_bool_env(name: str, default: bool) -> bool:
@@ -222,7 +244,7 @@ def optional_bool_env(name: str, default: bool) -> bool:
         return True
     if val in {"0", "false", "no", "off"}:
         return False
-    raise ValueError(f"{name} must be a boolean.")
+    raise ConfigError("err_runtime", detail=f"{name} must be a boolean.")
 
 
 def optional_nullable_int_env(name: str) -> int | None:
@@ -232,7 +254,7 @@ def optional_nullable_int_env(name: str) -> int | None:
     try:
         return int(val)
     except ValueError as exc:
-        raise ValueError(f"{name} must be an integer.") from exc
+        raise ConfigError("err_runtime", detail=f"{name} must be an integer.") from exc
 
 
 def optional_nullable_bool_env(name: str) -> bool | None:
@@ -243,26 +265,26 @@ def optional_nullable_bool_env(name: str) -> bool | None:
         return True
     if val in {"0", "false", "no", "off"}:
         return False
-    raise ValueError(f"{name} must be a boolean.")
+    raise ConfigError("err_runtime", detail=f"{name} must be a boolean.")
 
 
 def load_config() -> StreamingConfig:
-    app_id = require_env("VINPUT_ASR_APP_ID")
-    api_key = require_env("VINPUT_ASR_API_KEY")
-    api_secret = require_env("VINPUT_ASR_API_SECRET")
+    app_id = require_env("VINPUT_ASR_APP_ID", "err_missing_app_id")
+    api_key = require_env("VINPUT_ASR_API_KEY", "err_missing_api_key")
+    api_secret = require_env("VINPUT_ASR_API_SECRET", "err_missing_api_secret")
     base_url = optional_env("VINPUT_ASR_URL", DEFAULT_URL)
     res_id = optional_env("VINPUT_ASR_RES_ID")
     timeout = optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
     finish_grace_secs = optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
 
     if timeout <= 0:
-        raise ValueError("VINPUT_ASR_TIMEOUT must be greater than zero.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_TIMEOUT must be greater than zero.")
     if finish_grace_secs < 0 or finish_grace_secs > MAX_FINISH_GRACE_SECS:
-        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 8 seconds.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 8 seconds.")
 
     svad = optional_int_env("VINPUT_ASR_SVAD", 0)
     if svad not in {0, 1}:
-        raise ValueError("VINPUT_ASR_SVAD must be 0 or 1.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_SVAD must be 0 or 1.")
 
     return StreamingConfig(
         app_id=app_id,
@@ -292,7 +314,7 @@ def load_config() -> StreamingConfig:
 def build_auth_url(url: str, api_key: str, api_secret: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
-        raise ValueError("VINPUT_ASR_URL must be a ws:// or wss:// URL.")
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_URL must be a ws:// or wss:// URL.")
 
     port = parsed.port
     default_port = 443 if parsed.scheme == "wss" else 80
@@ -394,7 +416,7 @@ class WebSocketClient:
     def __init__(self, url: str, timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
-            raise ValueError("Authenticated URL must use ws:// or wss://.")
+            raise VInputError("err_network", detail="Authenticated URL must use ws:// or wss://.")
 
         self.scheme = parsed.scheme
         self.host = parsed.hostname
@@ -776,19 +798,7 @@ def cleanup() -> None:
 
 
 def run() -> int:
-    try:
-        config = load_config()
-    except ValueError as exc:
-        err_text = str(exc)
-        if "APP_ID" in err_text:
-            notify_error("err_missing_app_id")
-        elif "API_KEY" in err_text:
-            notify_error("err_missing_api_key")
-        elif "API_SECRET" in err_text:
-            notify_error("err_missing_api_secret")
-        else:
-            notify_error("err_runtime", detail=err_text)
-        return EXIT_USAGE_ERROR
+    config = load_config()
 
     try:
         connect(config)
@@ -838,17 +848,17 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
+                    raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 try:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
-                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                    raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
                 on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
@@ -861,7 +871,7 @@ def run() -> int:
                 on_cancel()
                 break
 
-            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
+            raise VInputError("err_invalid_event", detail=f"Unsupported event type: {event_type or '<missing>'}")
     finally:
         if saw_finish and not _STOP_EVENT.is_set():
             _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
@@ -885,9 +895,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
-    except ValueError as exc:
-        notify_error("err_runtime", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
