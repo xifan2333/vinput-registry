@@ -122,10 +122,12 @@ When a model archive is downloaded and extracted, `fcitx5-vinput` flattens the d
 
 ## 5. LLM Scene Adapters (`registry/adapters.json`) & The Minimally Viable Env Set Principle
 
-### 1. Naming Freedom
-Unlike ASR Providers, LLM Adapters are standalone local bridge/proxy processes (e.g., exposing an OpenAI-compatible `/v1/chat/completions` endpoint for local translation or specialized inference tools).
-- Environment variables **do not** require a `VINPUT_ASR_` prefix.
-- Use natural names matching the target tool (e.g., `MTRAN_URL`, `MTRAN_TOKEN`, `MTRAN_PORT`, `OLLAMA_HOST`).
+### 1. Unix Command Pipe Filter Architecture
+Unlike daemon background services, LLM Scene Adapters are executed on-demand by `vinput-daemon` as Unix pipe filters (`RewriteWithCommandAdapter`):
+- `stdin`: Daemon pipes JSON request containing text to be rewritten.
+- `stdout`: Adapter returns rewritten JSON response (`{"type": "text_rewritten", "text": "..."}`).
+- `stderr`: Dedicated to user desktop notifications (`{"title": "...", "body": "..."}`). 100% silent during normal operation.
+- **No Ports Needed**: Adapters do not run as long-lived HTTP servers and do not expose or require any `*_PORT` environment variables.
 
 ### 2. The Minimally Viable Env Set Principle
 When a user materializes/installs an adapter, `fcitx5-vinput` executes:
@@ -136,7 +138,7 @@ FillDefaultEnvMap(entry.envs, &adapter.env); // Injects every declared env as ""
 **Key Architectural Rule**:
 - `registry/adapters.json` should declare **only the bare minimum variables required to run the adapter**:
   - **Required variables** (`"required": true`): Variables without which the script cannot function (e.g. `API_KEY`).
-  - **Essential tuneables** (`"required": false`): Only 1–2 critical user knobs (e.g., custom upstream URL/port).
+  - **Essential tuneables** (`"required": false`): Only critical user knobs (e.g., custom upstream URL).
 - Do **not** declare fine-tuning options (timeouts, retry counts, logging levels) in `adapters.json` if they have robust default values in `entry.py`. Doing so clutters the user's `config.json` with empty placeholder strings and creates user confusion.
 
 ### 3. Three-Tier Parameter Architecture
@@ -144,42 +146,34 @@ FillDefaultEnvMap(entry.envs, &adapter.env); // Injects every declared env as ""
 2. **Tier 2: Script (`entry.py`)**: Fallback defaults via `os.getenv("PARAM", DEFAULT_VALUE)`.
 3. **Tier 3: Documentation (`README.md`)**: Full documentation separating Required vs Optional settings.
 
-### 4. Explicit Port Requirement (No Implicit Defaults)
-In `fcitx5-vinput`, configuring a scene requires the user to pair an adapter with an LLM provider definition specifying `base_url: http://127.0.0.1:<port>/v1`.
-- **Port Must Be Explicit**: The adapter port variable (e.g. `TEXT_CLEANER_PORT`, `MTRAN_PORT`) must be marked `"required": true` in `registry/adapters.json`.
-- **No Implicit Code Fallbacks**: Scripts must never silently fall back to an internal default port if the environment variable is missing, empty, or whitespace. Missing or invalid port variables must cause the script to immediately exit with code 2 (`EXIT_USAGE_ERROR`) and write an actionable error to `stderr`.
-- **Prevents Port Conflicts**: Requiring the user to provide an explicit port ensures they know exactly which port is running and prevents collisions between multiple local services.
-
-### 5. Stderr Silence & Desktop Notification Coupling
+### 4. Stderr Silence & Desktop Notification Coupling
 `vinput-daemon` monitors the adapter child process's `stderr` via `FlushAdapterBuffer`:
 ```cpp
 void FlushAdapterBuffer(ManagedAdapter& adapter, bool flush_partial) {
   if (!line.empty()) {
-    EmitNotification(line); // Forwards every line to desktop notification via D-Bus!
+    EmitNotification(line); // Forwards every non-empty line to desktop notification via D-Bus!
   }
 }
 ```
 - **Every non-empty line emitted to `stderr` results in an immediate desktop popup notification for the user.**
-- **Absolute Silence in Normal Operation**:
-  - Never print startup banners (e.g. `Listening on...`).
-  - Never log operational options.
-  - Override `log_message` in HTTP server handlers to `pass` (suppress HTTP 200/access logs).
-- **Errors Only**: Implement `log_error` or exception handlers to write only genuine fatal failures (e.g. port already in use, missing required env) to `stderr`.
+- **Absolute Silence in Normal Operation**: Never print startup banners, options, or progress lines to `stderr`.
+- **Errors Only**: Use `notify_error()` to write JSONL desktop notifications (`{"title": "...", "body": "..."}`) to `stderr` on genuine failures.
 
-### 6. Adapter `README.md` Documentation Template
-Each `resources/adapters/<group>/<name>/README.md` must clearly categorize variables:
+### 5. Adapter `README.md` Documentation Template
+Each `resources/adapters/<group>/<name>/README.md` must clearly document runtime requirements:
 
 ```markdown
 # adapters.<group>.<name>
 
-Description of adapter bridge.
+Description of adapter purpose.
 
 ## Entry
 - `entry.py`
 
 ## Runtime
 - command: `python3`
-- endpoints: `POST /v1/chat/completions`, `GET /v1/models`
+- architecture: Unix command pipe filter (`RewriteWithCommandAdapter`)
+- dependencies: Python 3 standard library only
 
 ## Environment Variables
 
@@ -187,8 +181,7 @@ Description of adapter bridge.
 - `TARGET_API_KEY` (required): Authentication credential.
 
 ### Optional
-- `TARGET_URL` (optional): Custom endpoint, defaults to `http://localhost:8080`.
-- `TARGET_PORT` (optional): Local proxy listening port, defaults to `8990`.
+- `TARGET_URL` (optional, default: `http://localhost:8080`): Custom upstream endpoint.
 ```
 
 ---

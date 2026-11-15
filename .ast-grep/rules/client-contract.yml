@@ -1,0 +1,29 @@
+id: client-contract
+message: "Client entry.py 缺少基础函数 (load_config, run, main)，或未实现任何客户端能力（必须至少实现命令发送 send_command 或广播监听 listen_daemon_broadcasts / on_daemon_broadcast）。"
+severity: error
+language: Python
+files:
+  - "resources/triggers/**/entry.py"
+  - "resources/receivers/**/entry.py"
+rule:
+  kind: module
+  any:
+    - not:
+        all:
+          - has:
+              kind: function_definition
+              has: { field: name, regex: "^load_config$" }
+          - has:
+              kind: function_definition
+              has: { field: name, regex: "^run$" }
+          - has:
+              kind: function_definition
+              has: { field: name, regex: "^main$" }
+    - not:
+        any:
+          - has:
+              kind: function_definition
+              has: { field: name, regex: "^send_command$" }
+          - has:
+              kind: function_definition
+              has: { field: name, regex: "^(listen_daemon_broadcasts|on_daemon_broadcast)$" }

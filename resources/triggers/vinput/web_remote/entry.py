@@ -18,9 +18,76 @@ import socketserver
 import struct
 import sys
 import threading
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any
 
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "connected": "Mobile phone connected.",
+        "err_missing_api_key": "Missing required VINPUT_TRIGGER_API_KEY environment variable.",
+        "err_invalid_port": "VINPUT_TRIGGER_PORT must be an integer between 1 and 65535.",
+        "err_bind": "Failed to bind port {port}: {detail}",
+        "err_runtime": "Web Remote runtime error: {detail}",
+    },
+    "zh_CN": {
+        "connected": "手机端已成功连接。",
+        "err_missing_api_key": "缺少必需的 VINPUT_TRIGGER_API_KEY 环境变量。",
+        "err_invalid_port": "VINPUT_TRIGGER_PORT 必须是 1 到 65535 之间的整数。",
+        "err_bind": "绑定端口 {port} 失败：{detail}",
+        "err_runtime": "网页远控触发器运行异常：{detail}",
+    },
+}
+
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Web Remote", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def notify_info(key: str, **kwargs: object) -> None:
+    """Emit informational notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Web Remote", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -340,7 +407,14 @@ INDEX_HTML = """<!doctype html>
 </html>
 """
 
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1f9d87"/><path d="M32 12c-5 0-9 4-9 9v16c0 5 4 9 9 9s9-4 9-9V21c0-5-4-9-9-9z" fill="#fff"/><path d="M17 33c0 8 7 15 15 15s15-7 15-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M32 48v8" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>"""
+FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="12" fill="#1f9d87"/>'
+    '<path d="M32 12c-5 0-9 4-9 9v16c0 5 4 9 9 9s9-4 9-9V21c0-5-4-9-9-9z" fill="#fff"/>'
+    '<path d="M17 33c0 8 7 15 15 15s15-7 15-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>'
+    '<path d="M32 48v8" stroke="#fff" stroke-width="5" stroke-linecap="round"/>'
+    "</svg>"
+)
 
 
 class WebSocketConnection:
@@ -452,66 +526,79 @@ class WebSocketConnection:
                     pass
 
 
-class TriggerServer:
-    def __init__(self, api_key: str, port: int, debounce_ms: int) -> None:
-        self.api_key = api_key
-        self.port = port
-        self.debounce_sec = debounce_ms / 1000.0
+# Protocol command emitting
+_STDOUT_LOCK = threading.Lock()
+_ACTIVE_WS_LOCK = threading.Lock()
+_ACTIVE_WS: WebSocketConnection | None = None
+_TEXT_LOCK = threading.Lock()
+_PENDING_TEXT = ""
+_DEBOUNCE_TIMER: threading.Timer | None = None
+_DEBOUNCE_SEC = 1.5
+_API_KEY = ""
 
-        self.stdout_lock = threading.Lock()
-        self.active_ws_lock = threading.Lock()
-        self.active_ws: WebSocketConnection | None = None
 
-        self.text_lock = threading.Lock()
-        self.pending_text = ""
-        self.debounce_timer: threading.Timer | None = None
+def send_command(cmd: dict[str, Any]) -> None:
+    """Emit JSON command to vinput daemon over stdout."""
+    with _STDOUT_LOCK:
+        sys.stdout.write(json.dumps(cmd, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
 
-    def emit_command(self, cmd: dict[str, Any]) -> None:
-        with self.stdout_lock:
-            sys.stdout.write(json.dumps(cmd, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
 
-    def emit_notification(self, title: str, body: str) -> None:
-        sys.stderr.write(json.dumps({"title": title, "body": body}, ensure_ascii=False) + "\n")
-        sys.stderr.flush()
+def on_daemon_broadcast(event: dict[str, Any]) -> None:
+    """Handle daemon broadcast events received from stdin."""
+    typ = event.get("type")
+    if typ == "committed":
+        with _ACTIVE_WS_LOCK:
+            if _ACTIVE_WS and not _ACTIVE_WS.closed:
+                _ACTIVE_WS.send_json({"type": "committed"})
 
-    def handle_text_update(self, text: str) -> None:
-        with self.text_lock:
-            self.pending_text = text
-            if self.debounce_timer is not None:
-                self.debounce_timer.cancel()
-            self.debounce_timer = threading.Timer(self.debounce_sec, self.finalize_pending_text)
-            self.debounce_timer.daemon = True
-            self.debounce_timer.start()
 
-        self.emit_command({"type": "inject", "stage": "partial", "text": text, "ime": True})
+def listen_daemon_broadcasts() -> None:
+    """Background reader consuming JSONL events from stdin."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+            if isinstance(event, dict):
+                on_daemon_broadcast(event)
+        except json.JSONDecodeError:
+            pass
 
-    def finalize_pending_text(self) -> None:
-        final_text = ""
-        with self.text_lock:
-            if self.debounce_timer is not None:
-                self.debounce_timer.cancel()
-                self.debounce_timer = None
-            final_text = self.pending_text
-            self.pending_text = ""
 
-        if final_text:
-            self.emit_command({"type": "inject", "stage": "final", "text": final_text, "ime": True})
-            with self.active_ws_lock:
-                if self.active_ws and not self.active_ws.closed:
-                    self.active_ws.send_json({"type": "committed"})
+def handle_text_update(text: str) -> None:
+    global _PENDING_TEXT, _DEBOUNCE_TIMER
+    with _TEXT_LOCK:
+        _PENDING_TEXT = text
+        if _DEBOUNCE_TIMER is not None:
+            _DEBOUNCE_TIMER.cancel()
+        _DEBOUNCE_TIMER = threading.Timer(_DEBOUNCE_SEC, finalize_pending_text)
+        _DEBOUNCE_TIMER.daemon = True
+        _DEBOUNCE_TIMER.start()
 
-    def on_daemon_broadcast(self, event: dict[str, Any]) -> None:
-        typ = event.get("type")
-        if typ == "committed":
-            with self.active_ws_lock:
-                if self.active_ws and not self.active_ws.closed:
-                    self.active_ws.send_json({"type": "committed"})
+    send_command({"type": "inject", "stage": "partial", "text": text, "ime": True})
+
+
+def finalize_pending_text() -> None:
+    global _PENDING_TEXT, _DEBOUNCE_TIMER
+    final_text = ""
+    with _TEXT_LOCK:
+        if _DEBOUNCE_TIMER is not None:
+            _DEBOUNCE_TIMER.cancel()
+            _DEBOUNCE_TIMER = None
+        final_text = _PENDING_TEXT
+        _PENDING_TEXT = ""
+
+    if final_text:
+        send_command({"type": "inject", "stage": "final", "text": final_text, "ime": True})
+        with _ACTIVE_WS_LOCK:
+            if _ACTIVE_WS and not _ACTIVE_WS.closed:
+                _ACTIVE_WS.send_json({"type": "committed"})
 
 
 class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
-        # Silence all HTTP access logs on stderr
         pass
 
     def do_GET(self) -> None:
@@ -543,6 +630,7 @@ class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
         self.send_error(404, "Not Found")
 
     def handle_websocket_upgrade(self) -> None:
+        global _ACTIVE_WS
         key = self.headers.get("Sec-WebSocket-Key", "").strip()
         upgrade = self.headers.get("Upgrade", "").lower()
         if upgrade != "websocket" or not key:
@@ -562,8 +650,6 @@ class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
         ws = WebSocketConnection(self.connection)
-        trigger = cast(ThreadedHttpServer, self.server).trigger
-
         authenticated = False
         try:
             while not ws.closed:
@@ -579,35 +665,32 @@ class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
                     continue
 
                 if not authenticated:
-                    if data.get("type") == "auth" and secrets.compare_digest(
-                        str(data.get("api_key", "")), trigger.api_key
-                    ):
+                    if data.get("type") == "auth" and secrets.compare_digest(str(data.get("api_key", "")), _API_KEY):
                         authenticated = True
-                        with trigger.active_ws_lock:
-                            if trigger.active_ws and trigger.active_ws != ws:
-                                trigger.active_ws.send_json({"type": "displaced", "message": "New session opened"})
-                                trigger.active_ws.close()
-                            trigger.active_ws = ws
+                        with _ACTIVE_WS_LOCK:
+                            if _ACTIVE_WS and _ACTIVE_WS != ws:
+                                _ACTIVE_WS.send_json({"type": "displaced", "message": "New session opened"})
+                                _ACTIVE_WS.close()
+                            _ACTIVE_WS = ws
                         ws.send_json({"type": "auth_ok"})
                         ws.send_json({"type": "init", "output_status": "ready"})
-                        trigger.emit_notification("Web Remote", "Mobile phone connected")
+                        notify_info("connected")
                     else:
                         ws.send_json({"type": "error", "message": "Unauthorized."})
                         ws.close()
                         break
                     continue
 
-                # Authenticated session
                 mtype = data.get("type")
                 if mtype == "text_update":
-                    trigger.handle_text_update(str(data.get("text", "")))
+                    handle_text_update(str(data.get("text", "")))
                 elif mtype == "finalize":
-                    trigger.finalize_pending_text()
+                    finalize_pending_text()
 
         finally:
-            with trigger.active_ws_lock:
-                if trigger.active_ws == ws:
-                    trigger.active_ws = None
+            with _ACTIVE_WS_LOCK:
+                if _ACTIVE_WS == ws:
+                    _ACTIVE_WS = None
             ws.close()
 
 
@@ -615,65 +698,55 @@ class ThreadedHttpServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, server_address: tuple[str, int], trigger: TriggerServer) -> None:
-        super().__init__(server_address, RemoteHttpHandler)
-        self.trigger = trigger
+
+@dataclass(frozen=True)
+class RemoteConfig:
+    api_key: str
+    port: int
+    debounce_ms: int
 
 
-def listen_daemon_stdin(trigger: TriggerServer) -> None:
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            trigger.on_daemon_broadcast(event)
-        except json.JSONDecodeError:
-            pass
-
-
-def main() -> None:
+def load_config() -> RemoteConfig:
     api_key = os.environ.get("VINPUT_TRIGGER_API_KEY", "").strip()
     if not api_key:
-        sys.stderr.write(
-            json.dumps(
-                {
-                    "title": "Web Remote Error",
-                    "body": "Missing required VINPUT_TRIGGER_API_KEY environment variable.",
-                }
-            )
-            + "\n"
-        )
-        sys.exit(2)
+        raise ValueError(get_message("err_missing_api_key"))
 
     port_raw = os.environ.get("VINPUT_TRIGGER_PORT", "").strip()
     if not port_raw.isdigit() or not (1 <= int(port_raw) <= 65535):
-        sys.stderr.write(
-            json.dumps(
-                {
-                    "title": "Web Remote Error",
-                    "body": "VINPUT_TRIGGER_PORT must be an integer between 1 and 65535.",
-                }
-            )
-            + "\n"
-        )
-        sys.exit(2)
+        raise ValueError(get_message("err_invalid_port"))
     port = int(port_raw)
 
     debounce_raw = os.environ.get("VINPUT_TRIGGER_DEBOUNCE_MS", "1500").strip()
     debounce_ms = int(debounce_raw) if debounce_raw.isdigit() else 1500
 
-    trigger = TriggerServer(api_key, port, debounce_ms)
+    return RemoteConfig(api_key=api_key, port=port, debounce_ms=debounce_ms)
 
-    # Background pump to consume stdin broadcasts from vinput-daemon
-    stdin_thread = threading.Thread(target=listen_daemon_stdin, args=(trigger,), daemon=True)
+
+def run() -> int:
+    global _API_KEY, _DEBOUNCE_SEC
+    try:
+        config = load_config()
+    except ValueError as exc:
+        err_msg = str(exc)
+        if "API_KEY" in err_msg:
+            notify_error("err_missing_api_key")
+        elif "PORT" in err_msg:
+            notify_error("err_invalid_port")
+        else:
+            notify_error("err_runtime", detail=err_msg)
+        return EXIT_USAGE_ERROR
+
+    _API_KEY = config.api_key
+    _DEBOUNCE_SEC = config.debounce_ms / 1000.0
+
+    stdin_thread = threading.Thread(target=listen_daemon_broadcasts, daemon=True)
     stdin_thread.start()
 
     try:
-        httpd = ThreadedHttpServer(("0.0.0.0", port), trigger)
+        httpd = ThreadedHttpServer(("0.0.0.0", config.port), RemoteHttpHandler)
     except OSError as exc:
-        trigger.emit_notification("Web Remote Error", f"Failed to bind port {port}: {exc}")
-        sys.exit(1)
+        notify_error("err_bind", port=config.port, detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
     try:
         httpd.serve_forever()
@@ -682,6 +755,16 @@ def main() -> None:
     finally:
         httpd.server_close()
 
+    return EXIT_SUCCESS
+
+
+def main() -> int:
+    try:
+        return run()
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

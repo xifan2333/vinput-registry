@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+"""Doubao IME (豆包输入法) duplex streaming speech-to-text provider via WebSocket protobuf protocol."""
+
 from __future__ import annotations
 
-import argparse
-import asyncio
 import base64
 import ctypes
 import ctypes.util
@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import secrets
-import signal
 import socket
 import ssl
 import struct
@@ -22,18 +21,130 @@ import threading
 import time
 import unicodedata
 import uuid
-from collections.abc import AsyncIterable, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+APP_KEY = "OrnqKvSSrs"
+DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
+IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
+PRESERVED = frozenset("]})>\u300b\u201d'\"\u3011\u2019\uff09%\u2103:\uff1a")
+
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_opus": "Doubao IME streaming: failed to load or initialize libopus: {detail}",
+        "err_network": "Doubao IME streaming network error: {detail}",
+        "err_upstream": "Doubao IME streaming server error {code}: {detail}",
+        "err_runtime": "Doubao IME streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_opus": "豆包输入法流式语音识别：加载或初始化 libopus 失败：{detail}",
+        "err_network": "豆包输入法流式语音识别网络连接失败：{detail}",
+        "err_upstream": "豆包输入法流式语音服务端报错 {code}：{detail}",
+        "err_runtime": "豆包输入法流式语音运行异常：{detail}",
+    },
+}
 
 
-def _gf_mul(left, right):
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Doubao IME Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
+
+
+def remove_trailing_punctuation(text: str, *, per_line: bool = False) -> str:
+    def trim(value: str) -> str:
+        end = len(value)
+        while end and value[end - 1] not in PRESERVED and unicodedata.category(value[end - 1]).startswith("P"):
+            end -= 1
+        return value[:end]
+
+    if not per_line:
+        return trim(text)
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if index < len(lines) - 1 and line.endswith("\r"):
+            lines[index] = trim(line[:-1]) + "\r"
+        else:
+            lines[index] = trim(line)
+    return "\n".join(lines)
+
+
+# AES cryptographic helpers for device registration
+def _gf_mul(left: int, right: int) -> int:
     result = 0
     while right:
         if right & 1:
@@ -43,7 +154,7 @@ def _gf_mul(left, right):
     return result
 
 
-def _gf_pow(value, exponent):
+def _gf_pow(value: int, exponent: int) -> int:
     result = 1
     while exponent:
         if exponent & 1:
@@ -53,18 +164,18 @@ def _gf_pow(value, exponent):
     return result
 
 
-def _sbox(value):
+def _sbox(value: int) -> int:
     inverse = 0 if value == 0 else _gf_pow(value, 254)
     result = inverse ^ ((inverse << 1) | (inverse >> 7)) ^ ((inverse << 2) | (inverse >> 6))
     result ^= ((inverse << 3) | (inverse >> 5)) ^ ((inverse << 4) | (inverse >> 4)) ^ 0x63
     return result & 0xFF
 
 
-def _rot_word(word):
+def _rot_word(word: list[int]) -> list[int]:
     return word[1:] + word[:1]
 
 
-def _expand_key(key):
+def _expand_key(key: bytes) -> list[list[int]]:
     if len(key) not in (16, 24, 32):
         raise ValueError("AES key must be 16, 24, or 32 bytes")
     nk = len(key) // 4
@@ -84,26 +195,26 @@ def _expand_key(key):
     return [[byte for word in words[index : index + 4] for byte in word] for index in range(0, len(words), 4)]
 
 
-def _aes_block(block, key):
+def _aes_block(block: bytes, key: bytes) -> bytes:
     rounds = len(key) // 4 + 6
     round_keys = _expand_key(key)
     state = list(block)
 
-    def add_round_key(round_key):
+    def add_round_key(round_key: list[int]) -> None:
         for index in range(16):
             state[index] ^= round_key[index]
 
-    def substitute():
+    def substitute() -> None:
         for index in range(16):
             state[index] = _sbox(state[index])
 
-    def shift_rows():
+    def shift_rows() -> None:
         original = state[:]
         for row in range(4):
             for column in range(4):
                 state[4 * column + row] = original[4 * ((column + row) % 4) + row]
 
-    def mix_columns():
+    def mix_columns() -> None:
         for column in range(4):
             offset = column * 4
             a = state[offset : offset + 4]
@@ -124,7 +235,7 @@ def _aes_block(block, key):
     return bytes(state)
 
 
-def _aes_cbc_encrypt(data, key, iv):
+def _aes_cbc_encrypt(data: bytes, key: bytes, iv: bytes) -> bytes:
     if len(iv) != 16 or len(data) % 16:
         raise ValueError("AES-CBC requires a 16-byte IV and aligned data")
     result = bytearray()
@@ -136,12 +247,13 @@ def _aes_cbc_encrypt(data, key, iv):
     return bytes(result)
 
 
-def encode_tt_encrypt(gzip_bytes, salt=None):
+def encode_tt_encrypt(gzip_bytes: bytes, salt: bytes | None = None) -> bytes:
     salt = secrets.token_bytes(32) if salt is None else salt
     if len(salt) != 32:
         raise ValueError("ttEncrypt salt must contain exactly 32 bytes")
     constant = bytes.fromhex(
-        "4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58"
+        "4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524"
+        "f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58"
     )
     digest = hashlib.sha512(hashlib.sha512(salt).digest() + constant).digest()
     key, iv = digest[:16], digest[16:32]
@@ -151,7 +263,7 @@ def encode_tt_encrypt(gzip_bytes, salt=None):
     return bytes.fromhex("746305100000") + salt + _aes_cbc_encrypt(payload, key, iv)
 
 
-def new_installation() -> dict:
+def new_installation() -> dict[str, Any]:
     return {
         "openudid": secrets.token_hex(10),
         "clientudid": str(uuid.uuid4()),
@@ -160,7 +272,7 @@ def new_installation() -> dict:
     }
 
 
-def registration_request(state: dict) -> dict:
+def registration_request(state: dict[str, Any]) -> dict[str, Any]:
     request_id = str(uuid.uuid4())
     header = {
         "aid": 401734,
@@ -210,7 +322,7 @@ def registration_request(state: dict) -> dict:
     }
 
 
-def register_device(request: dict) -> tuple[dict, dict]:
+def register_device(request: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
     raw = json.dumps(request["body"], ensure_ascii=False, separators=(",", ":")).encode()
     content = encode_tt_encrypt(gzip.compress(raw, mtime=0))
     target = request["url"] + "?" + urlencode(request["params"])
@@ -223,11 +335,7 @@ def register_device(request: dict) -> tuple[dict, dict]:
     return {"device_id": did, "install_id": iid}, body
 
 
-DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
-IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
-
-
-def save_identity(path: Path, state: dict):
+def save_identity(path: Path, state: dict[str, Any]) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
@@ -240,7 +348,7 @@ def save_identity(path: Path, state: dict):
             os.unlink(temporary)
 
 
-def _ensure_identity(path: Path) -> dict:
+def ensure_identity(path: Path = DEFAULT_IDENTITY) -> dict[str, Any]:
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_suffix(path.suffix + ".lock").open("a") as lock:
@@ -269,7 +377,6 @@ def _ensure_identity(path: Path) -> dict:
             return state
         if not all(state.get(key) for key in ("cdid", "openudid", "clientudid", "first_install_time")):
             raise ValueError("Identity cache contains an incomplete installation")
-        # Save the installation before registering so retries keep the same identity.
         save_identity(path, state)
         identifiers, _ = register_device(registration_request(state))
         state.update(identifiers)
@@ -277,38 +384,18 @@ def _ensure_identity(path: Path) -> dict:
         return state
 
 
-async def ensure_identity(path=DEFAULT_IDENTITY):
-    return await background(_ensure_identity, path)
-
-
-PRESERVED = frozenset("]})>\u300b\u201d'\"\u3011\u2019\uff09%\u2103:\uff1a")
-
-
-def remove_trailing_punctuation(text, *, per_line=False):
-    def trim(value):
-        end = len(value)
-        while end and value[end - 1] not in PRESERVED and unicodedata.category(value[end - 1]).startswith("P"):
-            end -= 1
-        return value[:end]
-
-    if not per_line:
-        return trim(text)
-    lines = text.split("\n")
-    for index, line in enumerate(lines):
-        if index < len(lines) - 1 and line.endswith("\r"):
-            lines[index] = trim(line[:-1]) + "\r"
-        else:
-            lines[index] = trim(line)
-    return "\n".join(lines)
-
-
 class OpusEncoder:
-    def __init__(self, bitrate: int):
-        library = os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip() or ctypes.util.find_library("opus")
+    def __init__(self, bitrate: int, custom_path: str = "") -> None:
+        library = custom_path or os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip() or ctypes.util.find_library("opus")
         if library is None:
             raise RuntimeError("libopus is required for speech_opus")
         self.lib = ctypes.CDLL(library)
-        self.lib.opus_encoder_create.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+        self.lib.opus_encoder_create.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_int),
+        ]
         self.lib.opus_encoder_create.restype = ctypes.c_void_p
         self.lib.opus_encoder_ctl.argtypes = [ctypes.c_void_p, ctypes.c_int]
         self.lib.opus_encoder_ctl.restype = ctypes.c_int
@@ -326,7 +413,6 @@ class OpusEncoder:
         if not self.handle or error.value:
             raise RuntimeError(f"Opus encoder creation failed: {error.value}")
         try:
-            # Constant bitrate, one 10 ms packet per request.
             for request, value in [(4006, 0), (4002, bitrate), (4040, 5003)]:
                 code = self.lib.opus_encoder_ctl(self.handle, request, ctypes.c_int(value))
                 if code:
@@ -347,15 +433,12 @@ class OpusEncoder:
             raise RuntimeError(f"Opus encoding failed: {length}")
         return bytes(output[:length])
 
-    def close(self):
+    def close(self) -> None:
         if self.handle:
             self.lib.opus_encoder_destroy(self.handle)
             self.handle = None
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
+    def __del__(self) -> None:
         self.close()
 
 
@@ -402,7 +485,7 @@ def encode_field_int(field_number: int, value: int) -> bytes:
 
 
 def parse_protobuf_fields(data: bytes) -> dict[int, Any]:
-    fields: dict[int, Any] = {}
+    proto_fields: dict[int, Any] = {}
     index = 0
     while index < len(data):
         key, index = decode_varint(data, index)
@@ -429,19 +512,19 @@ def parse_protobuf_fields(data: bytes) -> dict[int, Any]:
         else:
             raise ValueError(f"Unsupported protobuf wire type: {wire_type}")
 
-        if field_number in fields:
-            existing = fields[field_number]
+        if field_number in proto_fields:
+            existing = proto_fields[field_number]
             if isinstance(existing, list):
                 existing.append(value)
             else:
-                fields[field_number] = [existing, value]
+                proto_fields[field_number] = [existing, value]
         else:
-            fields[field_number] = value
-    return fields
+            proto_fields[field_number] = value
+    return proto_fields
 
 
-def get_proto_string(fields: dict[int, Any], field_number: int) -> str:
-    value = fields.get(field_number, b"")
+def get_proto_string(fields_map: dict[int, Any], field_number: int) -> str:
+    value = fields_map.get(field_number, b"")
     if isinstance(value, list):
         value = value[-1]
     if isinstance(value, bytes):
@@ -451,8 +534,8 @@ def get_proto_string(fields: dict[int, Any], field_number: int) -> str:
     return ""
 
 
-def get_proto_int(fields: dict[int, Any], field_number: int) -> int:
-    value = fields.get(field_number, 0)
+def get_proto_int(fields_map: dict[int, Any], field_number: int) -> int:
+    value = fields_map.get(field_number, 0)
     if isinstance(value, list):
         value = value[-1]
     if isinstance(value, int):
@@ -470,7 +553,7 @@ class WebSocketRequest:
     audio: bytes = b""
     seq_id: int = 0
 
-    def SerializeToString(self):
+    def serialize_to_string(self) -> bytes:
         result = b""
         for number, value in (
             (2, self.appkey),
@@ -498,20 +581,20 @@ class WebSocketResponse:
     seq_id: int = 0
 
     @classmethod
-    def FromString(cls, data):
-        fields = parse_protobuf_fields(data)
+    def from_string(cls, data: bytes) -> WebSocketResponse:
+        proto_fields = parse_protobuf_fields(data)
         return cls(
-            get_proto_string(fields, 1),
-            get_proto_string(fields, 4),
-            get_proto_int(fields, 5),
-            get_proto_string(fields, 6),
-            get_proto_string(fields, 7),
-            get_proto_int(fields, 9),
+            get_proto_string(proto_fields, 1),
+            get_proto_string(proto_fields, 4),
+            get_proto_int(proto_fields, 5),
+            get_proto_string(proto_fields, 6),
+            get_proto_string(proto_fields, 7),
+            get_proto_int(proto_fields, 9),
         )
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
+    def __init__(self, url: str, headers: dict[str, str], timeout: float) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
             raise ValueError("WebSocket URL must use ws:// or wss://.")
@@ -593,14 +676,6 @@ class WebSocketClient:
         if not lines or "101" not in lines[0]:
             status_line = lines[0] if lines else "invalid response"
             details = [f"WebSocket handshake failed: {status_line}"]
-            log_id = headers.get("x-tt-logid")
-            if log_id:
-                details.append(f"log_id={log_id}")
-            connect_id = headers.get("x-api-connect-id")
-            if connect_id:
-                details.append(f"connect_id={connect_id}")
-            if " 403" in f" {status_line} ":
-                details.append("Doubao IME rejected the anonymous WebSocket handshake")
             raise RuntimeError(", ".join(details))
 
         accept = headers.get("sec-websocket-accept")
@@ -609,13 +684,16 @@ class WebSocketClient:
             raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
         self.response_headers = headers
 
-    def close(self):
-        self._closed = True
-        try:
-            self.socket.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self.socket.close()
+    def close(self) -> None:
+        with self._send_lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.socket.close()
 
     def send_binary(self, payload: bytes) -> None:
         self._send_frame(0x2, payload)
@@ -734,576 +812,384 @@ class WebSocketClient:
         return data
 
 
-async def background(function, *args):
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-
-    def complete(value=None, error=None):
-        if not future.done():
-            if error is None:
-                future.set_result(value)
-            else:
-                future.set_exception(error)
-
-    def work():
-        try:
-            value = function(*args)
-        except BaseException as error:
-            try:
-                loop.call_soon_threadsafe(complete, None, error)
-            except RuntimeError:
-                pass
-        else:
-            try:
-                loop.call_soon_threadsafe(complete, value)
-            except RuntimeError:
-                pass
-
-    threading.Thread(target=work, daemon=True).start()
-    return await future
-
-
-@asynccontextmanager
-async def connect_ws(url, headers, timeout):
-    client = None
-    abandoned = threading.Event()
-
-    def open_connection():
-        nonlocal client
-        client = WebSocketClient(url, headers, timeout)
-        client.socket.settimeout(None)
-        if abandoned.is_set():
-            client.close()
-            raise ConnectionError("Connection cancelled")
-        return client
-
-    class Connection:
-        def __init__(self, connected: WebSocketClient):
-            self.client = connected
-
-        async def send(self, data):
-            await background(self.client.send_binary, data)
-
-        async def recv(self):
-            message = await background(self.client.recv_message)
-            if message is None:
-                raise ConnectionError("WebSocket closed before final result")
-            opcode, data = message
-            if opcode != 2:
-                raise ValueError("Expected a binary WebSocket message")
-            return data
-
-    try:
-        connected = await background(open_connection)
-        yield Connection(connected)
-    finally:
-        abandoned.set()
-        if client is not None:
-            client.close()
-
-
-APP_KEY = "OrnqKvSSrs"
-
-
-class ASRError(RuntimeError):
-    def __init__(self, response: WebSocketResponse):
-        self.code = response.status_code
-        self.event = response.event
-        super().__init__(f"{response.event}: {response.status_code} {response.status_text}")
+@dataclass
+class ProviderState:
+    error: str | None = None
+    closed: bool = False
+    cancelled: bool = False
+    committed_text: str = ""
+    current_segment: str = ""
+    latest_text: str = ""
+    final_received: bool = False
+    final_emitted: bool = False
+    upstream_error: bool = False
+    session_started: bool = False
 
 
 @dataclass(frozen=True)
-class ASRConfig:
-    device_id: str
-    install_id: str = ""
+class StreamingConfig:
+    identity_path: Path
+    finish_grace_secs: float
+    no_trailing_punctuation: bool
+    timeout: float
     endpoint: str = "wss://frontier-audio-ime-ws.doubao.com/ocean/api/v1/ws"
-    appkey: str | None = field(default=None, repr=False)
+    libopus_path: str = ""
     codec: str = "speech_opus"
     opus_bitrate: int = 32000
-    chunk_ms: int = 10
-    open_timeout: float = 4.0
-    response_timeout: float = 10.0
-    retries: int = 2
-    headers: dict[str, str] = field(default_factory=dict)
-    extra: dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        if not self.device_id or self.device_id == "0":
-            raise ValueError("A nonzero device_id is required")
-        if self.codec not in {"pcm", "speech_opus"}:
-            raise ValueError("codec must be pcm or speech_opus")
-        if self.chunk_ms <= 0 or self.chunk_ms % 10:
-            raise ValueError("chunk_ms must be a positive multiple of 10")
-        if self.codec == "speech_opus" and self.chunk_ms != 10:
-            raise ValueError("speech_opus requires one 10 ms Opus packet per WebSocket request")
-        if self.retries < 0:
-            raise ValueError("retries must be nonnegative")
 
 
-@dataclass(frozen=True)
-class ASRUpdate:
-    text: str
-    vad_finished: bool
-    stream_finished: bool
-    sequence: int
-    payload: dict
+def load_config() -> StreamingConfig:
+    identity_path = Path(os.getenv("VINPUT_ASR_CREDENTIAL_PATH") or DEFAULT_IDENTITY)
+    finish_grace_str = os.getenv("VINPUT_ASR_FINISH_GRACE_SECS", "9.0").strip()
+    finish_grace_secs = float(finish_grace_str) if finish_grace_str else 9.0
+    no_trailing = (os.getenv("VINPUT_ASR_NO_TRAILING_PUNCTUATION") or "").lower() in {"1", "true", "yes"}
+    timeout_str = os.getenv("VINPUT_ASR_TIMEOUT", "10.0").strip()
+    timeout = float(timeout_str) if timeout_str else 10.0
+    endpoint = os.getenv("VINPUT_ASR_ENDPOINT", "wss://frontier-audio-ime-ws.doubao.com/ocean/api/v1/ws").strip()
+    libopus_path = os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip()
 
+    if not 0 < finish_grace_secs <= 9.0:
+        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 9 seconds.")
+    if timeout <= 0:
+        raise ValueError("VINPUT_ASR_TIMEOUT must be positive.")
 
-@dataclass(frozen=True)
-class ASRResult:
-    text: str
-    task_id: str
-    updates: tuple[ASRUpdate, ...]
-
-
-class TranscriptState:
-    """Append completed VAD segments; replace hypotheses within one segment."""
-
-    def __init__(self):
-        self.committed = ""
-        self.text = ""
-        self.current = ""
-        self.finished = False
-
-    def apply(self, text: str, finished: bool) -> str | None:
-        # Drop empty interim hypotheses and duplicate segment finals.
-        if (not text and not finished) or (finished and self.finished and text == self.current):
-            return None
-        self.text = self.committed + text
-        self.current = text
-        self.finished = finished
-        if finished:
-            self.committed = self.text
-        return self.text
-
-
-def decode_response(data: bytes | str) -> WebSocketResponse:
-    if not isinstance(data, bytes):
-        raise ValueError("ASR server returned text instead of a binary Protobuf message")
-    try:
-        response = WebSocketResponse.FromString(data)
-    except ValueError as error:
-        raise ValueError("Invalid ASR Protobuf response") from error
-    if response.event in {"SessionFailed", "TaskFailed"}:
-        raise ASRError(response)
-    return response
-
-
-def parse_update(response: WebSocketResponse) -> ASRUpdate | None:
-    """Decode recognition fields independently of the WebSocket lifecycle."""
-    if not response.payload:
-        return None
-    body = json.loads(response.payload)
-    if not isinstance(body, dict):
-        raise ValueError("ASR payload must be a JSON object")
-    results = body.get("results", [])
-    if results is None:
-        return None
-    if not isinstance(results, list):
-        raise ValueError("ASR results must be an array")
-    if not results or not isinstance(results[0], dict) or not isinstance(results[0].get("text"), str):
-        return None
-    extra = body.get("extra")
-    if extra is None:
-        extra = {}
-    if not isinstance(extra, dict):
-        raise ValueError("ASR recognition extra must be an object")
-    result = results[0]
-    return ASRUpdate(
-        result["text"],
-        bool(result.get("is_vad_finished")),
-        bool(result.get("stream_asr_finish")),
-        extra.get("seq_id", response.seq_id),
-        body,
+    return StreamingConfig(
+        identity_path=identity_path,
+        finish_grace_secs=finish_grace_secs,
+        no_trailing_punctuation=no_trailing,
+        timeout=timeout,
+        endpoint=endpoint,
+        libopus_path=libopus_path,
     )
 
 
-class ASRClient:
-    def __init__(self, config: ASRConfig):
-        self.config = config
-        key = config.appkey
-        if key is None:
-            key = APP_KEY
-        self._appkey = key
-        if not self._appkey:
-            raise ValueError("ASR application key is empty")
+# Global runtime singletons
+_CONFIG: StreamingConfig | None = None
+_CLIENT: WebSocketClient | None = None
+_ENCODER: OpusEncoder | None = None
+_STATE: ProviderState = ProviderState()
+_STOP_EVENT = threading.Event()
+_FINAL_EVENT = threading.Event()
+_TASK_ID: str = ""
+_SEQUENCE: int = 0
+_PCM_BUFFER = bytearray()
+_DEVICE_ID: str = ""
+_INSTALL_ID: str = ""
 
-    async def transcribe(self, pcm: bytes, on_update: Callable[[ASRUpdate], None] | None = None) -> ASRResult:
-        """Transcribe buffered audio; callback updates restart after a retry.
 
-        Only the successful attempt's updates are included in the returned result.
-        """
-        if len(pcm) % 2:
-            raise ValueError("PCM bytes must contain complete 16-bit samples")
-        if not pcm:
-            raise ValueError("Audio is empty")
-        for attempt in range(self.config.retries + 1):
-            try:
-                return await self._transcribe(pcm, on_update)
-            except (OSError, TimeoutError, ConnectionError):
-                if attempt == self.config.retries:
-                    raise
-                # A buffered file can restart from the beginning after a transport
-                # failure. Each attempt owns a fresh task, avoiding stale results.
-                await asyncio.sleep(min(0.2 * 2**attempt, 1.0))
-        raise AssertionError("Unreachable retry state")
+def connect(config: StreamingConfig) -> None:
+    global \
+        _CONFIG, \
+        _CLIENT, \
+        _ENCODER, \
+        _STATE, \
+        _STOP_EVENT, \
+        _FINAL_EVENT, \
+        _TASK_ID, \
+        _SEQUENCE, \
+        _PCM_BUFFER, \
+        _DEVICE_ID, \
+        _INSTALL_ID
+    _CONFIG = config
+    _STATE = ProviderState()
+    _STOP_EVENT.clear()
+    _FINAL_EVENT.clear()
+    _SEQUENCE = 0
+    _PCM_BUFFER.clear()
 
-    async def transcribe_stream(
-        self,
-        source: AsyncIterable[bytes],
-        on_update: Callable[[ASRUpdate], None] | None = None,
-        *,
-        on_start: Callable[[], None] | None = None,
-    ) -> ASRResult:
-        """Consume live 16 kHz mono PCM; report updates before the source ends.
+    identity = ensure_identity(config.identity_path)
+    _DEVICE_ID = str(identity["device_id"])
+    _INSTALL_ID = str(identity.get("install_id", ""))
 
-        The producer owns pacing. A live source cannot be replayed after a
-        disconnect, so transport and source errors propagate without retry.
-        """
-        return await self._transcribe_stream(source, on_update, on_start)
+    _TASK_ID = str(uuid.uuid4())
+    query = {"device_id": _DEVICE_ID, "aid": "401734"}
+    if _INSTALL_ID:
+        query["iid"] = _INSTALL_ID
+    separator = "&" if "?" in config.endpoint else "?"
+    url = config.endpoint + separator + urlencode(query)
+    headers = {"proto-version": "v2", "sdk-version": "2", "x-custom-keepalive": "true"}
 
-    async def _transcribe(self, pcm: bytes, on_update: Callable[[ASRUpdate], None] | None) -> ASRResult:
-        async def paced_audio():
-            chunk_size = self.config.chunk_ms * 32
-            began = asyncio.get_running_loop().time()
-            for offset in range(0, len(pcm), chunk_size):
-                yield pcm[offset : offset + chunk_size]
-                target = began + min(offset + chunk_size, len(pcm)) / 32000
-                await asyncio.sleep(max(0, target - asyncio.get_running_loop().time()))
+    _CLIENT = WebSocketClient(url, headers, config.timeout)
+    try:
+        _ENCODER = OpusEncoder(config.opus_bitrate, config.libopus_path)
+    except Exception as exc:
+        notify_error("err_opus", detail=str(exc))
+        raise
 
-        return await self._transcribe_stream(paced_audio(), on_update)
-
-    async def _transcribe_stream(
-        self,
-        source: AsyncIterable[bytes],
-        on_update: Callable[[ASRUpdate], None] | None,
-        on_start: Callable[[], None] | None = None,
-    ) -> ASRResult:
-        config = self.config
-        task_id = str(uuid.uuid4())
-        query = {"device_id": config.device_id, "aid": "401734"}
-        if config.install_id:
-            query["iid"] = config.install_id
-        separator = "&" if "?" in config.endpoint else "?"
-        url = config.endpoint + separator + urlencode(query)
-        headers = {"proto-version": "v2", "sdk-version": "2", "x-custom-keepalive": "true", **config.headers}
-        async with connect_ws(url, headers, config.open_timeout) as ws:
-
-            async def send(event: str, *, payload: dict | None = None, audio: bytes = b"", sequence: int = 0):
-                request = WebSocketRequest(
-                    namespace="ASR",
-                    event=event,
-                    task_id=task_id,
-                    appkey=self._appkey if event != "TaskRequest" else "",
-                    payload=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-                    if payload is not None
-                    else "",
-                    audio=audio,
-                    seq_id=sequence,
-                )
-                await ws.send(request.SerializeToString())
-
-            async def receive() -> WebSocketResponse:
-                while True:
-                    response = decode_response(await ws.recv())
-                    if response.task_id and response.task_id != task_id:
-                        continue
-                    if response.event == "Ping":
-                        await send("Pong")
-                        continue
-                    if response.event == "Pong":
-                        continue
-                    return response
-
-            async def wait_for(event: str):
-                deadline = asyncio.get_running_loop().time() + config.response_timeout
-                while True:
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        raise TimeoutError(f"Timed out waiting for {event}")
-                    response = await asyncio.wait_for(receive(), remaining)
-                    if response.event == event:
-                        return response
-
-            await send("StartTask")
-            await wait_for("TaskStarted")
-            extra = {
+    _send_request("StartTask")
+    _send_request(
+        "StartSession",
+        payload={
+            "audio_info": {"sample_rate": 16000, "channel": 1, "format": config.codec},
+            "extra": {
                 "enable_punctuation": True,
                 "enable_asr_twopass": True,
                 "enable_asr_threepass": True,
                 "end_smooth_window_ms": 800,
-                "did": config.device_id,
+                "did": _DEVICE_ID,
                 "app_name": "oime",
                 "app_version": "1.5.1",
-                **config.extra,
-            }
-            await send(
-                "StartSession",
-                payload={
-                    "audio_info": {"sample_rate": 16000, "channel": 1, "format": config.codec},
-                    "extra": extra,
-                },
-            )
-            await wait_for("SessionStarted")
-            if on_start is not None:
-                on_start()
-
-            audio_finished = False
-
-            async def send_audio():
-                nonlocal audio_finished
-                chunk_size = config.chunk_ms * 32
-                iterator = source.__aiter__()
-                encoder = None
-                pending = bytearray()
-                sequence = 0
-
-                async def send_frame(frame):
-                    nonlocal sequence
-                    if encoder is not None:
-                        frame = encoder.encode(frame.ljust(chunk_size, b"\0"))
-                    sequence += 1
-                    await send(
-                        "TaskRequest",
-                        audio=frame,
-                        sequence=sequence,
-                        payload={"extra": {}, "timestamp_ms": int(time.time() * 1000)},
-                    )
-
-                try:
-                    if config.codec == "speech_opus":
-                        encoder = OpusEncoder(config.opus_bitrate)
-                    async for chunk in iterator:
-                        if not isinstance(chunk, bytes):
-                            raise TypeError("Live PCM chunks must be bytes")
-                        if len(chunk) % 2:
-                            raise ValueError("PCM bytes must contain complete 16-bit samples")
-                        pending.extend(chunk)
-                        while len(pending) >= chunk_size:
-                            frame = bytes(pending[:chunk_size])
-                            del pending[:chunk_size]
-                            await send_frame(frame)
-                    if pending:
-                        await send_frame(bytes(pending))
-                    if not sequence:
-                        raise ValueError("Audio is empty")
-                    # A fast server can reply before send() returns. Mark EOF
-                    # before sending FinishSession; awaiting sender still checks errors.
-                    audio_finished = True
-                    await send("FinishSession")
-                finally:
-                    if encoder is not None:
-                        encoder.close()
-                    close = getattr(iterator, "aclose", None)
-                    if close is not None:
-                        await close()
-
-            sender = asyncio.create_task(send_audio())
-            updates: list[ASRUpdate] = []
-            transcript = TranscriptState()
-            incoming = asyncio.create_task(receive())
-            finish_deadline = None
-            try:
-                while True:
-                    if sender.done():
-                        await sender
-                        if finish_deadline is None:
-                            finish_deadline = asyncio.get_running_loop().time() + config.response_timeout
-                        remaining = finish_deadline - asyncio.get_running_loop().time()
-                        if remaining <= 0:
-                            raise TimeoutError("ASR session did not finish before its deadline")
-                        response = await asyncio.wait_for(incoming, remaining)
-                    else:
-                        completed, _ = await asyncio.wait({incoming, sender}, return_when=asyncio.FIRST_COMPLETED)
-                        if incoming not in completed:
-                            continue
-                        response = await incoming
-                    update = parse_update(response)
-                    if update is not None:
-                        text = transcript.apply(update.text, update.vad_finished)
-                        if text is not None:
-                            update = replace(update, text=text)
-                            updates.append(update)
-                            if on_update:
-                                on_update(update)
-                    if response.event in {"SessionFinished", "TaskFinished"}:
-                        break
-                    incoming = asyncio.create_task(receive())
-                if not audio_finished:
-                    raise RuntimeError("ASR session finished before the audio source ended")
-                await sender
-                if response.event != "TaskFinished":
-                    await send("FinishTask")
-                return ASRResult(transcript.text, task_id, tuple(updates))
-            finally:
-                for task in (sender, incoming):
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(sender, incoming, return_exceptions=True)
+            },
+        },
+    )
+    emit_session_started(_TASK_ID)
+    _STATE.session_started = True
 
 
-MAX_BUFFER_BYTES = 320000
+def _send_request(
+    event: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    audio: bytes = b"",
+    sequence: int = 0,
+) -> None:
+    if not _CLIENT:
+        return
+    request = WebSocketRequest(
+        namespace="ASR",
+        event=event,
+        task_id=_TASK_ID,
+        appkey=APP_KEY if event != "TaskRequest" else "",
+        payload=json.dumps(payload, ensure_ascii=False, separators=(",", ":")) if payload is not None else "",
+        audio=audio,
+        seq_id=sequence,
+    )
+    _CLIENT.send_binary(request.serialize_to_string())
 
 
-class AudioInput:
-    def __init__(self):
-        self.queue = asyncio.Queue(maxsize=1001)
-        self.buffered = 0
-        self.finish_deadline = None
-        self.cancelled = False
-        self.changed = asyncio.Event()
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    del is_commit
+    global _SEQUENCE
+    if not _ENCODER or not _CLIENT or _STATE.cancelled:
+        return
+    _PCM_BUFFER.extend(pcm_bytes)
+    while len(_PCM_BUFFER) >= 320 and not _STATE.cancelled:
+        frame_pcm = bytes(_PCM_BUFFER[:320])
+        del _PCM_BUFFER[:320]
+        opus_frame = _ENCODER.encode(frame_pcm)
+        _SEQUENCE += 1
+        _send_request(
+            "TaskRequest",
+            audio=opus_frame,
+            sequence=_SEQUENCE,
+            payload={"extra": {}, "timestamp_ms": int(time.time() * 1000)},
+        )
 
-    def finish(self, grace):
-        if self.finish_deadline is None:
-            self.finish_deadline = asyncio.get_running_loop().time() + grace
-            self.queue.put_nowait(None)
-            self.changed.set()
 
-    async def read(self, lines, grace):
-        async for line in lines:
-            if not line.strip():
+def on_finish() -> None:
+    global _SEQUENCE
+    if not _ENCODER or not _CLIENT or _STATE.cancelled:
+        return
+    if _PCM_BUFFER:
+        frame_pcm = bytes(_PCM_BUFFER).ljust(320, b"\0")
+        _PCM_BUFFER.clear()
+        opus_frame = _ENCODER.encode(frame_pcm)
+        _SEQUENCE += 1
+        _send_request(
+            "TaskRequest",
+            audio=opus_frame,
+            sequence=_SEQUENCE,
+            payload={"extra": {}, "timestamp_ms": int(time.time() * 1000)},
+        )
+
+    _send_request("FinishSession")
+
+
+def on_cancel() -> None:
+    _STATE.cancelled = True
+    cleanup()
+
+
+def _handle_payload(payload_str: str) -> None:
+    try:
+        body = json.loads(payload_str)
+    except Exception:
+        return
+
+    results = body.get("results")
+    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+        return
+
+    first_result = results[0]
+    text = str(first_result.get("text", "")).strip()
+    is_vad_finished = bool(first_result.get("is_vad_finished"))
+
+    if not text:
+        return
+
+    total_text = _STATE.committed_text + text
+    if _CONFIG and _CONFIG.no_trailing_punctuation:
+        formatted = remove_trailing_punctuation(total_text)
+    else:
+        formatted = total_text
+
+    if formatted and formatted != _STATE.latest_text:
+        _STATE.latest_text = formatted
+        emit_partial(formatted)
+
+    if is_vad_finished:
+        _STATE.committed_text += text
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if isinstance(raw_msg, str):
+        raw_msg = raw_msg.encode("utf-8")
+
+    try:
+        response = WebSocketResponse.from_string(raw_msg)
+    except Exception:
+        return
+
+    if response.task_id and response.task_id != _TASK_ID:
+        return
+    if response.event == "Ping":
+        _send_request("Pong")
+        return
+    if response.event == "Pong":
+        return
+
+    if response.event in {"SessionFailed", "TaskFailed"}:
+        code = str(response.status_code)
+        detail = f"{response.event}: {response.status_code} {response.status_text}"
+        notify_error("err_upstream", code=code, detail=detail)
+        _STATE.upstream_error = True
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
+        return
+
+    if response.payload:
+        _handle_payload(response.payload)
+
+    if response.event in {"SessionFinished", "TaskFinished"}:
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
+        if response.event != "TaskFinished":
+            _send_request("FinishTask")
+
+
+def cleanup() -> None:
+    global _CLIENT, _ENCODER
+    _STOP_EVENT.set()
+    _FINAL_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
+    if _ENCODER:
+        _ENCODER.close()
+        _ENCODER = None
+
+
+def run() -> int:
+    try:
+        config = load_config()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
+
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+    client = _CLIENT
+    if not client:
+        return EXIT_RUNTIME_ERROR
+
+    def reader() -> None:
+        try:
+            while not _STOP_EVENT.is_set():
+                message = client.recv_message()
+                if message is None:
+                    if not _STATE.final_received and not _STOP_EVENT.is_set():
+                        _STATE.upstream_error = True
+                        notify_error("err_network", detail="Doubao IME connection closed unexpectedly.")
+                        _FINAL_EVENT.set()
+                    break
+                opcode, payload = message
+                if opcode != 0x2:
+                    continue
+                on_upstream_message(payload)
+                if _STATE.final_received:
+                    break
+        except Exception as exc:
+            if not _STOP_EVENT.is_set():
+                _STATE.upstream_error = True
+                notify_error("err_runtime", detail=str(exc))
+                _FINAL_EVENT.set()
+        finally:
+            _STOP_EVENT.set()
+
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
+
+    saw_finish = False
+    try:
+        for raw_line in sys.stdin:
+            if _STATE.cancelled or _STOP_EVENT.is_set():
+                break
+
+            line = raw_line.strip()
+            if not line:
                 continue
-            message = json.loads(line)
-            if not isinstance(message, dict):
-                raise ValueError("Provider input must be a JSON object")
-            kind = message.get("type")
-            if kind == "cancel":
-                self.cancelled = True
-                self.changed.set()
-                return
-            if kind == "finish":
-                self.finish(grace)
-            elif kind == "audio":
-                if self.finish_deadline is not None:
-                    raise ValueError("Audio received after finish")
-                audio = base64.b64decode(message["audio_base64"], validate=True)
-                if len(audio) % 2:
-                    raise ValueError("PCM must contain complete 16-bit samples")
-                if audio:
-                    if self.buffered + len(audio) > MAX_BUFFER_BYTES or self.queue.qsize() >= 1000:
-                        raise ValueError("Audio buffer exceeded 10 seconds while the provider was unavailable")
-                    self.buffered += len(audio)
-                    self.queue.put_nowait(audio)
-                if message.get("commit") is True:
-                    self.finish(grace)
-            elif kind != "finish":
-                raise ValueError(f"Unsupported provider input: {kind}")
-        self.finish(grace)
 
-    async def chunks(self):
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                return
-            self.buffered -= len(item)
-            yield item
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON input: {exc}") from exc
 
+            event_type = str(event.get("type", "")).strip()
+            if event_type == "audio":
+                audio_base64 = event.get("audio_base64")
+                if not isinstance(audio_base64, str) or not audio_base64:
+                    raise ValueError("audio event requires non-empty audio_base64.")
+                try:
+                    pcm_audio = base64.b64decode(audio_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                continue
 
-async def run_provider(lines, emit, *, identity_path=DEFAULT_IDENTITY, finish_grace=9.0, no_trailing_punctuation=False):
-    if not 0 < finish_grace <= 9:
-        raise ValueError("Finish grace must be greater than zero and at most 9 seconds")
-    audio = AudioInput()
+            if event_type == "finish":
+                saw_finish = True
+                on_finish()
+                break
 
-    def partial(update):
-        if update.text:
-            text = remove_trailing_punctuation(update.text) if no_trailing_punctuation else update.text
-            emit({"type": "partial", "text": text})
+            if event_type == "cancel":
+                on_cancel()
+                break
 
-    async def recognize():
-        state = await ensure_identity(identity_path)
-        client = ASRClient(
-            ASRConfig(str(state["device_id"]), str(state["install_id"]), response_timeout=finish_grace, retries=0)
-        )
-        return await client.transcribe_stream(
-            audio.chunks(), partial, on_start=lambda: emit({"type": "session_started", "session_id": str(uuid.uuid4())})
-        )
-
-    reader = asyncio.create_task(audio.read(lines, finish_grace))
-    recognition = asyncio.create_task(recognize())
-    changed = asyncio.create_task(audio.changed.wait())
-    try:
-        while True:
-            tasks: set[asyncio.Task[Any]] = {recognition}
-            if not reader.done():
-                tasks.add(reader)
-            if not changed.done():
-                tasks.add(changed)
-            timeout = (
-                None if audio.finish_deadline is None else audio.finish_deadline - asyncio.get_running_loop().time()
-            )
-            if timeout is not None and timeout <= 0:
-                raise TimeoutError("Timed out waiting for the final transcript")
-            done, _ = await asyncio.wait(tasks, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                raise TimeoutError("Timed out waiting for the final transcript")
-            if reader.done():
-                await reader
-            if audio.cancelled:
-                return 0
-            if recognition in done:
-                result = await recognition
-                text = remove_trailing_punctuation(result.text) if no_trailing_punctuation else result.text
-                if not text:
-                    raise ValueError("No speech was recognized")
-                emit({"type": "final", "text": text})
-                return 0
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        emit({"type": "error", "message": f"{type(error).__name__}: {error}"})
-        return 1
+            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        for task in (reader, recognition, changed):
-            task.cancel()
-        await asyncio.gather(reader, recognition, changed, return_exceptions=True)
-        emit({"type": "closed"})
+        if saw_finish and not _STATE.cancelled:
+            _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
+
+        if not _STATE.cancelled and _STATE.latest_text and not _STATE.final_emitted:
+            emit_final(_STATE.latest_text)
+            _STATE.final_emitted = True
+
+        cleanup()
+        reader_thread.join(timeout=1.0)
+
+        if not _STATE.closed:
+            emit_closed()
+            _STATE.closed = True
+
+    if _STATE.error or _STATE.upstream_error:
+        return EXIT_RUNTIME_ERROR
+    return EXIT_SUCCESS
 
 
-async def stdin_lines():
-    reader = asyncio.StreamReader(limit=1_000_000)
-    protocol = asyncio.StreamReaderProtocol(reader)
-    transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: protocol, sys.stdin.buffer)
+def main() -> int:
     try:
-        while line := await reader.readline():
-            yield line
-    finally:
-        transport.close()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Doubao IME streaming provider")
-    parser.add_argument(
-        "--identity", type=Path, default=Path(os.getenv("VINPUT_ASR_CREDENTIAL_PATH") or DEFAULT_IDENTITY)
-    )
-    parser.add_argument("--finish-grace", type=float, default=float(os.getenv("VINPUT_ASR_FINISH_GRACE_SECS") or "9"))
-    parser.add_argument(
-        "--no-trailing-punctuation",
-        action="store_true",
-        default=(os.getenv("VINPUT_ASR_NO_TRAILING_PUNCTUATION") or "").lower() in {"1", "true", "yes"},
-        help="Remove final punctuation locally, preserving punctuation within the text",
-    )
-    args = parser.parse_args()
-    if not 0 < args.finish_grace <= 9:
-        parser.error("finish grace must be greater than zero and at most 9 seconds")
-
-    async def run():
-        task = asyncio.current_task()
-        assert task is not None
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            asyncio.get_running_loop().add_signal_handler(sig, task.cancel)
-        return await run_provider(
-            stdin_lines(),
-            lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
-            identity_path=args.identity,
-            finish_grace=args.finish_grace,
-            no_trailing_punctuation=args.no_trailing_punctuation,
-        )
-
-    try:
-        raise SystemExit(asyncio.run(run()))
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        raise SystemExit(130) from None
+        return run()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

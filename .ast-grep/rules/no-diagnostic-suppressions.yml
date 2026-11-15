@@ -1,0 +1,9 @@
+id: no-diagnostic-suppressions
+message: "严禁在脚本中使用 # noqa、# type: ignore、# pyright: ignore 或 # pylint: disable 等注释压制诊断。必须通过重构代码、规范类型或修正架构根除警告。"
+severity: error
+language: Python
+files:
+  - "resources/**/entry.py"
+rule:
+  kind: comment
+  regex: "(noqa|type:\\s*ignore|pyright:\\s*ignore|pylint:\\s*disable)"

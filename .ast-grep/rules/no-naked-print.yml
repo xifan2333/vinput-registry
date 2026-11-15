@@ -1,0 +1,12 @@
+id: no-naked-print
+message: "严禁在 entry.py 中使用裸 print(...) 污染标准输出。协议输出必须显式使用 sys.stdout.write() / emit_*()，错误与告警必须通过 notify_error() 写入 stderr。"
+severity: error
+language: Python
+files:
+  - "resources/**/entry.py"
+rule:
+  all:
+    - pattern: print($$$ARGS)
+    - not:
+        has:
+          pattern: file=sys.stderr

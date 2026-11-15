@@ -1,0 +1,25 @@
+id: adapter-contract
+message: "Adapter entry.py 缺少核心改写契约函数。必须实现 load_config, rewrite_text, rewrite_command, run, main。"
+severity: error
+language: Python
+files:
+  - "resources/adapters/**/entry.py"
+rule:
+  kind: module
+  not:
+    all:
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^load_config$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^rewrite_text$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^rewrite_command$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^run$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^main$" }

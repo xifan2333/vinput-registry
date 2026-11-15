@@ -2,6 +2,8 @@
 hk = "latest"
 ruff = "latest"
 "npm:pyright" = "1.1.413"
+"github:crate-ci/typos" = "latest"
+"github:ast-grep/ast-grep" = "latest"
 
 [tasks.default]
 description = "List available tasks"
@@ -40,7 +42,7 @@ description = "Run all hk fixers to format files"
 run = "hk fix"
 
 [tasks.lint]
-description = "Run ruff linter, pyright typecheck, and validate JSON structure"
+description = "Run ruff linter, pyright typecheck, validate JSON structure, check typos, and run ast-grep"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -48,7 +50,17 @@ ruff check .
 find registry i18n -type f -name '*.json' -print0 | xargs -0 -n 1 python3 -m json.tool >/dev/null
 python3 scripts/validate_registry.py
 pyright
+typos
+ast-grep scan
 """
+
+[tasks."check:ast"]
+description = "Scan Python scripts with ast-grep"
+run = "ast-grep scan"
+
+[tasks."check:typos"]
+description = "Check spelling and identifier integrity via typos"
+run = "typos"
 
 [tasks.fmt]
 description = "Format Python code with ruff"

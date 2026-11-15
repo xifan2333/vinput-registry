@@ -184,58 +184,128 @@ Client `stderr` is strictly reserved for user-visible notifications routed throu
 
 ## 8. Reference Implementation: Mouse Side-Button Trigger
 
-A pure trigger: it only emits commands on `stdout` and never reads `stdin`. It forwards its configured capture device so a mic-bearing remote records from its own near-field microphone:
+A pure trigger conforming to `client-contract.yml`: it emits commands on `stdout`, reads configuration via `load_config()`, and delivers errors through `notify_error()`:
 
 ```python
 #!/usr/bin/env python3
 """Mouse side button push-to-talk trigger."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 import json
 import os
 import struct
 import sys
+from typing import Any
 
 EVENT_FORMAT = "llHHI"
 EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
 BTN_SIDE = 0x113  # Linux input event code
 
-CAPTURE_DEVICE = os.environ.get("VINPUT_TRIGGER_CAPTURE_DEVICE", "")
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_permission": "Cannot read mouse device {path}: permission denied.",
+        "err_runtime": "Mouse trigger error: {detail}",
+    },
+    "zh_CN": {
+        "err_permission": "无法读取鼠标设备 {path}：权限不足。",
+        "err_runtime": "鼠标侧键触发器异常：{detail}",
+    },
+}
 
 
-def send_command(cmd: dict) -> None:
-    if CAPTURE_DEVICE and cmd.get("type") == "start":
-        cmd["capture_device"] = CAPTURE_DEVICE
-    sys.stdout.write(json.dumps(cmd) + "\n")
+def detect_locale() -> str:
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Mouse Trigger", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+@dataclass(frozen=True)
+class TriggerConfig:
+    device_path: str
+    capture_device: str
+
+
+def load_config() -> TriggerConfig:
+    device_path = os.getenv("VINPUT_TRIGGER_DEVICE_PATH", "/dev/input/by-id/my-mouse-event").strip()
+    capture_device = os.getenv("VINPUT_TRIGGER_CAPTURE_DEVICE", "").strip()
+    return TriggerConfig(device_path=device_path, capture_device=capture_device)
+
+
+_CONFIG: TriggerConfig | None = None
+
+
+def send_command(cmd: dict[str, Any]) -> None:
+    if _CONFIG and _CONFIG.capture_device and cmd.get("type") == "start":
+        cmd["capture_device"] = _CONFIG.capture_device
+    sys.stdout.write(json.dumps(cmd, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def main() -> None:
+def run() -> int:
+    global _CONFIG
+    _CONFIG = load_config()
     try:
-        with open("/dev/input/by-id/my-mouse-event", "rb") as dev:
+        with open(_CONFIG.device_path, "rb") as dev:
             while True:
                 data = dev.read(EVENT_SIZE)
                 if not data:
                     break
                 _sec, _usec, ev_type, code, value = struct.unpack(EVENT_FORMAT, data)
                 if ev_type == 1 and code == BTN_SIDE:  # EV_KEY
-                    if value == 1:  # Key down
+                    if value == 1:
                         send_command({"type": "start", "ime": True})
-                    elif value == 0:  # Key up
+                    elif value == 0:
                         send_command({"type": "stop", "ime": True})
     except PermissionError:
-        sys.stderr.write(
-            json.dumps(
-                {
-                    "title": "Mouse Trigger",
-                    "body": "Cannot read mouse device: permission denied.",
-                }
-            )
-            + "\n"
-        )
-        sys.stderr.flush()
-        sys.exit(1)
+        notify_error("err_permission", path=_CONFIG.device_path)
+        return EXIT_USAGE_ERROR
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+    return EXIT_SUCCESS
+
+
+def main() -> int:
+    try:
+        return run()
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 ```

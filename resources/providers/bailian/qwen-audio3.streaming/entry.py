@@ -7,6 +7,8 @@ protocol is used by Fun-ASR-Realtime and Paraformer realtime models, so those
 models can be selected with VINPUT_ASR_MODEL as well.
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
@@ -24,7 +26,6 @@ from urllib.parse import urlparse
 
 DEFAULT_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 MAAS_URL_TEMPLATE = "wss://{workspace_id}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
-# Context text is truncated from the end past this limit (server rule).
 MAX_CONTEXT_TEXT_LENGTH = 400
 DEFAULT_MODEL = "qwen-audio-3.1-asr-flash-streaming"
 DEFAULT_SAMPLE_RATE = 16000
@@ -33,18 +34,97 @@ DEFAULT_TIMEOUT = 30
 DEFAULT_FINISH_GRACE_SECS = 1.2
 MAX_FRAME_SIZE = 16 * 1024 * 1024
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
+        "err_network": "Bailian Qwen-Audio streaming network error: {detail}",
+        "err_upstream": "Bailian Qwen-Audio streaming server error: {message}",
+        "err_runtime": "Bailian Qwen-Audio streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
+        "err_network": "百炼通义语音识别流式连接失败：{detail}",
+        "err_upstream": "百炼通义语音服务端报错：{message}",
+        "err_runtime": "百炼通义语音运行异常：{detail}",
+    },
+}
 
-def write_stdout(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Bailian Qwen-Audio ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def write_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
 
 
 def normalize_transcript_text(text: str) -> str:
@@ -64,109 +144,144 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
     if committed.endswith(current):
         return committed
 
-    # Chinese text normally has no spaces between server-side sentences. Keep a
-    # separator only where concatenating ASCII words would join them together.
-    separator = (
-        " "
-        if committed[-1].isascii() and committed[-1].isalnum() and current[0].isascii() and current[0].isalnum()
-        else ""
-    )
-    return committed + separator + current
+    has_cjk = any("\u4e00" <= char <= "\u9fff" for char in committed[-1:] + current[:1])
+    delimiter = "" if has_cjk else " "
+    return committed + delimiter + current
 
 
-def get_required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
+@dataclass(frozen=True)
+class StreamingConfig:
+    api_key: str
+    model: str
+    timeout: int
+    finish_grace_secs: float
+    endpoint: str
+    prompt: str | None
+
+
+def require_env(name: str) -> str:
+    val = os.getenv(name, "").strip()
+    if not val:
         raise ValueError(f"Missing {name}.")
-    return value
+    return val
 
 
-def get_optional_env(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    return value or default
+def optional_env(name: str, default: str = "") -> str:
+    val = os.getenv(name, "").strip()
+    return val if val else default
 
 
-def get_optional_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
+def optional_int_env(name: str, default: int) -> int:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
-    return int(value)
-
-
-def get_optional_float_env(name: str, default: float) -> float:
-    value = os.getenv(name, "").strip()
-    if not value:
+    try:
+        return int(val)
+    except ValueError:
         return default
-    return float(value)
 
 
-def get_optional_bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
+def optional_float_env(name: str, default: float) -> float:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def optional_bool_env(name: str, default: bool) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def resolve_endpoint() -> str:
+    explicit = optional_env("VINPUT_ASR_URL")
+    if explicit:
+        return explicit
+    workspace_id = optional_env("VINPUT_ASR_WORKSPACE_ID")
+    if workspace_id:
+        return MAAS_URL_TEMPLATE.format(workspace_id=workspace_id)
+    return DEFAULT_URL
+
+
+def load_config() -> StreamingConfig:
+    api_key = require_env("VINPUT_ASR_API_KEY")
+    model = optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
+    timeout = optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
+    finish_grace = optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
+    endpoint = resolve_endpoint()
+    prompt = optional_env("VINPUT_ASR_PROMPT") or None
+    return StreamingConfig(
+        api_key=api_key,
+        model=model,
+        timeout=timeout,
+        finish_grace_secs=finish_grace,
+        endpoint=endpoint,
+        prompt=prompt,
+    )
 
 
 @dataclass
 class SessionState:
-    task_id: str = ""
+    task_id: str
     session_started: bool = False
     error: str | None = None
     closed: bool = False
+    committed_text: str = ""
+    latest_sentence_text: str = ""
     server_finished: bool = False
-    confirmed_text: str = ""
-    current_partial_text: str = ""
-    last_partial_visible: str = ""
-    last_final_text: str = ""
-    pending_audio: bytearray = field(default_factory=bytearray)
     lock: threading.Lock = field(default_factory=threading.Lock)
+    pending_audio: bytearray = field(default_factory=bytearray)
 
-    def visible_text(self) -> str:
-        return combine_transcript(self.confirmed_text, self.current_partial_text)
+    def current_transcript(self) -> str:
+        return combine_transcript(self.committed_text, self.latest_sentence_text)
 
     def has_usable_final(self) -> bool:
-        return bool(normalize_transcript_text(self.confirmed_text))
+        return bool(normalize_transcript_text(self.committed_text))
 
 
-def emit_partial(state: SessionState) -> bool:
-    visible = state.visible_text()
-    if not visible or visible == state.last_partial_visible:
+def emit_partial_state(state: SessionState) -> bool:
+    visible = state.current_transcript()
+    if not visible:
         return False
-    state.last_partial_visible = visible
-    write_stdout({"type": "partial", "text": visible})
+    emit_partial(visible)
     return True
 
 
-def emit_final(state: SessionState, text: str) -> bool:
+def emit_final_state(state: SessionState, text: str) -> bool:
     final_text = normalize_transcript_text(text)
-    if not final_text or final_text == state.last_final_text:
+    if not final_text:
         return False
-    state.last_final_text = final_text
-    write_stdout({"type": "final", "text": final_text, "segment_final": True})
+    emit_event(
+        {
+            "type": "final",
+            "text": final_text,
+            "segment_final": True,
+            "utterance_final": False,
+        }
+    )
     return True
 
 
 def commit_sentence(state: SessionState, sentence_text: str) -> bool:
-    sentence = normalize_transcript_text(sentence_text)
-    if not sentence:
+    cleaned = normalize_transcript_text(sentence_text)
+    if not cleaned:
+        state.latest_sentence_text = ""
         return False
-    new_confirmed = combine_transcript(state.confirmed_text, sentence)
-    if not emit_final(state, new_confirmed):
-        return False
-    state.confirmed_text = new_confirmed
-    state.current_partial_text = ""
-    state.last_partial_visible = new_confirmed
-    return True
+    state.committed_text = combine_transcript(state.committed_text, cleaned)
+    state.latest_sentence_text = ""
+    return emit_final_state(state, state.committed_text)
 
 
 def emit_fallback_final(state: SessionState) -> bool:
-    if not state.current_partial_text:
-        return False
-    if not emit_final(state, state.visible_text()):
-        return False
-    state.confirmed_text = state.last_final_text
-    state.current_partial_text = ""
-    return True
+    if state.latest_sentence_text:
+        commit_sentence(state, state.latest_sentence_text)
+        return True
+    return False
 
 
 class WebSocketClient:
@@ -214,156 +329,158 @@ class WebSocketClient:
         sock.sendall(request.encode("utf-8"))
 
         response = self._read_http_response(sock)
-        self._validate_handshake(response, key)
+        status_line = response.split(b"\r\n", 1)[0].decode("latin1", errors="replace")
+        if not (status_line.startswith("HTTP/1.1 101") or status_line.startswith("HTTP/1.0 101")):
+            sock.close()
+            raise RuntimeError(f"WebSocket handshake failed: {status_line}")
+
+        expected_accept = base64.b64encode(hashlib.sha1((key + GUID).encode("ascii")).digest()).decode("ascii")
+        headers = self._parse_headers(response)
+        actual_accept = headers.get("sec-websocket-accept")
+        if actual_accept != expected_accept:
+            sock.close()
+            raise RuntimeError("Sec-WebSocket-Accept header mismatch.")
         return sock
 
+    def _parse_headers(self, response: bytes) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        parts = response.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        for line in parts[1:]:
+            if not line:
+                continue
+            name, _, value = line.partition(b":")
+            headers[name.strip().decode("latin1").lower()] = value.strip().decode("latin1")
+        return headers
+
     def _read_http_response(self, sock: socket.socket) -> bytes:
-        data = bytearray()
+        data = b""
         while b"\r\n\r\n" not in data:
             chunk = sock.recv(4096)
             if not chunk:
-                raise RuntimeError("WebSocket handshake failed: empty response.")
-            data.extend(chunk)
-            if len(data) > 65536:
-                raise RuntimeError("WebSocket handshake failed: response too large.")
-        return bytes(data)
+                raise RuntimeError("WebSocket handshake closed early.")
+            data += chunk
+        return data
 
-    def _validate_handshake(self, response: bytes, key: str) -> None:
-        header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
-        lines = header_blob.split("\r\n")
-        if not lines or "101" not in lines[0]:
-            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
+    def send_frame(self, opcode: int, payload: bytes) -> None:
+        if self._closed:
+            return
+        frame = bytearray()
+        frame.append(0x80 | (opcode & 0x0F))
+        length = len(payload)
+        mask_bit = 0x80
+        if length < 126:
+            frame.append(mask_bit | length)
+        elif length < 65536:
+            frame.append(mask_bit | 126)
+            frame.extend(struct.pack("!H", length))
+        else:
+            frame.append(mask_bit | 127)
+            frame.extend(struct.pack("!Q", length))
 
-        headers: dict[str, str] = {}
-        for line in lines[1:]:
-            if ":" not in line:
-                continue
-            name, value = line.split(":", 1)
-            headers[name.strip().lower()] = value.strip()
+        mask = secrets.token_bytes(4)
+        frame.extend(mask)
+        masked = bytearray(payload)
+        for index in range(len(masked)):
+            masked[index] ^= mask[index % 4]
+        frame.extend(masked)
+        self.socket.sendall(frame)
 
-        accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
-        if accept != expected:
-            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
+    def send_text(self, text: str) -> None:
+        self.send_frame(0x1, text.encode("utf-8"))
+
+    def send_binary(self, payload: bytes) -> None:
+        self.send_frame(0x2, payload)
 
     def close(self) -> None:
         if self._closed:
             return
+        self._closed = True
         try:
-            self._send_frame(0x8, b"")
-        except OSError:
+            self.send_frame(0x8, b"")
+        except Exception:
+            pass
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except Exception:
             pass
         try:
             self.socket.close()
-        finally:
-            self._closed = True
-
-    def send_text(self, payload: dict[str, Any]) -> None:
-        self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-
-    def send_binary(self, payload: bytes) -> None:
-        self._send_frame(0x2, payload)
+        except Exception:
+            pass
 
     def recv_message(self) -> bytes | None:
-        """Receive one complete data message, replying to control frames."""
         fragments = bytearray()
-        current_opcode: int | None = None
-
+        first_opcode: int | None = None
         while True:
-            frame = self._recv_frame()
-            if frame is None:
+            header = self._recv_exact(2)
+            if header is None:
                 return None
 
-            opcode, payload, fin = frame
+            first, second = struct.unpack("!BB", header)
+            fin = bool(first & 0x80)
+            opcode = first & 0x0F
+            masked = bool(second & 0x80)
+            length = second & 0x7F
+
+            if length == 126:
+                ext = self._recv_exact(2)
+                if ext is None:
+                    return None
+                (length,) = struct.unpack("!H", ext)
+            elif length == 127:
+                ext = self._recv_exact(8)
+                if ext is None:
+                    return None
+                (length,) = struct.unpack("!Q", ext)
+
+            if length > MAX_FRAME_SIZE:
+                raise RuntimeError(f"WebSocket frame size {length} exceeds {MAX_FRAME_SIZE} limit.")
+
+            mask = b""
+            if masked:
+                raw_mask = self._recv_exact(4)
+                if raw_mask is None:
+                    return None
+                mask = raw_mask
+
+            payload = self._recv_exact(length)
+            if payload is None:
+                return None
+
+            if masked:
+                unmasked = bytearray(payload)
+                for index in range(len(unmasked)):
+                    unmasked[index] ^= mask[index % 4]
+                payload = bytes(unmasked)
+
             if opcode == 0x8:
-                self._closed = True
+                self.close()
                 return None
             if opcode == 0x9:
-                self._send_frame(0xA, payload)
+                self.send_frame(0xA, payload)
                 continue
             if opcode == 0xA:
                 continue
-            if opcode not in {0x0, 0x1, 0x2}:
-                continue
 
-            if opcode in {0x1, 0x2}:
-                current_opcode = opcode
-                fragments = bytearray(payload)
-            else:
-                if current_opcode is None:
-                    continue
-                fragments.extend(payload)
+            if opcode != 0x0:
+                if first_opcode is not None:
+                    raise RuntimeError("Received new frame without FIN on previous fragmented frame.")
+                first_opcode = opcode
 
-            if not fin:
-                continue
-            return bytes(fragments)
-
-    def _send_frame(self, opcode: int, payload: bytes) -> None:
-        if self._closed:
-            return
-
-        first = 0x80 | (opcode & 0x0F)
-        mask_key = secrets.token_bytes(4)
-        length = len(payload)
-
-        header = bytearray([first])
-        if length < 126:
-            header.append(0x80 | length)
-        elif length < (1 << 16):
-            header.append(0x80 | 126)
-            header.extend(struct.pack("!H", length))
-        else:
-            header.append(0x80 | 127)
-            header.extend(struct.pack("!Q", length))
-
-        masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-        self.socket.sendall(bytes(header) + mask_key + masked)
-
-    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
-        header = self._recv_exact(2)
-        if header is None:
-            return None
-
-        first, second = header
-        fin = bool(first & 0x80)
-        opcode = first & 0x0F
-        masked = bool(second & 0x80)
-        length = second & 0x7F
-
-        if length == 126:
-            raw_length = self._recv_exact(2)
-            if raw_length is None:
-                return None
-            length = struct.unpack("!H", raw_length)[0]
-        elif length == 127:
-            raw_length = self._recv_exact(8)
-            if raw_length is None:
-                return None
-            length = struct.unpack("!Q", raw_length)[0]
-
-        if length > MAX_FRAME_SIZE:
-            raise RuntimeError("WebSocket frame is too large.")
-
-        mask_key = b""
-        if masked:
-            mask_key = self._recv_exact(4)
-            if mask_key is None:
-                return None
-
-        payload = self._recv_exact(length)
-        if payload is None:
-            return None
-
-        if masked:
-            payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-
-        return opcode, payload, fin
+            fragments.extend(payload)
+            if fin:
+                return bytes(fragments)
 
     def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
-            chunk = self.socket.recv(4096)
+            try:
+                chunk = self.socket.recv(max(4096, size - len(self._recv_buffer)))
+            except TimeoutError:
+                raise
+            except OSError:
+                return None
             if not chunk:
-                if not self._recv_buffer and size > 0:
+                if not self._recv_buffer:
                     return None
                 raise RuntimeError("WebSocket connection closed unexpectedly.")
             self._recv_buffer += chunk
@@ -373,64 +490,29 @@ class WebSocketClient:
         return data
 
 
-def resolve_endpoint() -> str:
-    explicit_url = get_optional_env("VINPUT_ASR_URL")
-    if explicit_url:
-        return explicit_url
-
-    workspace_id = get_optional_env("VINPUT_ASR_WORKSPACE_ID")
-    if workspace_id:
-        return MAAS_URL_TEMPLATE.format(workspace_id=workspace_id)
-
-    return DEFAULT_URL
-
-
 def build_parameters() -> dict[str, Any]:
     parameters: dict[str, Any] = {
-        "sample_rate": DEFAULT_SAMPLE_RATE,
-        "format": DEFAULT_FORMAT,
+        "sample_rate": optional_int_env("VINPUT_ASR_SAMPLE_RATE", DEFAULT_SAMPLE_RATE),
+        "format": optional_env("VINPUT_ASR_FORMAT", DEFAULT_FORMAT),
     }
-
-    if get_optional_bool_env("VINPUT_ASR_ENABLE_PUNCTUATION", False):
-        parameters["semantic_punctuation_enabled"] = True
-
-    silence_ms = get_optional_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS")
-    if silence_ms:
-        parameters["max_sentence_silence"] = int(silence_ms)
-
-    language = get_optional_env("VINPUT_ASR_LANGUAGE")
+    language = optional_env("VINPUT_ASR_LANGUAGE")
     if language:
         parameters["language_hints"] = [language]
 
-    if get_optional_bool_env("VINPUT_ASR_KEEP_DIALECT", False):
-        parameters["keep_dialect"] = True
-
-    vad_model = get_optional_env("VINPUT_ASR_VAD_MODEL")
-    if vad_model:
-        parameters["vad_model"] = vad_model
-
+    disfluency = optional_bool_env("VINPUT_ASR_FILTER_DISFLUENCY", True)
+    parameters["disfluency_removal_enabled"] = disfluency
     return parameters
 
 
 def build_context(prompt: str) -> list[dict[str, Any]]:
-    text = normalize_transcript_text(prompt)[:MAX_CONTEXT_TEXT_LENGTH]
-    if not text:
-        return []
-    return [
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": text}],
-        }
-    ]
+    clean = prompt.strip()
+    if len(clean) > MAX_CONTEXT_TEXT_LENGTH:
+        clean = clean[-MAX_CONTEXT_TEXT_LENGTH:]
+    return [{"text": clean}]
 
 
-def build_run_task(
-    task_id: str,
-    model: str,
-    parameters: dict[str, Any],
-    prompt: str = "",
-) -> dict[str, Any]:
-    run_task: dict[str, Any] = {
+def build_run_task(task_id: str, model: str, parameters: dict[str, Any], prompt: str | None = None) -> str:
+    body: dict[str, Any] = {
         "header": {
             "action": "run-task",
             "task_id": task_id,
@@ -445,21 +527,23 @@ def build_run_task(
             "input": {},
         },
     }
-    context = build_context(prompt)
-    if context:
-        run_task["payload"]["input"]["context"] = context
-    return run_task
+    if prompt:
+        body["payload"]["input"]["context"] = build_context(prompt)
+    return json.dumps(body, ensure_ascii=False)
 
 
-def build_finish_task(task_id: str) -> dict[str, Any]:
-    return {
-        "header": {
-            "action": "finish-task",
-            "task_id": task_id,
-            "streaming": "duplex",
+def build_finish_task(task_id: str) -> str:
+    return json.dumps(
+        {
+            "header": {
+                "action": "finish-task",
+                "task_id": task_id,
+                "streaming": "duplex",
+            },
+            "payload": {"input": {}},
         },
-        "payload": {"input": {}},
-    }
+        ensure_ascii=False,
+    )
 
 
 def sentence_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
@@ -477,31 +561,28 @@ def sentence_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
 
 def handle_result_generated(message: dict[str, Any], state: SessionState) -> None:
     sentence = sentence_from_message(message)
-    if sentence is None:
+    if not sentence:
         return
 
-    if bool(sentence.get("heartbeat", False)):
+    text = sentence.get("text")
+    if not isinstance(text, str):
         return
 
-    text = normalize_transcript_text(str(sentence.get("text", "")))
-    if not text:
+    cleaned = normalize_transcript_text(text)
+    if not cleaned:
         return
 
-    if bool(sentence.get("sentence_end", False)):
-        commit_sentence(state, text)
-    else:
-        state.current_partial_text = text
-        emit_partial(state)
+    if sentence.get("end_time") is not None:
+        commit_sentence(state, cleaned)
+        return
+
+    state.latest_sentence_text = cleaned
+    emit_partial_state(state)
 
 
 def handle_task_failed(message: dict[str, Any], state: SessionState) -> None:
-    if state.has_usable_final():
-        return
-    if emit_fallback_final(state):
-        return
-
     header = message.get("header")
-    error_message = "Bailian ASR task failed."
+    error_message = "Bailian task failed."
     if isinstance(header, dict):
         code = header.get("error_code")
         candidate = header.get("error_message")
@@ -509,26 +590,19 @@ def handle_task_failed(message: dict[str, Any], state: SessionState) -> None:
             error_message = f"{code}: {candidate}" if isinstance(candidate, str) and candidate.strip() else code
         elif isinstance(candidate, str) and candidate.strip():
             error_message = candidate.strip()
-    write_stdout({"type": "error", "message": error_message})
+    notify_error("err_upstream", message=error_message)
     state.error = error_message
 
 
 def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
     header = message.get("header")
     if not isinstance(header, dict):
-        write_stderr(f"Ignoring unexpected Bailian message: {json.dumps(message, ensure_ascii=False)}")
         return
 
     event = str(header.get("event", "")).strip()
     if event == "task-started":
         if not state.session_started:
-            write_stdout(
-                {
-                    "type": "session_started",
-                    "session_id": state.task_id,
-                    "config": {},
-                }
-            )
+            emit_session_started(state.task_id)
             state.session_started = True
         return
 
@@ -544,22 +618,82 @@ def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
         handle_task_failed(message, state)
         return
 
-    write_stderr(f"Unhandled Bailian event: {event or '<missing>'}")
+
+_CLIENT: WebSocketClient | None = None
+_STATE: SessionState | None = None
+_STOP_EVENT = threading.Event()
+
+
+def connect(config: StreamingConfig) -> None:
+    global _CLIENT, _STATE
+    _CLIENT = WebSocketClient(config.endpoint, {"Authorization": f"Bearer {config.api_key}"}, config.timeout)
+    _STATE = SessionState(task_id=str(uuid.uuid4()))
+    _CLIENT.send_text(build_run_task(_STATE.task_id, config.model, build_parameters(), prompt=config.prompt))
+
+
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    if not _CLIENT or not _STATE:
+        return
+    with _STATE.lock:
+        if _STATE.session_started:
+            _CLIENT.send_binary(pcm_bytes)
+        else:
+            _STATE.pending_audio.extend(pcm_bytes)
+
+
+def on_finish() -> None:
+    if _CLIENT and _STATE:
+        _CLIENT.send_text(build_finish_task(_STATE.task_id))
+
+
+def on_cancel() -> None:
+    _STOP_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if not _STATE:
+        return
+    if isinstance(raw_msg, bytes):
+        raw_msg = raw_msg.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw_msg)
+        if isinstance(data, dict):
+            handle_server_message(data, _STATE)
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+
+
+def cleanup() -> None:
+    global _CLIENT
+    _STOP_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
 
 
 def run() -> int:
-    api_key = get_required_env("VINPUT_ASR_API_KEY")
-    model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
-    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
-    endpoint = resolve_endpoint()
+    global _STATE
+    try:
+        config = load_config()
+    except ValueError as exc:
+        notify_error("err_missing_api_key" if "API_KEY" in str(exc) else "err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
 
-    client = WebSocketClient(endpoint, {"Authorization": f"Bearer {api_key}"}, timeout)
-    state = SessionState(task_id=str(uuid.uuid4()))
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
-    prompt = get_optional_env("VINPUT_ASR_PROMPT")
-    client.send_text(build_run_task(state.task_id, model, build_parameters(), prompt=prompt))
-    stop_event = threading.Event()
+    state = _STATE
+    client = _CLIENT
+    stop_event = _STOP_EVENT
+    stop_event.clear()
+
+    if not client or not state:
+        return EXIT_RUNTIME_ERROR
 
     def reader() -> None:
         try:
@@ -568,19 +702,17 @@ def run() -> int:
                 if raw_message is None:
                     if not stop_event.is_set() and not state.server_finished and not state.closed:
                         state.error = "WebSocket connection closed unexpectedly."
-                        write_stdout({"type": "error", "message": state.error})
+                        notify_error("err_network", detail=state.error)
                     break
                 try:
                     message = json.loads(raw_message.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):
-                    # Servers may push binary control data; ignore non-JSON frames.
                     continue
                 if not isinstance(message, dict):
                     continue
                 started_before = state.session_started
                 handle_server_message(message, state)
                 if not started_before and state.session_started:
-                    # Audio may only be sent after task-started; flush buffered audio.
                     with state.lock:
                         audio = bytes(state.pending_audio)
                         state.pending_audio.clear()
@@ -591,7 +723,7 @@ def run() -> int:
         except Exception as exc:
             if not stop_event.is_set() and not state.closed:
                 state.error = str(exc)
-                write_stdout({"type": "error", "message": str(exc)})
+                notify_error("err_network", detail=str(exc))
         finally:
             stop_event.set()
 
@@ -624,51 +756,44 @@ def run() -> int:
                     raise ValueError(f"audio event has invalid base64: {exc}") from exc
                 if not audio:
                     raise ValueError("audio event decoded to empty audio.")
-                # The commit flag has no server-side meaning in this protocol:
-                # sentence boundaries are decided by the server (VAD / semantic).
-                with state.lock:
-                    if state.session_started:
-                        client.send_binary(audio)
-                    else:
-                        state.pending_audio.extend(audio)
+                on_audio_chunk(audio, bool(event.get("commit", False)))
                 continue
 
             if event_type == "finish":
                 saw_finish = True
-                client.send_text(build_finish_task(state.task_id))
+                on_finish()
                 break
 
             if event_type == "cancel":
-                stop_event.set()
+                on_cancel()
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
         if saw_finish and not stop_event.is_set():
-            thread.join(timeout=finish_grace_secs)
+            thread.join(timeout=config.finish_grace_secs)
         emit_fallback_final(state)
-        stop_event.set()
-        client.close()
+        cleanup()
         thread.join(timeout=1.0)
         if not state.closed:
-            write_stdout({"type": "closed"})
+            emit_closed()
             state.closed = True
 
     if state.error:
         return EXIT_RUNTIME_ERROR
-    return 0
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     try:
         return run()
     except ValueError as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_USAGE_ERROR
     except Exception as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
