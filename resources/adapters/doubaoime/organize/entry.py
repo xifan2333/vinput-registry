@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
+"""Managed local LLM adapter: Doubao IME AI text organization.
 
-import argparse
+Connects to Doubao IME AI text organization service to polish and structure ASR transcripts.
+Operates as a command pipe filter (stdin -> stdout) for vinput-daemon.
+"""
+
+from __future__ import annotations
+
 import base64
 import codecs
 import fcntl
 import gzip
 import hashlib
-import http.server
 import json
 import os
-import re
 import secrets
-import select
-import socket
 import sys
 import tempfile
 import threading
@@ -22,22 +24,73 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-MODEL = "doubaoime-organize"
-SCENE_PROMPT = "<vinput-asr>\n{{asr}}\n</vinput-asr>"
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
 REGISTER_URL = "https://log.snssdk.com/service/2/device_register/"
 TNC_URL = "https://tnc3-bjlgy.snssdk.com/get_domains/v5/"
 ORGANIZE_URL = "https://ime.doubao.com/api/v2/ai/text_organization"
 CACHE_TTL = 10800.0
-APP_KEY = "OrnqKvSSrs"
 PRESERVED = frozenset("]})>》”'\"】’％）%℃:：")
+DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
+IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_organize_failed": "Doubao IME text organization failed: {detail}",
+        "err_identity_failed": "Failed to initialize Doubao IME identity: {detail}",
+    },
+    "zh_CN": {
+        "err_organize_failed": "豆包输入法文本整理失败：{detail}",
+        "err_identity_failed": "初始化豆包输入法凭据失败：{detail}",
+    },
+}
 
 
-def _gf_mul(left, right):
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Doubao IME Adapter", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def _gf_mul(left: int, right: int) -> int:
     result = 0
     while right:
         if right & 1:
@@ -47,7 +100,7 @@ def _gf_mul(left, right):
     return result
 
 
-def _gf_pow(value, exponent):
+def _gf_pow(value: int, exponent: int) -> int:
     result = 1
     while exponent:
         if exponent & 1:
@@ -57,18 +110,18 @@ def _gf_pow(value, exponent):
     return result
 
 
-def _sbox(value):
+def _sbox(value: int) -> int:
     inverse = 0 if value == 0 else _gf_pow(value, 254)
     result = inverse ^ ((inverse << 1) | (inverse >> 7)) ^ ((inverse << 2) | (inverse >> 6))
     result ^= ((inverse << 3) | (inverse >> 5)) ^ ((inverse << 4) | (inverse >> 4)) ^ 0x63
     return result & 0xFF
 
 
-def _rot_word(word):
+def _rot_word(word: list[int]) -> list[int]:
     return word[1:] + word[:1]
 
 
-def _expand_key(key):
+def _expand_key(key: bytes) -> list[list[int]]:
     if len(key) not in (16, 24, 32):
         raise ValueError("AES key must be 16, 24, or 32 bytes")
     nk = len(key) // 4
@@ -88,26 +141,26 @@ def _expand_key(key):
     return [[byte for word in words[index : index + 4] for byte in word] for index in range(0, len(words), 4)]
 
 
-def _aes_block(block, key):
+def _aes_block(block: bytes, key: bytes) -> bytes:
     rounds = len(key) // 4 + 6
     round_keys = _expand_key(key)
     state = list(block)
 
-    def add_round_key(round_key):
+    def add_round_key(round_key: list[int]) -> None:
         for index in range(16):
             state[index] ^= round_key[index]
 
-    def substitute():
+    def substitute() -> None:
         for index in range(16):
             state[index] = _sbox(state[index])
 
-    def shift_rows():
+    def shift_rows() -> None:
         original = state[:]
         for row in range(4):
             for column in range(4):
                 state[4 * column + row] = original[4 * ((column + row) % 4) + row]
 
-    def mix_columns():
+    def mix_columns() -> None:
         for column in range(4):
             offset = column * 4
             a = state[offset : offset + 4]
@@ -128,7 +181,7 @@ def _aes_block(block, key):
     return bytes(state)
 
 
-def _aes_cbc_encrypt(data, key, iv):
+def _aes_cbc_encrypt(data: bytes, key: bytes, iv: bytes) -> bytes:
     if len(iv) != 16 or len(data) % 16:
         raise ValueError("AES-CBC requires a 16-byte IV and aligned data")
     result = bytearray()
@@ -140,14 +193,14 @@ def _aes_cbc_encrypt(data, key, iv):
     return bytes(result)
 
 
-def _chacha20_xor(data, key, nonce, counter=0):
+def _chacha20_xor(data: bytes, key: bytes, nonce: bytes, counter: int = 0) -> bytes:
     if len(key) != 32 or len(nonce) != 12:
         raise ValueError("ChaCha20 requires a 32-byte key and 12-byte nonce")
 
-    def rotate(value, amount):
+    def rotate(value: int, amount: int) -> int:
         return ((value << amount) | (value >> (32 - amount))) & 0xFFFFFFFF
 
-    def quarter(state, a, b, c, d):
+    def quarter(state: list[int], a: int, b: int, c: int, d: int) -> None:
         state[a] = (state[a] + state[b]) & 0xFFFFFFFF
         state[d] = rotate(state[d] ^ state[a], 16)
         state[c] = (state[c] + state[d]) & 0xFFFFFFFF
@@ -159,7 +212,7 @@ def _chacha20_xor(data, key, nonce, counter=0):
 
     constants = b"expand 32-byte k"
 
-    def words(raw):
+    def words(raw: bytes) -> list[int]:
         return [int.from_bytes(raw[index : index + 4], "little") for index in range(0, len(raw), 4)]
 
     base = words(constants) + words(key) + [counter] + words(nonce)
@@ -181,7 +234,7 @@ def _chacha20_xor(data, key, nonce, counter=0):
     return bytes(result)
 
 
-def encode_tt_encrypt(gzip_bytes, salt=None):
+def encode_tt_encrypt(gzip_bytes: bytes, salt: bytes | None = None) -> bytes:
     salt = secrets.token_bytes(32) if salt is None else salt
     if len(salt) != 32:
         raise ValueError("ttEncrypt salt must contain exactly 32 bytes")
@@ -196,7 +249,7 @@ def encode_tt_encrypt(gzip_bytes, salt=None):
     return bytes.fromhex("746305100000") + salt + _aes_cbc_encrypt(payload, key, iv)
 
 
-def new_installation() -> dict:
+def new_installation() -> dict[str, Any]:
     return {
         "openudid": secrets.token_hex(10),
         "clientudid": str(uuid.uuid4()),
@@ -205,7 +258,7 @@ def new_installation() -> dict:
     }
 
 
-def registration_request(state: dict) -> dict:
+def registration_request(state: dict[str, Any]) -> dict[str, Any]:
     request_id = str(uuid.uuid4())
     header = {
         "aid": 401734,
@@ -248,31 +301,27 @@ def registration_request(state: dict) -> dict:
     }
     body = {"magic_tag": "ss_app_log", "_gen_time": int(time.time() * 1000), "header": header}
     return {
-        "url": "https://log.snssdk.com/service/2/device_register/",
+        "url": REGISTER_URL,
         "params": {"req_id": request_id, "tt_data": "a"},
         "headers": {"Content-Type": "application/octet-stream;tt-data=a"},
         "body": body,
     }
 
 
-def register_device(request: dict) -> tuple[dict, dict]:
+def register_device(request: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
     raw = json.dumps(request["body"], ensure_ascii=False, separators=(",", ":")).encode()
     content = encode_tt_encrypt(gzip.compress(raw, mtime=0))
     target = request["url"] + "?" + urlencode(request["params"])
     with urlopen(Request(target, data=content, headers=request["headers"]), timeout=20) as response:
         body = json.loads(response.read())
-    did = body.get("device_id_str") or str(body.get("device_id") or "")
-    iid = body.get("install_id_str") or str(body.get("install_id") or "")
+    did = str(body.get("device_id_str") or body.get("device_id") or "")
+    iid = str(body.get("install_id_str") or body.get("install_id") or "")
     if not did or not iid or did == "0" or iid == "0":
         raise RuntimeError("Registration did not return nonzero device and installation IDs")
     return {"device_id": did, "install_id": iid}, body
 
 
-DEFAULT_IDENTITY = Path.home() / ".cache/vinput/doubaoime/credentials.json"
-IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
-
-
-def save_identity(path: Path, state: dict):
+def save_identity(path: Path, state: dict[str, Any]) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
@@ -285,7 +334,7 @@ def save_identity(path: Path, state: dict):
             os.unlink(temporary)
 
 
-def _ensure_identity(path: Path) -> dict:
+def _ensure_identity(path: Path) -> dict[str, Any]:
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_suffix(path.suffix + ".lock").open("a") as lock:
@@ -314,7 +363,6 @@ def _ensure_identity(path: Path) -> dict:
             return state
         if not all(state.get(key) for key in ("cdid", "openudid", "clientudid", "first_install_time")):
             raise ValueError("Identity cache contains an incomplete installation")
-        # Save the installation before registering so retries keep the same identity.
         save_identity(path, state)
         identifiers, _ = register_device(registration_request(state))
         state.update(identifiers)
@@ -322,7 +370,7 @@ def _ensure_identity(path: Path) -> dict:
         return state
 
 
-def _remove_trailing(text):
+def _remove_trailing(text: str) -> str:
     lines = text.splitlines(keepends=True)
     result = []
     for line in lines:
@@ -337,89 +385,20 @@ def _remove_trailing(text):
     return "".join(result)
 
 
-def _extract_text(body):
-    if body.get("stream", False) is not False:
-        raise ValueError("Only non-streaming chat completions are supported")
-    messages = body.get("messages")
-    if not isinstance(messages, list) or not messages:
-        raise ValueError("Expected non-empty messages array")
-    combined = ""
-    for msg in messages:
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                combined += content + "\n"
-
-    match = re.search(r"<vinput-asr>\s*(.*?)\s*</vinput-asr>", combined, re.DOTALL)
-    if not match:
-        raise ValueError("Missing <vinput-asr> wrapper")
-
-    text = match.group(1).strip()
-    if not text:
-        raise ValueError("Enclosed ASR text is empty")
-    return text
-
-
-class RequestWork:
-    def __init__(self, deadline):
-        self.deadline = deadline
-        self.cancelled = threading.Event()
-        self.lock = threading.Lock()
-        self.response = None
-
-    def abort(self):
-        self.cancelled.set()
-        with self.lock:
-            if self.response is not None:
-                try:
-                    self.response.fp.raw._sock.shutdown(socket.SHUT_RDWR)
-                except (AttributeError, OSError):
-                    pass
-
-    def check(self):
-        if self.cancelled.is_set():
-            raise ConnectionAbortedError("Local request disconnected")
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Organization deadline expired")
-        return remaining
-
-    def open(self, request, timeout):
-        self.check()
-        response = urllib.request.urlopen(request, timeout=min(timeout, self.check()))
-        with self.lock:
-            self.response = response
-        if self.cancelled.is_set():
-            self.abort()
-            response.close()
-            raise ConnectionAbortedError("Local request disconnected")
-        return response
-
-    def release(self):
-        with self.lock:
-            self.response = None
-
-
 class CryptoCache:
-    def __init__(self):
+    def __init__(self) -> None:
         self.lock = threading.Lock()
-        self.value = None
+        self.value: tuple[str, bytes] | None = None
         self.expires = 0.0
 
-    def get(self, params, work):
-        if not self.lock.acquire(timeout=work.check()):
-            raise TimeoutError("Key initialization deadline expired")
-        try:
-            work.check()
+    def get(self, params: dict[str, Any]) -> tuple[str, bytes]:
+        with self.lock:
             if self.value is not None and time.monotonic() < self.expires:
                 return self.value
             query = {**params, "abi": "arm64-v8a", "tnc_src": "4", "okhttp_version": "4.2.243.10-wave"}
             request = urllib.request.Request(TNC_URL + "?" + urllib.parse.urlencode(query))
-            try:
-                with work.open(request, work.check()) as response:
-                    body = json.loads(response.read())
-            finally:
-                work.release()
+            with urllib.request.urlopen(request, timeout=8.0) as response:
+                body = json.loads(response.read())
             config = body["data"]["encrypt_config_v1"]
             if not config.get("enabled") or config.get("ver") != 3:
                 raise ValueError("TTNet fallback encryption is unavailable")
@@ -431,73 +410,14 @@ class CryptoCache:
             interval = float(body["data"].get("tnc_update_interval", CACHE_TTL))
             self.expires = time.monotonic() + min(CACHE_TTL, interval if interval > 0 else CACHE_TTL)
             return self.value
-        finally:
-            self.lock.release()
 
-    def invalidate(self):
+    def invalidate(self) -> None:
         with self.lock:
             self.value = None
             self.expires = 0.0
 
 
-def _sse_lines(response, key, work, first_deadline):
-    encrypted = response.headers.get("x-tt-e-b") == "1"
-    nonce = base64.b64decode(response.headers["x-tt-e-p"], validate=True) if encrypted else b""
-    if encrypted and len(nonce) != 12:
-        raise ValueError("Invalid response nonce")
-    decoder = codecs.getincrementaldecoder("utf-8")()
-    offset = 0
-    pending = ""
-    event = ""
-    data = []
-    size = 0
-    first = True
-    while True:
-        remaining = work.check()
-        if first:
-            remaining = min(remaining, first_deadline - time.monotonic())
-        if remaining <= 0:
-            raise TimeoutError("No organization event before deadline")
-        response.fp.raw._sock.settimeout(remaining)
-        chunk = response.read1(4096)
-        if not chunk:
-            return
-        if encrypted:
-            skip = offset % 64
-            decoded = _chacha20_xor(bytes(skip) + chunk, key, nonce, offset // 64)[skip:]
-            offset += len(chunk)
-            chunk = decoded
-        pending += decoder.decode(chunk)
-        while "\n" in pending:
-            line, pending = pending.split("\n", 1)
-            line = line.removesuffix("\r")
-            if len(line) > 1_000_000:
-                raise ValueError("SSE line exceeds 1 MB")
-            if not line:
-                if data:
-                    value = "\n".join(data)
-                    yield event, value
-                    if event in {"scene.delta", "scene.completed", "scene.error"}:
-                        try:
-                            first = not isinstance(json.loads(value), dict) and first
-                        except ValueError:
-                            pass
-                event, data, size = "", [], 0
-            elif not line.startswith(":"):
-                field, _, value = line.partition(":")
-                value = value.removeprefix(" ")
-                if field == "event":
-                    event = value
-                elif field == "data":
-                    size += len(value)
-                    if size > 1_000_000:
-                        raise ValueError("SSE event exceeds 1 MB")
-                    data.append(value)
-        if len(pending) > 1_000_000:
-            raise ValueError("SSE line exceeds 1 MB")
-
-
-def _organize(text, state, cache, work):
+def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
     params = {
         "aid": "401734",
         "app_name": "oime",
@@ -520,197 +440,176 @@ def _organize(text, state, cache, work):
         "cdid": state.get("cdid", ""),
         "use-olympus-account": "1",
     }
-    try:
-        ticket, key = cache.get(params, work)
-        body = json.dumps(
-            {"scene": 6, "query": text, "space_at_cn_en_nb": 1, "space_at_newline": 1, "stream": True},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode()
-        nonce = secrets.token_bytes(12)
-        wire = _chacha20_xor(body, key, nonce)
-        headers = {
-            "Accept": "text/event-stream",
-            "Content-Type": "application/json",
-            "sdk-version": "2",
-            "passport-sdk-version": "605195",
-            "x-tt-e-b": "1",
-            "x-tt-e-t": ticket,
-            "x-tt-e-p": base64.b64encode(nonce).decode(),
-            "x-tt-e-h": base64.b64encode(_chacha20_xor(b"hello", key, nonce)).decode(),
-        }
-        request = urllib.request.Request(
-            ORGANIZE_URL + "?" + urllib.parse.urlencode(params), data=wire, headers=headers, method="POST"
-        )
-        first_deadline = time.monotonic() + 2.0
-        try:
-            with work.open(request, 2.0) as response:
-                if response.headers.get("x-tt-e-r", "0;0") != "0;0":
-                    cache.invalidate()
-                for event, data in _sse_lines(response, key, work, first_deadline):
-                    if event == "done" or data == "[DONE]":
-                        return text
-                    if event not in {"scene.delta", "scene.completed", "scene.error"}:
-                        continue
-                    try:
-                        value = json.loads(data)
-                    except ValueError:
-                        continue
-                    if not isinstance(value, dict):
-                        continue
-                    if event == "scene.error" or value.get("no_rewrite") is True:
-                        return text
-                    if event == "scene.completed":
-                        content = value.get("content")
-                        return content if isinstance(content, str) and content.strip() else text
-                return text
-        finally:
-            work.release()
-    except urllib.error.HTTPError as err:
-        cache.invalidate()
-        sys.stderr.write(f"[doubaoime-organize] Upstream HTTP error: {err.code} {err.reason}\n")
-        sys.stderr.flush()
-        return text
-    except TimeoutError as err:
-        sys.stderr.write(f"[doubaoime-organize] Organization timed out: {err}\n")
-        sys.stderr.flush()
-        return text
-    except (OSError, ValueError, KeyError):
-        return text
-
-
-def _chat_response(text, model=MODEL):
-    return {
-        "id": "chatcmpl-" + uuid.uuid4().hex,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": json.dumps({"candidates": [text]}, ensure_ascii=False)},
-                "finish_reason": "stop",
-            }
-        ],
+    ticket, key = cache.get(params)
+    body = json.dumps(
+        {"scene": 6, "query": text, "space_at_cn_en_nb": 1, "space_at_newline": 1, "stream": True},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+    nonce = secrets.token_bytes(12)
+    wire = _chacha20_xor(body, key, nonce)
+    headers = {
+        "Accept": "text/event-stream",
+        "Content-Type": "application/json",
+        "sdk-version": "2",
+        "passport-sdk-version": "605195",
+        "x-tt-e-b": "1",
+        "x-tt-e-t": ticket,
+        "x-tt-e-p": base64.b64encode(nonce).decode(),
+        "x-tt-e-h": base64.b64encode(_chacha20_xor(b"hello", key, nonce)).decode(),
     }
-
-
-class OrganizationServer(http.server.ThreadingHTTPServer):
-    identity: dict
-    no_trailing: bool
-    crypto: CryptoCache
-
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path.rstrip("/") != "/v1/models":
-            self.send_error(404, "Endpoint not found")
-            return
-        self._send_json({"object": "list", "data": [{"id": MODEL, "object": "model", "owned_by": "doubaoime"}]})
-
-    def do_POST(self):
-        if self.path.rstrip("/") != "/v1/chat/completions":
-            self.send_error(404, "Endpoint not found")
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 1_000_000:
-                raise ValueError("Request body must be between 1 byte and 1 MB")
-            body = json.loads(self.rfile.read(length))
-            if not isinstance(body, dict):
-                raise ValueError("Expected a JSON object")
-            text = _extract_text(body)
-        except (ValueError, KeyError, TypeError, AttributeError) as error:
-            sys.stderr.write(f"[doubaoime-organize] {error}\n")
-            sys.stderr.flush()
-            self._send_json({"error": {"message": str(error)}}, 400)
-            return
-        work = RequestWork(time.monotonic() + 8.0)
-        server = cast(OrganizationServer, self.server)
-        completed = threading.Event()
-        output = [text]
-
-        def organize():
-            try:
-                output[0] = _organize(text, server.identity, server.crypto, work)
-            finally:
-                completed.set()
-
-        worker = threading.Thread(target=organize, daemon=True)
-        worker.start()
-        try:
-            while not completed.wait(0.05):
-                if time.monotonic() >= work.deadline:
-                    work.abort()
-                    break
-                readable, _, _ = select.select([self.connection], [], [], 0)
-                if readable and not self.connection.recv(1, socket.MSG_PEEK):
-                    work.abort()
-                    return
-            result = output[0] if completed.is_set() else text
-            if server.no_trailing:
-                result = _remove_trailing(result)
-            resp_model = str(body.get("model") or MODEL)
-            self._send_json(_chat_response(result, model=resp_model))
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            work.abort()
-        finally:
-            work.abort()
-            worker.join(timeout=0.2)
-
-    def _send_json(self, payload, status=200):
-        wire = json.dumps(payload, ensure_ascii=False).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(wire)))
-        self.end_headers()
-        self.wfile.write(wire)
-
-    def log_message(self, format: str, *args: object) -> None:
-        return
-
-    def log_error(self, format: str, *args: object) -> None:
-        sys.stderr.write(f"[doubaoime-organize] {format % args}\n")
-        sys.stderr.flush()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Doubao IME organization adapter")
-    parser.add_argument("--identity", type=Path, default=Path(os.getenv("DOUBAOIME_IDENTITY_PATH") or DEFAULT_IDENTITY))
-    parser.add_argument(
-        "--no-trailing-punctuation",
-        action="store_true",
-        default=os.getenv("DOUBAOIME_NO_TRAILING_PUNCTUATION", "").lower() in {"1", "true", "yes"},
+    request = urllib.request.Request(
+        ORGANIZE_URL + "?" + urllib.parse.urlencode(params), data=wire, headers=headers, method="POST"
     )
-    args = parser.parse_args()
-    raw_port = os.getenv("DOUBAOIME_PORT", "").strip()
-    if not raw_port:
-        sys.stderr.write("[doubaoime-organize] Missing DOUBAOIME_PORT environment variable.\n")
-        return 2
+    with urllib.request.urlopen(request, timeout=8.0) as response:
+        if response.headers.get("x-tt-e-r", "0;0") != "0;0":
+            cache.invalidate()
+        encrypted = response.headers.get("x-tt-e-b") == "1"
+        resp_nonce = base64.b64decode(response.headers["x-tt-e-p"], validate=True) if encrypted else b""
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        offset = 0
+        pending = ""
+        while True:
+            chunk = response.read(4096)
+            if not chunk:
+                break
+            if encrypted:
+                skip = offset % 64
+                decoded = _chacha20_xor(bytes(skip) + chunk, key, resp_nonce, offset // 64)[skip:]
+                offset += len(chunk)
+                chunk = decoded
+            pending += decoder.decode(chunk)
+            while "\n" in pending:
+                line, pending = pending.split("\n", 1)
+                line = line.removesuffix("\r").strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    return text
+                try:
+                    payload = json.loads(data_str)
+                    if isinstance(payload, dict):
+                        if payload.get("no_rewrite") is True:
+                            return text
+                        content = payload.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return content.strip()
+                except Exception:
+                    continue
+    return text
+
+
+@dataclass(frozen=True)
+class AdapterConfig:
+    """Configuration parsed from environment variables."""
+
+    identity_path: Path
+    no_trailing_punctuation: bool
+
+
+def optional_env(name: str, default: str = "") -> str:
+    """Read an optional environment variable with fallback."""
+    val = os.getenv(name, "").strip()
+    return val if val else default
+
+
+def optional_bool_env(name: str, default: bool) -> bool:
+    """Read an optional boolean environment variable."""
+    val = os.getenv(name)
+    if val is None or not val.strip():
+        return default
+    return val.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def load_config() -> AdapterConfig:
+    """Load and validate all adapter runtime configuration from environment."""
+    raw_path = optional_env("DOUBAOIME_IDENTITY_PATH")
+    identity_path = Path(raw_path) if raw_path else DEFAULT_IDENTITY
+    no_trailing = optional_bool_env("DOUBAOIME_NO_TRAILING_PUNCTUATION", default=False)
+    return AdapterConfig(identity_path=identity_path, no_trailing_punctuation=no_trailing)
+
+
+_STATE_CACHE: tuple[dict[str, Any], CryptoCache] | None = None
+
+
+def get_runtime_state(config: AdapterConfig) -> tuple[dict[str, Any], CryptoCache]:
+    """Retrieve or initialize identity credentials and crypto cache."""
+    global _STATE_CACHE
+    if _STATE_CACHE is None:
+        identity = _ensure_identity(config.identity_path)
+        crypto = CryptoCache()
+        _STATE_CACHE = (identity, crypto)
+    return _STATE_CACHE
+
+
+def rewrite_text(text: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite raw dictation transcript."""
+    clean = text.strip()
+    if not clean:
+        return ""
+    identity, crypto = get_runtime_state(config)
     try:
-        port = int(raw_port)
-        if not 1 <= port <= 65535:
-            raise ValueError
-    except ValueError:
-        sys.stderr.write("[doubaoime-organize] DOUBAOIME_PORT must be an integer between 1 and 65535.\n")
-        return 2
-    try:
-        server = OrganizationServer(("127.0.0.1", port), Handler)
+        organized = _organize(clean, identity, crypto)
+        if config.no_trailing_punctuation:
+            organized = _remove_trailing(organized)
+        return [organized] if organized else [clean]
     except Exception as exc:
-        sys.stderr.write(f"[doubaoime-organize] Failed to bind port {port}: {exc}\n")
-        sys.stderr.flush()
-        return 1
+        notify_error("err_organize_failed", detail=str(exc))
+        return [clean]
+
+
+def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite text in command mode using selected text as primary context."""
+    target_text = selected.strip() if selected.strip() else text.strip()
+    return rewrite_text(target_text, config)
+
+
+def run() -> int:
+    """Main filter loop reading stdin and writing candidates to stdout."""
+    try:
+        config = load_config()
+    except Exception as exc:
+        notify_error("err_identity_failed", detail=str(exc))
+        return EXIT_USAGE_ERROR
+
+    raw_input = sys.stdin.read()
+    if not raw_input:
+        return EXIT_SUCCESS
+
+    is_json = False
+    text = raw_input
+    selected = ""
 
     try:
-        server.identity = _ensure_identity(args.identity)
+        data = json.loads(raw_input)
+        if isinstance(data, dict) and "text" in data:
+            is_json = True
+            text = str(data.get("text", ""))
+            selected = str(data.get("selected_text", ""))
+    except Exception:
+        is_json = False
+
+    try:
+        if is_json and selected:
+            output = rewrite_command(text, selected, config)
+        else:
+            output = rewrite_text(text, config)
+
+        if isinstance(output, list):
+            sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
+        else:
+            sys.stdout.write(f"{output}\n")
+        sys.stdout.flush()
+        return EXIT_SUCCESS
     except Exception as exc:
-        sys.stderr.write(f"[doubaoime-organize] Failed to initialize identity: {exc}\n")
-        sys.stderr.flush()
-        return 1
-    server.no_trailing = args.no_trailing_punctuation
-    server.crypto = CryptoCache()
-    server.daemon_threads = True
-    server.serve_forever()
+        notify_error("err_organize_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+
+def main() -> int:
+    """CLI wrapper returning standard exit code."""
+    return run()
 
 
 if __name__ == "__main__":

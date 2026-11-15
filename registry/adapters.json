@@ -17,16 +17,12 @@
           "required": false
         },
         {
-          "name": "DOUBAOIME_PORT",
-          "required": true
-        },
-        {
           "name": "DOUBAOIME_NO_TRAILING_PUNCTUATION",
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "40d9a2f0242c078d48913b3861116182c734fc5f7caab640d4d3e47e4fbc82f0",
+      "version": "2.0.0",
+      "sha256": "3398689e15c0ce5c1ae22c49f19105f13a8ec13fdc075ff9a2876ac9c2013c0c",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -41,10 +37,6 @@
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/mtranserver/proxy/README.md",
       "envs": [
         {
-          "name": "MTRAN_PORT",
-          "required": true
-        },
-        {
           "name": "MTRAN_URL",
           "required": false
         },
@@ -53,8 +45,8 @@
           "required": false
         }
       ],
-      "version": "1.0.0",
-      "sha256": "30eb3255cee073ed653a55c9dd9ffb38b352dbd07fe59150844576390ae7b9b4",
+      "version": "2.0.0",
+      "sha256": "7cddfd8c79af87d14d8bd44524e741f29a7cb27c99c70127996ec64a9cd1a768",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -67,14 +59,9 @@
         "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py"
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/cjk-trim/proxy/README.md",
-      "envs": [
-        {
-          "name": "CJK_TRIM_PORT",
-          "required": true
-        }
-      ],
-      "version": "1.0.0",
-      "sha256": "9a3635c99bd3fd5d811ced7105d9f750b3460dad9bfd34413e3376d80eca712c",
+      "envs": [],
+      "version": "2.0.0",
+      "sha256": "5e931f0f81b3e163d0ec78142ea7324009b2f28bb78947aab0ee82d60bcbcc07",
       "vinput_version": ">= 2.0.0"
     }
   ]

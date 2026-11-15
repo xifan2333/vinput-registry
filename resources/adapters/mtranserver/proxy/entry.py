@@ -1,178 +1,184 @@
 #!/usr/bin/env python3
-"""Managed local LLM adaptor that exposes MTranServer through an OpenAI-compatible API."""
+"""Managed local LLM adapter: MTranServer translation bridge.
+
+Translates input transcripts using a local or remote MTranServer instance.
+Operates as a command pipe filter (stdin -> stdout) for vinput-daemon.
+"""
+
+from __future__ import annotations
 
 import json
 import os
 import re
 import sys
-import time
-import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from dataclasses import dataclass
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
+DEFAULT_MTRAN_URL = "http://127.0.0.1:8989"
 
-def get_required_port() -> int:
-    val = os.getenv("MTRAN_PORT", "").strip()
-    if not val:
-        raise ValueError("Missing MTRAN_PORT environment variable.")
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_translate_failed": "MTranServer translation failed: {detail}",
+        "err_network": "Network error communicating with MTranServer: {detail}",
+    },
+    "zh_CN": {
+        "err_translate_failed": "MTranServer 翻译失败：{detail}",
+        "err_network": "连接 MTranServer 发生网络错误：{detail}",
+    },
+}
+
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
     try:
-        port = int(val)
-    except ValueError as exc:
-        raise ValueError(f"Invalid MTRAN_PORT '{val}': must be a valid integer.") from exc
-    if not (1 <= port <= 65535):
-        raise ValueError(f"Invalid MTRAN_PORT '{val}': port number must be between 1 and 65535.")
-    return port
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
 
 
-def parse_target_lang(text: str) -> str:
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "MTranServer Adapter", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+@dataclass(frozen=True)
+class AdapterConfig:
+    """Configuration parsed from environment variables."""
+
+    url: str
+    token: str
+    default_target_lang: str
+
+
+def optional_env(name: str, default: str = "") -> str:
+    """Read an optional environment variable with fallback."""
+    val = os.getenv(name, "").strip()
+    return val if val else default
+
+
+def load_config() -> AdapterConfig:
+    """Load and validate all adapter runtime configuration from environment."""
+    url = optional_env("MTRAN_URL", DEFAULT_MTRAN_URL).rstrip("/")
+    token = optional_env("MTRAN_TOKEN")
+    default_lang = optional_env("MTRAN_TARGET_LANG", "en")
+    return AdapterConfig(url=url, token=token, default_target_lang=default_lang)
+
+
+def parse_target_lang(text: str, default_lang: str) -> str:
+    """Extract target language from natural language text like 'translate to ja'."""
     match = re.search(r"translate\s+to\s+([\w-]+)", text, re.IGNORECASE)
-    return match.group(1) if match else "en"
+    return match.group(1) if match else default_lang
 
 
-def extract_text(content: str) -> str:
-    match = re.search(r"<vinput-asr>\n?(.*?)\n?</vinput-asr>", content, re.DOTALL)
-    return match.group(1).strip() if match else content.strip()
-
-
-def call_mtran(text: str, to_lang: str) -> str:
-    url = os.getenv("MTRAN_URL", "").strip().rstrip("/") or "http://127.0.0.1:8989"
-    token = os.getenv("MTRAN_TOKEN", "").strip()
-
-    body = json.dumps({"from": "auto", "to": to_lang, "text": text, "html": False}).encode()
+def call_mtran(text: str, to_lang: str, config: AdapterConfig) -> str:
+    """Call MTranServer /translate endpoint."""
+    body = json.dumps({"from": "auto", "to": to_lang, "text": text, "html": False}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = Request(f"{url}/translate", data=body, headers=headers, method="POST")
-    with urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read())
-    return data.get("result", "")
+    if config.token:
+        headers["Authorization"] = f"Bearer {config.token}"
+
+    req = Request(f"{config.url}/translate", data=body, headers=headers, method="POST")
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return str(data.get("result", ""))
+    except URLError as exc:
+        raise ConnectionError(f"Failed to connect to MTranServer at {config.url}: {exc.reason}") from exc
 
 
-def make_chat_response(content: str, model: str = "mtranserver") -> dict[str, Any]:
-    wrapped = json.dumps({"candidates": [content]}, ensure_ascii=False)
-    return {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": wrapped},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
+def rewrite_text(text: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite raw dictation transcript by translating it."""
+    clean = text.strip()
+    if not clean:
+        return ""
+    to_lang = parse_target_lang(clean, config.default_target_lang)
+    result = call_mtran(clean, to_lang, config)
+    return [result] if result else []
 
 
-class ProxyHandler(BaseHTTPRequestHandler):
-    def do_POST(self) -> None:
-        if self.path.rstrip("/") not in ("/v1/chat/completions", "/chat/completions"):
-            self.send_error(404, "Endpoint not found")
-            return
+def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite text in command mode using selected text as primary context."""
+    target_text = selected.strip() if selected.strip() else text.strip()
+    if not target_text:
+        return ""
+    to_lang = parse_target_lang(text, config.default_target_lang)
+    result = call_mtran(target_text, to_lang, config)
+    return [result] if result else []
 
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
-        except Exception as exc:
-            self.send_error(400, f"Invalid JSON payload: {exc}")
-            return
 
-        messages = body.get("messages", [])
-        content = "\n".join(msg.get("content", "") for msg in messages if isinstance(msg, dict))
-        to_lang = parse_target_lang(content)
-        user_text = extract_text(content)
+def run() -> int:
+    """Main filter loop reading stdin and writing candidates to stdout."""
+    try:
+        config = load_config()
+    except Exception as exc:
+        notify_error("err_translate_failed", detail=str(exc))
+        return EXIT_USAGE_ERROR
 
-        if not user_text:
-            result = ""
+    raw_input = sys.stdin.read()
+    if not raw_input:
+        return EXIT_SUCCESS
+
+    is_json = False
+    text = raw_input
+    selected = ""
+
+    try:
+        data = json.loads(raw_input)
+        if isinstance(data, dict) and "text" in data:
+            is_json = True
+            text = str(data.get("text", ""))
+            selected = str(data.get("selected_text", ""))
+    except Exception:
+        is_json = False
+
+    try:
+        if is_json and selected:
+            output = rewrite_command(text, selected, config)
         else:
-            try:
-                result = call_mtran(user_text, to_lang)
-            except (URLError, Exception) as exc:
-                self.send_error(502, str(exc))
-                return
+            output = rewrite_text(text, config)
 
-        resp = json.dumps(make_chat_response(result, body.get("model", "mtranserver")), ensure_ascii=False)
-        payload = resp.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def do_GET(self) -> None:
-        if self.path.rstrip("/") in ("/v1/models", "/models"):
-            resp = json.dumps(
-                {
-                    "object": "list",
-                    "data": [
-                        {
-                            "id": "mtranserver",
-                            "object": "model",
-                            "owned_by": "mtranserver",
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            )
-            payload = resp.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+        if isinstance(output, list):
+            sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
         else:
-            self.send_error(404, "Endpoint not found")
-
-    def log_message(self, format: str, *args: Any) -> None:
-        """Override BaseHTTPRequestHandler.log_message.
-
-        Called implicitly by BaseHTTPRequestHandler.send_response -> log_request.
-        Suppresses normal HTTP 200 access logs from polluting stderr, preventing
-        vinput-daemon from treating access logs as desktop error notifications.
-        """
-        pass
-
-    def log_error(self, format: str, *args: Any) -> None:
-        """Override BaseHTTPRequestHandler.log_error.
-
-        Called implicitly by BaseHTTPRequestHandler.send_error on 4xx/5xx responses.
-        Because log_message is suppressed above, this ensures genuine HTTP errors
-        are still routed to stderr with the adapter prefix for troubleshooting.
-        """
-        sys.stderr.write(f"[mtranserver-proxy] {format % args}\n")
-        sys.stderr.flush()
+            sys.stdout.write(f"{output}\n")
+        sys.stdout.flush()
+        return EXIT_SUCCESS
+    except Exception as exc:
+        notify_error("err_translate_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 def main() -> int:
-    try:
-        port = get_required_port()
-    except ValueError as exc:
-        sys.stderr.write(f"[mtranserver-proxy] {exc}\n")
-        sys.stderr.flush()
-        return EXIT_USAGE_ERROR
-
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", port), ProxyHandler)
-        server.daemon_threads = True
-    except Exception as exc:
-        sys.stderr.write(f"[mtranserver-proxy] Failed to bind port {port}: {exc}\n")
-        sys.stderr.flush()
-        return EXIT_RUNTIME_ERROR
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    """CLI wrapper returning standard exit code."""
+    return run()
 
 
 if __name__ == "__main__":

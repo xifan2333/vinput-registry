@@ -1,8 +1,8 @@
 # adapters.cjk-trim.proxy
 
-Managed local LLM adapter that removes redundant spaces around CJK punctuation and between CJK ideographs in ASR transcripts via a local OpenAI-compatible proxy.
+Managed local LLM adapter that removes redundant spaces around CJK punctuation and between CJK ideographs in ASR transcripts.
 
-Some speech recognition models (e.g. x-asr Zipformer Transducer) insert spurious spaces into Chinese output. This adapter removes them locally as a zero-latency, offline service (`POST /v1/chat/completions`) for `vinput-daemon`.
+Some speech recognition models (e.g. sherpa-onnx Zipformer Transducer) insert spurious spaces into Chinese output. This adapter operates as a zero-latency command pipe filter (`stdin -> stdout`) for `vinput-daemon`.
 
 **Scope note**: ASCII / English text is intentionally left untouched — no ASCII punctuation normalization and no interior space collapsing. Only leading/trailing whitespace is stripped (`strip()`).
 
@@ -13,18 +13,13 @@ Some speech recognition models (e.g. x-asr Zipformer Transducer) insert spurious
 ## Runtime
 
 - command: `python3`
-- endpoints:
-  - `POST /v1/chat/completions` (extracts input from `<vinput-asr>` tags or user messages, returns `{"candidates": [cleaned_text]}`)
-  - `GET /v1/models` (returns `cjk-trim` model definition)
-- dependencies: Python 3 standard library only (`http.server`, `json`, `os`, `re`, `sys`, `time`, `uuid`)
+- architecture: Unix command pipe filter (`RewriteWithCommandAdapter`)
+- dependencies: Python 3 standard library only (`dataclasses`, `json`, `os`, `re`, `sys`)
 
 ## Environment Variables
 
-### Required
-- `CJK_TRIM_PORT` (required): Local HTTP listening port (e.g. `9090`). The script requires an explicit port and will exit with code 2 if omitted or invalid.
-
 ### Optional
-- `CJK_TRIM_COLLAPSE_CJK_SPACES` (optional, default: `true`): Whether to collapse spaces between consecutive CJK ideographs (`\u4e00-\u9fff`, `\u3400-\u4dbf`, `\uf900-\ufaff`). Kept out of `registry/adapters.json` on purpose (minimally viable env set); document-level tuneable only.
+- `CJK_TRIM_COLLAPSE_CJK_SPACES` (optional, default: `true`): Whether to collapse spaces between consecutive CJK ideographs (`\u4e00-\u9fff`, `\u3400-\u4dbf`, `\uf900-\ufaff`).
 
 ## Unicode Punctuation Ranges Used
 

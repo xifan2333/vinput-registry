@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
-"""Managed local LLM adapter that removes redundant spaces in CJK ASR transcripts:
-spaces around CJK punctuation marks and between consecutive CJK ideographs.
+"""Managed local LLM adapter: CJK Trim.
 
-Operates locally as an OpenAI-compatible HTTP service. Removes unwanted spaces
-around CJK punctuation marks and between consecutive CJK ideographs that some
-speech recognition models (e.g. x-asr Zipformer Transducer) emit.
-
-Scope note: ASCII / English text is intentionally left untouched — no ASCII
-punctuation normalization, no interior space collapsing. Only leading/trailing
-whitespace is stripped.
+Removes redundant spaces around CJK punctuation and between consecutive CJK ideographs
+that some speech recognition models (e.g. sherpa-onnx Zipformer) insert into transcripts.
+Operates as a command pipe filter (stdin -> stdout) for vinput-daemon.
 """
+
+from __future__ import annotations
 
 import json
 import os
 import re
 import sys
-import time
-import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from dataclasses import dataclass
 
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
-# Unicode CJK punctuation codepoint ranges (no hardcoded punctuation literals):
+# Unicode CJK punctuation codepoint ranges:
 #   \u3000-\u303F: CJK Symbols and Punctuation (IDEOGRAPHIC FULL STOP, etc.)
 #   \uFF01-\uFF65: Fullwidth ASCII Variants (FULLWIDTH COMMA, EXCLAMATION, etc.)
 #   \u2000-\u206F: General Punctuation (HORIZONTAL ELLIPSIS, EM DASH, quotes)
@@ -34,33 +29,76 @@ CJK_PUNCT_RANGE = r"[\u3000-\u303f\uff01-\uff65\u2000-\u206f\ufe10-\ufe1f\ufe30-
 # CJK Unified Ideographs & Extension ranges:
 CJK_IDEOGRAPHS_RANGE = r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]"
 
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_clean_failed": "Failed to trim CJK whitespace: {detail}",
+    },
+    "zh_CN": {
+        "err_clean_failed": "清理中文字符多余空格失败：{detail}",
+    },
+}
 
-def get_required_port() -> int:
-    val = os.getenv("CJK_TRIM_PORT", "").strip()
-    if not val:
-        raise ValueError("Missing CJK_TRIM_PORT environment variable.")
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
     try:
-        port = int(val)
-    except ValueError as exc:
-        raise ValueError(f"Invalid CJK_TRIM_PORT '{val}': must be a valid integer.") from exc
-    if not (1 <= port <= 65535):
-        raise ValueError(f"Invalid CJK_TRIM_PORT '{val}': port number must be between 1 and 65535.")
-    return port
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
 
 
-def get_bool_env(name: str, default: bool = True) -> bool:
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "CJK Trim Adapter", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+@dataclass(frozen=True)
+class AdapterConfig:
+    """Configuration parsed from environment variables."""
+
+    collapse_cjk_spaces: bool
+
+
+def optional_bool_env(name: str, default: bool) -> bool:
+    """Read an optional boolean environment variable."""
     val = os.getenv(name)
     if val is None or not val.strip():
         return default
     return val.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def clean_transcript(text: str, collapse_cjk_spaces: bool = True) -> str:
-    """Remove redundant spaces around CJK punctuation and between CJK ideographs.
+def load_config() -> AdapterConfig:
+    """Load and validate all adapter runtime configuration from environment."""
+    return AdapterConfig(
+        collapse_cjk_spaces=optional_bool_env("CJK_TRIM_COLLAPSE_CJK_SPACES", default=True),
+    )
 
-    ASCII content is preserved as-is (except stripping leading/trailing
-    whitespace); no interior ASCII space collapsing is performed.
-    """
+
+def clean_transcript(text: str, collapse_cjk_spaces: bool = True) -> str:
+    """Remove redundant spaces around CJK punctuation and between CJK ideographs."""
     if not text:
         return ""
 
@@ -70,8 +108,7 @@ def clean_transcript(text: str, collapse_cjk_spaces: bool = True) -> str:
     # 2. Remove whitespace immediately before CJK punctuation
     text = re.sub(f"\\s+({CJK_PUNCT_RANGE})", r"\1", text)
 
-    # 3. Remove spaces between consecutive CJK ideographs if enabled.
-    #    Loop to collapse sequences where a single pass leaves new adjacencies.
+    # 3. Remove spaces between consecutive CJK ideographs if enabled
     if collapse_cjk_spaces:
         while re.search(f"({CJK_IDEOGRAPHS_RANGE})\\s+({CJK_IDEOGRAPHS_RANGE})", text):
             text = re.sub(f"({CJK_IDEOGRAPHS_RANGE})\\s+({CJK_IDEOGRAPHS_RANGE})", r"\1\2", text)
@@ -80,136 +117,61 @@ def clean_transcript(text: str, collapse_cjk_spaces: bool = True) -> str:
     return text.strip()
 
 
-def extract_input_text(messages: list[dict[str, Any]]) -> str:
-    """Extract transcription text from messages, preferring <vinput-asr> tags."""
-    combined = ""
-    for msg in messages:
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                combined += content + "\n"
-
-    # Extract text wrapped in <vinput-asr>...</vinput-asr> if present
-    match = re.search(r"<vinput-asr>(.*?)</vinput-asr>", combined, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    return combined.strip()
+def rewrite_text(text: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite raw dictation transcript."""
+    return clean_transcript(text, collapse_cjk_spaces=config.collapse_cjk_spaces)
 
 
-def make_chat_response(content: str, model: str = "cjk-trim") -> dict[str, Any]:
-    """Wrap cleaned text in candidates JSON expected by vinput-daemon."""
-    wrapped = json.dumps({"candidates": [content]}, ensure_ascii=False)
-    return {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": wrapped},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
+def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | list[str]:
+    """Rewrite text in command / instruction mode with optional selected context."""
+    return clean_transcript(text, collapse_cjk_spaces=config.collapse_cjk_spaces)
 
 
-class CjkTrimHandler(BaseHTTPRequestHandler):
-    collapse_cjk_spaces: bool = True
+def run() -> int:
+    """Main filter loop reading stdin and writing candidates to stdout."""
+    try:
+        config = load_config()
+    except Exception as exc:
+        notify_error("err_clean_failed", detail=str(exc))
+        return EXIT_USAGE_ERROR
 
-    def do_POST(self) -> None:
-        if self.path.rstrip("/") not in ("/v1/chat/completions", "/chat/completions"):
-            self.send_error(404, "Endpoint not found")
-            return
+    raw_input = sys.stdin.read()
+    if not raw_input:
+        return EXIT_SUCCESS
 
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
-        except Exception as exc:
-            self.send_error(400, f"Invalid JSON payload: {exc}")
-            return
+    is_json = False
+    text = raw_input
+    selected = ""
 
-        messages = body.get("messages", [])
-        raw_text = extract_input_text(messages)
-        cleaned_text = clean_transcript(raw_text, collapse_cjk_spaces=self.collapse_cjk_spaces)
+    try:
+        data = json.loads(raw_input)
+        if isinstance(data, dict) and "text" in data:
+            is_json = True
+            text = str(data.get("text", ""))
+            selected = str(data.get("selected_text", ""))
+    except Exception:
+        is_json = False
 
-        resp_obj = make_chat_response(cleaned_text, body.get("model", "cjk-trim"))
-        payload = json.dumps(resp_obj, ensure_ascii=False).encode("utf-8")
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def do_GET(self) -> None:
-        if self.path.rstrip("/") in ("/v1/models", "/models"):
-            resp_obj = {
-                "object": "list",
-                "data": [
-                    {
-                        "id": "cjk-trim",
-                        "object": "model",
-                        "owned_by": "vinput",
-                    }
-                ],
-            }
-            payload = json.dumps(resp_obj, ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+    try:
+        if is_json and selected:
+            output = rewrite_command(text, selected, config)
         else:
-            self.send_error(404, "Endpoint not found")
+            output = rewrite_text(text, config)
 
-    def log_message(self, format: str, *args: Any) -> None:
-        """Override BaseHTTPRequestHandler.log_message.
-
-        Called implicitly by BaseHTTPRequestHandler.send_response -> log_request.
-        Suppresses normal HTTP 200 access logs from polluting stderr, preventing
-        vinput-daemon from treating access logs as desktop error notifications.
-        """
-        pass
-
-    def log_error(self, format: str, *args: Any) -> None:
-        """Override BaseHTTPRequestHandler.log_error.
-
-        Called implicitly by BaseHTTPRequestHandler.send_error on 4xx/5xx responses.
-        Because log_message is suppressed above, this ensures genuine HTTP errors
-        are still routed to stderr with the adapter prefix for troubleshooting.
-        """
-        sys.stderr.write(f"[cjk-trim] {format % args}\n")
-        sys.stderr.flush()
+        if isinstance(output, list):
+            sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
+        else:
+            sys.stdout.write(f"{output}\n")
+        sys.stdout.flush()
+        return EXIT_SUCCESS
+    except Exception as exc:
+        notify_error("err_clean_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 def main() -> int:
-    try:
-        port = get_required_port()
-    except ValueError as exc:
-        sys.stderr.write(f"[cjk-trim] {exc}\n")
-        sys.stderr.flush()
-        return EXIT_USAGE_ERROR
-
-    CjkTrimHandler.collapse_cjk_spaces = get_bool_env("CJK_TRIM_COLLAPSE_CJK_SPACES", default=True)
-
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", port), CjkTrimHandler)
-        server.daemon_threads = True
-    except Exception as exc:
-        sys.stderr.write(f"[cjk-trim] Failed to bind port {port}: {exc}\n")
-        sys.stderr.flush()
-        return EXIT_RUNTIME_ERROR
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    """CLI wrapper returning standard exit code."""
+    return run()
 
 
 if __name__ == "__main__":
