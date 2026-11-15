@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """WeType IME streaming ASR: standard-library JSONL bridge using system Opus/OpenSSL."""
 
+from __future__ import annotations
+
 import base64
 import ctypes
 import ctypes.util
@@ -8,7 +10,6 @@ import hashlib
 import json
 import math
 import os
-import queue
 import secrets
 import socket
 import ssl
@@ -17,6 +18,7 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,23 +26,156 @@ from urllib.parse import urlparse
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OPUS_APPLICATION_VOIP = 2048
 OPUS_MAX_PACKET_SIZE = 4000
+CONNECT_PROBE_SECONDS = 0.25
+
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_opus": "WeType streaming: failed to load or initialize libopus: {detail}",
+        "err_network": "WeType streaming network error: {detail}",
+        "err_upstream": "WeType streaming server error: {detail}",
+        "err_runtime": "WeType streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_opus": "微信输入法流式语音识别：加载或初始化 libopus 失败：{detail}",
+        "err_network": "微信输入法流式语音识别网络连接失败：{detail}",
+        "err_upstream": "微信输入法流式语音服务端报错：{detail}",
+        "err_runtime": "微信输入法流式语音运行异常：{detail}",
+    },
+}
 
 
-def get_optional_env(name, default=""):
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "WeType Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
+
+
+def get_optional_env(name: str, default: str = "") -> str:
     return os.environ.get(name, "").strip() or default
 
 
+def positive_seconds(name: str, default: float) -> float:
+    value = float(get_optional_env(name, str(default)))
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return value
+
+
+@dataclass
+class ProviderState:
+    error: str | None = None
+    closed: bool = False
+    cancelled: bool = False
+    latest_text: str = ""
+    final_received: bool = False
+    final_emitted: bool = False
+    upstream_error: bool = False
+    session_started: bool = False
+    polished_text: str = ""
+
+
+@dataclass(frozen=True)
+class StreamingConfig:
+    timeout: float
+    finish_grace_secs: float
+    libopus_path: str
+    credential_path: str
+
+
+def load_config() -> StreamingConfig:
+    timeout = positive_seconds("VINPUT_ASR_TIMEOUT", 15)
+    finish_grace_secs = positive_seconds("VINPUT_ASR_FINISH_GRACE_SECS", 5)
+    libopus_path = get_optional_env("VINPUT_ASR_LIBOPUS_PATH")
+    credential_path = get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", "~/.cache/vinput/wetype/identity.json")
+
+    return StreamingConfig(
+        timeout=timeout,
+        finish_grace_secs=finish_grace_secs,
+        libopus_path=libopus_path,
+        credential_path=credential_path,
+    )
+
+
 class OpusEncoder:
-    def __init__(self, sample_rate: int, channels: int) -> None:
+    def __init__(self, sample_rate: int, channels: int, custom_path: str = "") -> None:
         self.lib = None
-        env_path = get_optional_env("VINPUT_ASR_LIBOPUS_PATH")
-        if env_path:
+        if custom_path:
             try:
-                self.lib = ctypes.CDLL(env_path)
+                self.lib = ctypes.CDLL(custom_path)
             except OSError as exc:
-                raise RuntimeError(f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={env_path}: {exc}") from exc
+                raise RuntimeError(f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={custom_path}: {exc}") from exc
         else:
-            candidates = []
+            candidates: list[str] = []
             discovered = ctypes.util.find_library("opus")
             if discovered:
                 candidates.append(discovered)
@@ -108,7 +243,7 @@ class OpusEncoder:
             raise RuntimeError(f"libopus encode failed: {encoded_size}")
         return bytes(output[:encoded_size])
 
-    def __del__(self) -> None:
+    def destroy(self) -> None:
         encoder = getattr(self, "encoder", None)
         lib = getattr(self, "lib", None)
         if encoder and lib:
@@ -116,9 +251,10 @@ class OpusEncoder:
                 lib.opus_encoder_destroy(encoder)
             except Exception:
                 pass
+            self.encoder = None
 
-
-CONNECT_PROBE_SECONDS = 0.25
+    def __del__(self) -> None:
+        self.destroy()
 
 
 class WebSocketClient:
@@ -180,8 +316,6 @@ class WebSocketClient:
         return sock
 
     def _dial(self) -> socket.socket:
-        # shortcut: sequential probe pass, not a parallel Happy Eyeballs race — a blackholed
-        # address costs CONNECT_PROBE_SECONDS instead of timeout, at +probe on slow links.
         addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         last: OSError | None = None
         for probe in (True, False):
@@ -393,7 +527,6 @@ def point_mul(k: int, point: tuple[int, int] | None = G) -> tuple[int, int] | No
 
 
 def shared_key(k: int, public: str) -> bytes:
-    """The protocol uses the uppercase shared X hex as the 32-byte AES key."""
     if len(public) != 66 or not public.startswith("04"):
         raise ValueError("Invalid server public key")
     x, y = int(public[2:34], 16), int(public[34:], 16)
@@ -406,9 +539,7 @@ def shared_key(k: int, public: str) -> bytes:
 
 
 class AES:
-    """Use the system OpenSSL EVP API for AES-256-ECB with PKCS#7 padding."""
-
-    def __init__(self):
+    def __init__(self) -> None:
         self.lib = ctypes.CDLL(ctypes.util.find_library("crypto") or "libcrypto.so.3")
         specs = {
             "EVP_CIPHER_CTX_new": ([], ctypes.c_void_p),
@@ -445,7 +576,7 @@ class AES:
             fn.argtypes = args
             fn.restype = result
 
-    def crypt(self, key, data, encrypt=True):
+    def crypt(self, key: bytes, data: bytes, encrypt: bool = True) -> bytes:
         if key is None or len(key) != 32:
             raise ValueError("AES key must be 32 bytes")
         c = self.lib.EVP_CIPHER_CTX_new()
@@ -466,7 +597,7 @@ class AES:
             self.lib.EVP_CIPHER_CTX_free(c)
 
 
-def varint(n):
+def varint(n: int) -> bytes:
     out = bytearray()
     while n > 127:
         out.append((n & 127) | 128)
@@ -475,7 +606,7 @@ def varint(n):
     return bytes(out)
 
 
-def read_varint(data, i):
+def read_varint(data: bytes, i: int) -> tuple[int, int]:
     n = 0
     for shift in range(0, 70, 7):
         if i >= len(data):
@@ -488,7 +619,7 @@ def read_varint(data, i):
     raise ValueError("Invalid varint")
 
 
-def field(n, value):
+def field(n: int, value: str | bytes | int) -> bytes:
     if isinstance(value, str):
         value = value.encode()
     if isinstance(value, bytes):
@@ -497,7 +628,7 @@ def field(n, value):
 
 
 def fields(data: bytes) -> list[tuple[int, Any]]:
-    out = []
+    out: list[tuple[int, Any]] = []
     i = 0
     while i < len(data):
         tag, i = read_varint(data, i)
@@ -519,19 +650,19 @@ def fields(data: bytes) -> list[tuple[int, Any]]:
     return out
 
 
-def compress(data):
+def compress(data: bytes) -> bytes:
     return varint(len(data)) + b"".join(
         bytes([(len(data[i : i + 60]) - 1) * 4]) + data[i : i + 60] for i in range(0, len(data), 60)
     )
 
 
-def decompress(data):
+def decompress(data: bytes) -> bytes:
     size, i = read_varint(data, 0)
     out = bytearray()
     if size > 8 * 1024 * 1024:
         raise ValueError("Snappy message too large")
 
-    def take(n):
+    def take(n: int) -> bytes:
         nonlocal i
         if i + n > len(data):
             raise ValueError("Truncated snappy")
@@ -565,23 +696,28 @@ def decompress(data):
     return bytes(out)
 
 
-def random_lower(n):
+def random_lower(n: int) -> str:
     return "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(n))
 
 
 class Client:
-    def __init__(self):
+    def __init__(self, timeout: float) -> None:
         self.aes = AES()
-        self.ws = WebSocketClient(
-            "wss://" + HOST + "/", {"Sec-WebSocket-Protocol": "wxws_pb"}, positive_seconds("VINPUT_ASR_TIMEOUT", 15)
-        )
+        self.ws = WebSocketClient("wss://" + HOST + "/", {"Sec-WebSocket-Protocol": "wxws_pb"}, timeout)
         self.key: bytes | None = None
         self.task = 0
         self.uin = "0"
         self.device = ""
         self.time_offset_ms = 0
 
-    def roundtrip(self, path, body=b"", cmd=0, compression="1", token=""):
+    def roundtrip(
+        self,
+        path: str,
+        body: bytes = b"",
+        cmd: int = 0,
+        compression: str = "1",
+        token: str = "",
+    ) -> tuple[bytes, dict[str, str]]:
         special = cmd in (CMD_DH, CMD_UIN)
         if not special:
             self.task += 1
@@ -596,7 +732,7 @@ class Client:
             values += [ts, digest, token, trace, str(cmd)]
         else:
             values += [str(cmd), "0", ts, digest, self.uin, trace, str(task)]
-        headers = {"Kb-Uin": self.uin}
+        headers: dict[str, str] = {"Kb-Uin": self.uin}
         if token:
             headers["Kb-GenUinToken"] = token
         if special:
@@ -634,18 +770,18 @@ class Client:
         parsed = dict(response)
         if parsed.get(2) != 200:
             raise RuntimeError(f"WeType HTTP status {parsed.get(2, 0)} at {path}")
-        headers = {}
+        resp_headers: dict[str, str] = {}
         for n, value in response:
             if n == 5 or not isinstance(value, bytes):
                 continue
             try:
                 kv = dict(fields(value))
-                headers[kv[1].decode()] = kv[2].decode()
+                resp_headers[kv[1].decode()] = kv[2].decode()
             except (ValueError, KeyError, AttributeError, UnicodeError):
                 pass
-        return parsed.get(5, b""), headers
+        return parsed.get(5, b""), resp_headers
 
-    def exchange(self, register):
+    def exchange(self, register: bool) -> tuple[str, str]:
         k = secrets.randbelow(N - 1) + 1
         point = point_mul(k)
         if point is None:
@@ -668,7 +804,6 @@ class Client:
         return server, reply.get(4, b"").decode()
 
     def _now_ms(self) -> int:
-        # Like the official client's GetSvrTimestamp, sign with the server clock, not the local one.
         return time.time_ns() // 1000000 + self.time_offset_ms
 
     def _sync_time(self) -> None:
@@ -677,13 +812,12 @@ class Client:
             server = dict(fields(body)).get(1)
         except ValueError:
             return
-        # Field 1 is server epoch ms; ignore anything else (empty/changed schema) and keep local time.
         if isinstance(server, int) and 10**12 <= server <= 10**13:
             self.time_offset_ms = server - time.time_ns() // 1000000
 
-    def handshake(self):
+    def handshake(self, credential_path: str) -> None:
         self._sync_time()
-        path = Path(get_optional_env("VINPUT_ASR_CREDENTIAL_PATH", "~/.cache/vinput/wetype/identity.json")).expanduser()
+        path = Path(credential_path).expanduser()
         cached = False
         try:
             identity = json.loads(path.read_text())
@@ -705,6 +839,7 @@ class Client:
             if not token:
                 raise RuntimeError("WeType registration token missing")
             req = field(1, self.device) + field(2, server) + field(4, token)
+            assert self.key is not None
             body, _ = self.roundtrip("/gen_uin_v2", self.aes.crypt(self.key, req), CMD_UIN, token=token)
             self.uin = str(dict(fields(self.aes.crypt(self.key, body, False))).get(2, 0))
             if self.uin == "0":
@@ -718,9 +853,17 @@ class Client:
                 os.replace(tmp, path)
             finally:
                 tmp.unlink(missing_ok=True)
+        assert self.key is not None
         self.roundtrip("/api_v2", self.aes.crypt(self.key, b""), 8074)
 
-    def voice(self, voice_id, opus, seq, total, end):
+    def voice(
+        self,
+        voice_id: str,
+        opus: bytes | None,
+        seq: int,
+        total: int,
+        end: bool,
+    ) -> tuple[str, str]:
         req = field(2, voice_id) + field(5, 5) + field(7, seq) + field(22, 1) + field(23, 1) + field(24, 1)
         if opus:
             req += field(4, opus)
@@ -728,6 +871,7 @@ class Client:
             req += field(6, 1)
         if total:
             req += field(11, total)
+        assert self.key is not None
         body, headers = self.roundtrip("/api_v2", self.aes.crypt(self.key, compress(field(1, req))), 4548, "2")
         plain = self.aes.crypt(self.key, body, False)
         if headers.get("Kb-CompressionType", headers.get("CompressionType")) == "2":
@@ -738,185 +882,220 @@ class Client:
         return reply.get(4, b"").decode(), reply.get(14, b"").decode()
 
 
-def positive_seconds(name: str, default: float) -> float:
-    value = float(get_optional_env(name, str(default)))
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{name} must be a positive finite number")
-    return value
+# Global runtime singletons
+_CONFIG: StreamingConfig | None = None
+_CLIENT: Client | None = None
+_ENCODER: OpusEncoder | None = None
+_STATE: ProviderState = ProviderState()
+_STOP_EVENT = threading.Event()
+_FINAL_EVENT = threading.Event()
+_VOICE_ID: str = ""
+_SEQ: int = 0
+_TOTAL: int = 0
+_PACKETS: list[bytes] = []
+_PCM_BUFFER = bytearray()
 
 
-def emit(kind: str, **values: Any) -> None:
-    print(json.dumps({"type": kind, **values}, ensure_ascii=False), flush=True)
+def connect(config: StreamingConfig) -> None:
+    global _CONFIG, _CLIENT, _ENCODER, _STATE, _STOP_EVENT, _FINAL_EVENT, _VOICE_ID, _SEQ, _TOTAL, _PACKETS, _PCM_BUFFER
+    _CONFIG = config
+    _STATE = ProviderState()
+    _STOP_EVENT.clear()
+    _FINAL_EVENT.clear()
+    _SEQ = 0
+    _TOTAL = 0
+    _PACKETS.clear()
+    _PCM_BUFFER.clear()
+
+    _CLIENT = Client(config.timeout)
+    _CLIENT.handshake(config.credential_path)
+    try:
+        _ENCODER = OpusEncoder(16000, 1, config.libopus_path)
+    except Exception as exc:
+        notify_error("err_opus", detail=str(exc))
+        raise
+
+    _VOICE_ID = uuid.uuid4().hex
+    emit_session_started(_VOICE_ID)
+    _STATE.session_started = True
+
+
+def _send_voice(end: bool = False, poll: bool = False) -> None:
+    global _SEQ, _TOTAL
+    if not _CLIENT or _STATE.cancelled:
+        return
+    if poll:
+        framed = None
+        number = 0
+    else:
+        _SEQ += 1
+        number = _SEQ
+        framed = (b"#!OPUS_RAW_V1" + bytes([2, 1, 0])) if _SEQ == 1 else b""
+        framed += b"".join(struct.pack("<H", len(p)) + p for p in _PACKETS)
+        _PACKETS.clear()
+        _TOTAL += len(framed)
+
+    raw, final = _CLIENT.voice(_VOICE_ID, framed, number, _TOTAL, end)
+    on_upstream_message(json.dumps({"raw": raw, "final": final}))
+
+
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    del is_commit
+    if not _ENCODER or not _CLIENT or _STATE.cancelled:
+        return
+    _PCM_BUFFER.extend(pcm_bytes)
+    while len(_PCM_BUFFER) >= 640 and not _STATE.cancelled:
+        _PACKETS.append(_ENCODER.encode(bytes(_PCM_BUFFER[:640]), 320))
+        del _PCM_BUFFER[:640]
+        if len(_PACKETS) == 6:
+            _send_voice()
+
+
+def on_finish() -> None:
+    if not _ENCODER or not _CLIENT or _STATE.cancelled:
+        return
+    if _PCM_BUFFER:
+        _PACKETS.append(_ENCODER.encode(bytes(_PCM_BUFFER).ljust(640, b"\0"), 320))
+        _PCM_BUFFER.clear()
+
+    if not _STATE.latest_text:
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
+        return
+
+    assert _CONFIG is not None
+    deadline = time.monotonic() + _CONFIG.finish_grace_secs
+    try:
+        _CLIENT.ws.socket.settimeout(min(_CONFIG.timeout, _CONFIG.finish_grace_secs))
+        _send_voice(end=True)
+        while not _STATE.polished_text:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or _STOP_EVENT.wait(min(0.03, remaining)):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            _CLIENT.ws.socket.settimeout(min(_CONFIG.timeout, remaining))
+            _send_voice(end=True, poll=True)
+    except TimeoutError:
+        pass
+    _STATE.final_received = True
+    _FINAL_EVENT.set()
+
+
+def on_cancel() -> None:
+    _STATE.cancelled = True
+    cleanup()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if isinstance(raw_msg, bytes):
+        raw_msg = raw_msg.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw_msg)
+    except Exception:
+        return
+
+    raw = str(data.get("raw", "")).strip()
+    final = str(data.get("final", "")).strip()
+    if raw and raw != _STATE.latest_text:
+        _STATE.latest_text = raw
+        emit_partial(raw)
+    if final:
+        _STATE.polished_text = final
+        _STATE.latest_text = final
+
+
+def cleanup() -> None:
+    global _CLIENT, _ENCODER
+    _STOP_EVENT.set()
+    _FINAL_EVENT.set()
+    if _CLIENT:
+        _CLIENT.ws.abort()
+        _CLIENT = None
+    if _ENCODER:
+        _ENCODER.destroy()
+        _ENCODER = None
 
 
 def run() -> int:
-    timeout = positive_seconds("VINPUT_ASR_TIMEOUT", 15)
-    grace = positive_seconds("VINPUT_ASR_FINISH_GRACE_SECS", 5)
-    inbox: queue.Queue[dict[str, Any]] = queue.Queue()
-    cancelled = threading.Event()
-    done = threading.Event()
-    active: list[Client] = []
-    errors: list[Exception] = []
+    try:
+        config = load_config()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
 
-    def reader() -> None:
-        try:
-            for line in sys.stdin:
-                if not line.strip():
-                    continue
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+    saw_finish = False
+    try:
+        for raw_line in sys.stdin:
+            if _STATE.cancelled or _STOP_EVENT.is_set():
+                break
+
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            try:
                 event = json.loads(line)
-                if not isinstance(event, dict):
-                    raise ValueError("Expected a JSON object")
-                kind = event.get("type")
-                if kind == "cancel":
-                    cancelled.set()
-                    return
-                if kind not in ("audio", "finish"):
-                    raise ValueError(f"Unknown event type: {kind}")
-                inbox.put(event)
-                if kind == "finish":
-                    return
-            # EOF without finish is an abort, never a request to submit text.
-            cancelled.set()
-        except Exception as exc:
-            inbox.put({"type": "error", "error": str(exc)})
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON input: {exc}") from exc
 
-    def worker() -> None:
-        client = None
-        try:
-            if cancelled.is_set():
-                return
-            client = Client()
-            active.append(client)
-            if cancelled.is_set():
-                return
-            client.handshake()
-            if cancelled.is_set():
-                return
-            encoder = OpusEncoder(16000, 1)
-            voice_id = uuid.uuid4().hex
-            emit("session_started", session_id=voice_id, config={})
-            seq = total = frames = polls = 0
-            text = polished = ""
-            packets: list[bytes] = []
-            pcm = bytearray()
-
-            def send(end: bool = False, poll: bool = False) -> None:
-                nonlocal seq, total, text, polished
-                if cancelled.is_set():
-                    return
-                if poll:
-                    framed = None
-                    number = 0
-                else:
-                    seq += 1
-                    number = seq
-                    framed = (b"#!OPUS_RAW_V1" + bytes([2, 1, 0])) if seq == 1 else b""
-                    framed += b"".join(struct.pack("<H", len(packet)) + packet for packet in packets)
-                    packets.clear()
-                    total += len(framed)
-                assert client is not None
-                raw, final = client.voice(voice_id, framed, number, total, end)
-                if cancelled.is_set():
-                    return
-                if raw and raw != text:
-                    text = raw
-                    emit("partial", text=text)
-                # Do not mistake an intermediate server revision for the utterance final.
-                if end and final:
-                    polished = final
-
-            while not cancelled.is_set():
+            event_type = str(event.get("type", "")).strip()
+            if event_type == "audio":
+                audio_base64 = event.get("audio_base64")
+                if not isinstance(audio_base64, str) or not audio_base64:
+                    raise ValueError("audio event requires non-empty audio_base64.")
                 try:
-                    event = inbox.get(timeout=0.1)
-                except queue.Empty:
-                    continue
-                kind = event["type"]
-                if kind == "audio":
-                    pcm.extend(base64.b64decode(event["audio_base64"], validate=True))
-                    while len(pcm) >= 640 and not cancelled.is_set():
-                        packets.append(encoder.encode(bytes(pcm[:640]), 320))
-                        frames += 1
-                        del pcm[:640]
-                        if len(packets) == 6:
-                            send()
-                elif kind == "finish":
-                    finish_start = time.monotonic()
-                    if pcm:
-                        if len(pcm) % 2:
-                            raise ValueError("PCM must contain 16-bit samples")
-                        packets.append(encoder.encode(bytes(pcm).ljust(640, b"\0"), 320))
-                        frames += 1
-                    if not text:
-                        # No transcript means there is no utterance for the
-                        # server to finalize: skip the finish round trips
-                        # (a speechless session never produces a final and
-                        # would otherwise burn the whole finish grace or
-                        # hit the socket read timeout) and keep stderr
-                        # silent so vinput-daemon can surface its own
-                        # "returned no text." notice.
-                        emit("final", text="", segment_final=True, utterance_final=True)
-                        return
-                    deadline = time.monotonic() + grace
-                    try:
-                        client.ws.socket.settimeout(min(timeout, grace))
-                        send(True)
-                        while not polished:
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0 or cancelled.wait(min(0.03, remaining)):
-                                break
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0:
-                                break
-                            client.ws.socket.settimeout(min(timeout, remaining))
-                            polls += 1
-                            send(True, True)
-                    except TimeoutError:
-                        # After finish only, retain the latest transcript on
-                        # a finalization timeout; a textless finish returns
-                        # before this point.
-                        pass
-                    if not cancelled.is_set():
-                        final_ms = round((time.monotonic() - finish_start) * 1000)
-                        print(
-                            f"[wetype] frames={frames} uploads={seq} polls={polls} final={final_ms}ms",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                        emit("final", text=polished or text, segment_final=True, utterance_final=True)
-                    return
-                elif kind == "error":
-                    raise ValueError(event["error"])
-        except Exception as exc:
-            if not cancelled.is_set():
-                errors.append(exc)
-        finally:
-            if client is not None:
-                client.ws.abort()
-            done.set()
+                    pcm_audio = base64.b64decode(audio_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                continue
 
-    threading.Thread(target=reader, daemon=True).start()
-    threading.Thread(target=worker, daemon=True).start()
-    while not done.wait(0.02):
-        if cancelled.is_set():
-            # Exit promptly even if DNS/TLS or a server response is still blocked.
-            if active:
-                active[0].ws.abort()
-            emit("closed")
-            return 0
-    if errors:
-        raise errors[0]
-    emit("closed")
-    return 0
+            if event_type == "finish":
+                saw_finish = True
+                on_finish()
+                break
+
+            if event_type == "cancel":
+                on_cancel()
+                break
+
+            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
+    finally:
+        if saw_finish and not _STATE.cancelled:
+            _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
+
+        if not _STATE.cancelled and _STATE.latest_text and not _STATE.final_emitted:
+            emit_final(_STATE.polished_text or _STATE.latest_text)
+            _STATE.final_emitted = True
+
+        cleanup()
+
+        if not _STATE.closed:
+            emit_closed()
+            _STATE.closed = True
+
+    if _STATE.error or _STATE.upstream_error:
+        return EXIT_RUNTIME_ERROR
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     try:
         return run()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
     except Exception as exc:
-        message = f"WeType ASR: {exc}"
-        emit("error", message=message)
-        print(message, file=sys.stderr, flush=True)
-        return 1
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":

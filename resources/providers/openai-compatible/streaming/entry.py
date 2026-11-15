@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+"""OpenAI-compatible duplex streaming speech-to-text provider via Realtime WebSocket protocol."""
 
-import array
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
@@ -12,26 +14,106 @@ import struct
 import sys
 import threading
 import uuid
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 DEFAULT_URL = "wss://api.openai.com/v1/realtime"
-DEFAULT_MODEL = "gpt-4o-transcribe"
-DEFAULT_TIMEOUT = 30
+DEFAULT_MODEL = "whisper-1"
 DEFAULT_TARGET_SAMPLE_RATE = 24000
+DEFAULT_TIMEOUT = 30
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
+        "err_network": "OpenAI streaming network error: {detail}",
+        "err_upstream": "OpenAI streaming server error: {message}",
+        "err_runtime": "OpenAI streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
+        "err_network": "OpenAI 兼容流式语音识别网络连接失败：{detail}",
+        "err_upstream": "OpenAI 兼容流式语音服务端报错：{message}",
+        "err_runtime": "OpenAI 兼容流式语音运行异常：{detail}",
+    },
+}
 
-def write_stdout(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "OpenAI Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def write_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
 
 
 def normalize_transcript_text(text: str) -> str:
@@ -53,85 +135,89 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
     return committed + " " + current
 
 
-def get_required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
+@dataclass(frozen=True)
+class StreamingConfig:
+    api_key: str
+    transcription_model: str
+    session_model: str
+    session_type: str
+    timeout: int
+    target_sample_rate: int
+    finish_timeout: float
+    url: str
+    use_binary: bool
+
+
+def require_env(name: str) -> str:
+    val = os.getenv(name, "").strip()
+    if not val:
         raise ValueError(f"Missing {name}.")
-    return value
+    return val
 
 
-def get_optional_env(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    return value or default
+def optional_env(name: str, default: str = "") -> str:
+    val = os.getenv(name, "").strip()
+    return val if val else default
 
 
-def get_optional_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
+def optional_int_env(name: str, default: int) -> int:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
-    return int(value)
-
-
-def get_optional_float_env(name: str, default: float) -> float:
-    value = os.getenv(name, "").strip()
-    if not value:
+    try:
+        return int(val)
+    except ValueError:
         return default
-    return float(value)
 
 
-def get_optional_bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or not value.strip():
+def optional_float_env(name: str, default: float) -> float:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def optional_bool_env(name: str, default: bool) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def new_event_id() -> str:
     return "event_" + uuid.uuid4().hex
 
 
-def resample_pcm16_mono(
-    pcm_audio: bytes,
-    source_rate: int,
-    target_rate: int,
-) -> bytes:
+def resample_pcm16_mono(pcm_audio: bytes, source_rate: int, target_rate: int) -> bytes:
     if source_rate == target_rate:
         return pcm_audio
     if source_rate <= 0 or target_rate <= 0:
-        raise ValueError("Sample rate must be positive.")
-    if len(pcm_audio) % 2 != 0:
-        raise ValueError("PCM payload length must be even for 16-bit audio.")
+        raise ValueError("Sample rates must be positive integers.")
 
-    source = array.array("h")
-    source.frombytes(pcm_audio)
-    if sys.byteorder != "little":
-        source.byteswap()
-
-    if not source:
+    sample_count = len(pcm_audio) // 2
+    if sample_count == 0:
         return b""
 
-    if len(source) == 1:
-        repeated = array.array("h", [source[0]] * max(1, target_rate // source_rate))
-        if sys.byteorder != "little":
-            repeated.byteswap()
-        return repeated.tobytes()
+    samples = struct.unpack(f"<{sample_count}h", pcm_audio[: sample_count * 2])
+    output_count = max(1, round(sample_count * target_rate / source_rate))
+    resampled: list[int] = [0] * output_count
 
-    target_length = max(1, round(len(source) * float(target_rate) / float(source_rate)))
-    result = array.array("h")
-    last_index = len(source) - 1
+    ratio = (sample_count - 1) / max(1, output_count - 1) if output_count > 1 else 0.0
+    for i in range(output_count):
+        pos = i * ratio
+        idx = int(pos)
+        frac = pos - idx
+        if idx + 1 < sample_count:
+            interpolated = (1.0 - frac) * samples[idx] + frac * samples[idx + 1]
+        else:
+            interpolated = float(samples[-1])
+        clamped = max(-32768, min(32767, round(interpolated)))
+        resampled[i] = clamped
 
-    for index in range(target_length):
-        position = index * last_index / max(1, target_length - 1)
-        left = int(position)
-        right = min(left + 1, last_index)
-        fraction = position - left
-        value = round(source[left] * (1.0 - fraction) + source[right] * fraction)
-        value = max(-32768, min(32767, value))
-        result.append(value)
-
-    if sys.byteorder != "little":
-        result.byteswap()
-    return result.tobytes()
+    return struct.pack(f"<{output_count}h", *resampled)
 
 
 class WebSocketClient:
@@ -150,8 +236,8 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self._recv_buffer = b""
         self.socket = self._connect()
+        self._recv_buffer = b""
         self._closed = False
 
     def _connect(self) -> socket.socket:
@@ -179,158 +265,163 @@ class WebSocketClient:
         sock.sendall(request.encode("utf-8"))
 
         response = self._read_http_response(sock)
-        self._validate_handshake(response, key)
-        self._recv_buffer = response.split(b"\r\n\r\n", 1)[1]
+        status_line = response.split(b"\r\n", 1)[0].decode("latin1", errors="replace")
+        if not (status_line.startswith("HTTP/1.1 101") or status_line.startswith("HTTP/1.0 101")):
+            sock.close()
+            raise RuntimeError(f"WebSocket handshake failed: {status_line}")
+
+        expected_accept = base64.b64encode(hashlib.sha1((key + GUID).encode("ascii")).digest()).decode("ascii")
+        headers = self._parse_headers(response)
+        actual_accept = headers.get("sec-websocket-accept")
+        if actual_accept != expected_accept:
+            sock.close()
+            raise RuntimeError("Sec-WebSocket-Accept header mismatch.")
         return sock
 
+    def _parse_headers(self, response: bytes) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        parts = response.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+        for line in parts[1:]:
+            if not line:
+                continue
+            name, _, value = line.partition(b":")
+            headers[name.strip().decode("latin1").lower()] = value.strip().decode("latin1")
+        return headers
+
     def _read_http_response(self, sock: socket.socket) -> bytes:
-        data = bytearray()
+        data = b""
         while b"\r\n\r\n" not in data:
             chunk = sock.recv(4096)
             if not chunk:
-                raise RuntimeError("WebSocket handshake failed: empty response.")
-            data.extend(chunk)
-            if len(data) > 65536:
-                raise RuntimeError("WebSocket handshake failed: response too large.")
-        return bytes(data)
+                raise RuntimeError("WebSocket handshake closed early.")
+            data += chunk
+        return data
 
-    def _validate_handshake(self, response: bytes, key: str) -> None:
-        header_blob = response.split(b"\r\n\r\n", 1)[0].decode("utf-8", errors="replace")
-        lines = header_blob.split("\r\n")
-        if not lines or "101" not in lines[0]:
-            raise RuntimeError(f"WebSocket handshake failed: {lines[0] if lines else 'invalid response'}")
+    def send_frame(self, opcode: int, payload: bytes) -> None:
+        if self._closed:
+            return
+        frame = bytearray()
+        frame.append(0x80 | (opcode & 0x0F))
+        length = len(payload)
+        mask_bit = 0x80
+        if length < 126:
+            frame.append(mask_bit | length)
+        elif length < 65536:
+            frame.append(mask_bit | 126)
+            frame.extend(struct.pack("!H", length))
+        else:
+            frame.append(mask_bit | 127)
+            frame.extend(struct.pack("!Q", length))
 
-        headers: dict[str, str] = {}
-        for line in lines[1:]:
-            if ":" not in line:
-                continue
-            name, value = line.split(":", 1)
-            headers[name.strip().lower()] = value.strip()
+        mask = secrets.token_bytes(4)
+        frame.extend(mask)
+        masked = bytearray(payload)
+        for index in range(len(masked)):
+            masked[index] ^= mask[index % 4]
+        frame.extend(masked)
+        self.socket.sendall(frame)
 
-        accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
-        if accept != expected:
-            raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
+    def send_text(self, text: str) -> None:
+        self.send_frame(0x1, text.encode("utf-8"))
+
+    def send_binary(self, payload: bytes) -> None:
+        self.send_frame(0x2, payload)
+
+    def send_json(self, payload: dict[str, Any]) -> None:
+        self.send_text(json.dumps(payload, ensure_ascii=False))
 
     def close(self) -> None:
         if self._closed:
             return
+        self._closed = True
         try:
-            self._send_frame(0x8, b"")
-        except OSError:
+            self.send_frame(0x8, b"")
+        except Exception:
+            pass
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except Exception:
             pass
         try:
             self.socket.close()
-        finally:
-            self._closed = True
+        except Exception:
+            pass
 
-    def send_json(self, payload: dict[str, Any]) -> None:
-        self._send_frame(0x1, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-
-    def send_binary(self, payload: bytes) -> None:
-        self._send_frame(0x2, payload)
-
-    def recv_json(self) -> dict[str, Any] | None:
-        fragments = bytearray()
-        current_opcode: int | None = None
-
+    def recv_frame(self) -> tuple[int, bytes] | None:
         while True:
-            frame = self._recv_frame()
-            if frame is None:
+            header = self._recv_exact(2)
+            if header is None:
                 return None
 
-            opcode, payload, fin = frame
+            first, second = struct.unpack("!BB", header)
+            opcode = first & 0x0F
+            masked = bool(second & 0x80)
+            length = second & 0x7F
+
+            if length == 126:
+                ext = self._recv_exact(2)
+                if ext is None:
+                    return None
+                (length,) = struct.unpack("!H", ext)
+            elif length == 127:
+                ext = self._recv_exact(8)
+                if ext is None:
+                    return None
+                (length,) = struct.unpack("!Q", ext)
+
+            mask = b""
+            if masked:
+                raw_mask = self._recv_exact(4)
+                if raw_mask is None:
+                    return None
+                mask = raw_mask
+
+            payload = self._recv_exact(length)
+            if payload is None:
+                return None
+
+            if masked:
+                unmasked = bytearray(payload)
+                for index in range(len(unmasked)):
+                    unmasked[index] ^= mask[index % 4]
+                payload = bytes(unmasked)
+
             if opcode == 0x8:
-                self._closed = True
+                self.close()
                 return None
             if opcode == 0x9:
-                self._send_frame(0xA, payload)
+                self.send_frame(0xA, payload)
                 continue
             if opcode == 0xA:
                 continue
-            if opcode not in {0x0, 0x1}:
-                continue
+            return opcode, payload
 
-            if opcode == 0x1:
-                current_opcode = opcode
-                fragments = bytearray(payload)
-            else:
-                if current_opcode is None:
-                    continue
-                fragments.extend(payload)
-
-            if not fin:
-                continue
-
-            text = fragments.decode("utf-8", errors="replace")
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(f"Invalid JSON message from ASR service: {exc}") from exc
-
-    def _send_frame(self, opcode: int, payload: bytes) -> None:
-        if self._closed:
-            return
-
-        first = 0x80 | (opcode & 0x0F)
-        mask_key = secrets.token_bytes(4)
-        length = len(payload)
-
-        header = bytearray([first])
-        if length < 126:
-            header.append(0x80 | length)
-        elif length < (1 << 16):
-            header.append(0x80 | 126)
-            header.extend(struct.pack("!H", length))
-        else:
-            header.append(0x80 | 127)
-            header.extend(struct.pack("!Q", length))
-
-        masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-        self.socket.sendall(bytes(header) + mask_key + masked)
-
-    def _recv_frame(self) -> tuple[int, bytes, bool] | None:
-        header = self._recv_exact(2)
-        if header is None:
+    def recv_text(self) -> str | None:
+        result = self.recv_frame()
+        if result is None:
             return None
+        _, payload = result
+        return payload.decode("utf-8")
 
-        first, second = header
-        fin = bool(first & 0x80)
-        opcode = first & 0x0F
-        masked = bool(second & 0x80)
-        length = second & 0x7F
-
-        if length == 126:
-            raw_length = self._recv_exact(2)
-            if raw_length is None:
-                return None
-            length = struct.unpack("!H", raw_length)[0]
-        elif length == 127:
-            raw_length = self._recv_exact(8)
-            if raw_length is None:
-                return None
-            length = struct.unpack("!Q", raw_length)[0]
-
-        mask_key = b""
-        if masked:
-            mask_key = self._recv_exact(4)
-            if mask_key is None:
-                return None
-
-        payload = self._recv_exact(length)
-        if payload is None:
+    def recv_json(self) -> dict[str, Any] | None:
+        raw = self.recv_text()
+        if raw is None:
             return None
-
-        if masked:
-            payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-
-        return opcode, payload, fin
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Invalid JSON received from server: {exc}") from exc
 
     def _recv_exact(self, size: int) -> bytes | None:
         while len(self._recv_buffer) < size:
-            chunk = self.socket.recv(4096)
+            try:
+                chunk = self.socket.recv(max(4096, size - len(self._recv_buffer)))
+            except TimeoutError:
+                raise
+            except OSError:
+                return None
             if not chunk:
-                if not self._recv_buffer and size > 0:
+                if not self._recv_buffer:
                     return None
                 raise RuntimeError("WebSocket connection closed unexpectedly.")
             self._recv_buffer += chunk
@@ -341,80 +432,62 @@ class WebSocketClient:
 
 
 def build_url(session_model: str) -> str:
-    explicit_url = get_optional_env("VINPUT_ASR_URL")
+    explicit_url = optional_env("VINPUT_ASR_URL")
     if explicit_url:
-        base_url = explicit_url
-    else:
-        base_url = DEFAULT_URL
-        base_from_env = get_optional_env("VINPUT_ASR_BASE_URL")
-        if base_from_env:
-            parsed = urlparse(base_from_env)
-            scheme = parsed.scheme
-            if scheme == "https":
-                scheme = "wss"
-            elif scheme == "http":
-                scheme = "ws"
-            path = parsed.path.rstrip("/") + "/realtime"
-            base_url = urlunparse((scheme, parsed.netloc, path, "", parsed.query, ""))
-
-    parsed = urlparse(base_url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if session_model == "gpt-live-transcribe":
-        query.pop("model", None)
-        query["intent"] = "transcription"
-    else:
+        parsed = urlparse(explicit_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
         query.setdefault("model", session_model)
+        return urlunparse(parsed._replace(query=urlencode(query)))
+
+    base_url = optional_env("VINPUT_ASR_BASE_URL")
+    if base_url:
+        parsed = urlparse(base_url)
+        scheme = "wss" if parsed.scheme in {"https", "wss"} else "ws"
+        path = parsed.path.rstrip("/")
+        if not path.endswith("/realtime"):
+            path += "/realtime"
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query.setdefault("model", session_model)
+        return urlunparse((scheme, parsed.netloc, path, "", urlencode(query), ""))
+
+    parsed = urlparse(DEFAULT_URL)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.setdefault("model", session_model)
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
 def build_session_update_event(transcription_model: str, target_sample_rate: int, session_type: str) -> dict[str, Any]:
     session: dict[str, Any] = {
-        "type": session_type,
-        "audio": {
-            "input": {
-                "format": {
-                    "type": "audio/pcm",
-                    "rate": target_sample_rate,
-                },
-                "transcription": {
-                    "model": transcription_model,
-                },
-            }
-        },
+        "modalities": ["text"],
+        "input_audio_format": "pcm16",
+        "sample_rate": target_sample_rate,
+        "input_audio_transcription": {"model": transcription_model},
     }
 
-    prompt = get_optional_env("VINPUT_ASR_PROMPT")
+    prompt = optional_env("VINPUT_ASR_PROMPT")
     if prompt:
-        session["audio"]["input"]["transcription"]["prompt"] = prompt
+        session["input_audio_transcription"]["prompt"] = prompt
 
-    if transcription_model == "gpt-live-transcribe":
-        transcription = session["audio"]["input"]["transcription"]
-        languages = get_optional_env("VINPUT_ASR_LANGUAGES")
-        if languages:
-            hints = json.loads(languages)
-            if not isinstance(hints, list) or not hints or not all(isinstance(hint, str) and hint for hint in hints):
-                raise ValueError("VINPUT_ASR_LANGUAGES must be a non-empty JSON array of language codes.")
-            transcription["languages"] = hints
-        delay = get_optional_env("VINPUT_ASR_DELAY", "medium")
-        if delay not in {"minimal", "low", "medium", "high", "xhigh"}:
-            raise ValueError("VINPUT_ASR_DELAY must be minimal, low, medium, high, or xhigh.")
-        transcription["delay"] = delay
-        if get_optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
-            raise ValueError("gpt-live-transcribe does not support server-side VAD.")
-    else:
-        language = get_optional_env("VINPUT_ASR_LANGUAGE")
-        if language:
-            session["audio"]["input"]["transcription"]["language"] = language
+    language = optional_env("VINPUT_ASR_LANGUAGE")
+    if language:
+        session["input_audio_transcription"]["language"] = language
 
-    if get_optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
-        session["audio"]["input"]["turn_detection"] = {
+    if optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
+        session["turn_detection"] = {
             "type": "server_vad",
-            "threshold": get_optional_float_env("VINPUT_ASR_VAD_THRESHOLD", 0.5),
-            "prefix_padding_ms": get_optional_int_env("VINPUT_ASR_VAD_PREFIX_PADDING_MS", 300),
-            "silence_duration_ms": get_optional_int_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS", 500),
+            "threshold": optional_float_env("VINPUT_ASR_VAD_THRESHOLD", 0.5),
+            "prefix_padding_ms": optional_int_env("VINPUT_ASR_VAD_PREFIX_PADDING_MS", 300),
+            "silence_duration_ms": optional_int_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS", 500),
         }
     else:
-        session["audio"]["input"]["turn_detection"] = None
+        session["turn_detection"] = None
+
+    temperature = optional_env("VINPUT_ASR_TEMPERATURE")
+    if temperature:
+        try:
+            session["temperature"] = float(temperature)
+        except ValueError:
+            pass
 
     return {
         "event_id": new_event_id(),
@@ -428,54 +501,48 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
 
     if message_type in {"session.created", "session.updated"}:
         session = message.get("session", {})
-        session_id = ""
-        if isinstance(session, dict):
-            session_id = str(session.get("id", ""))
+        session_id = str(session.get("id", "")) if isinstance(session, dict) else ""
         if not state.get("session_started"):
-            write_stdout(
-                {
-                    "type": "session_started",
-                    "session_id": session_id,
-                    "config": session if isinstance(session, dict) else {},
-                }
-            )
-        state["session_started"] = True
+            emit_session_started(session_id)
+            state["session_started"] = True
         return
 
-    if message_type == "input_audio_buffer.committed":
-        item_id = str(message.get("item_id", "")).strip()
-        if item_id:
-            state["last_item_id"] = item_id
-            state["partials"].setdefault(item_id, "")
+    if message_type == "conversation.item.created":
+        item = message.get("item", {})
+        if isinstance(item, dict):
+            item_id = str(item.get("id", "")).strip()
+            if item_id:
+                state["last_item_id"] = item_id
         return
 
-    if message_type == "conversation.item.input_audio_transcription.delta":
+    if message_type in {
+        "conversation.item.input_audio_transcription.text",
+        "response.audio_transcript.delta",
+    }:
         item_id = str(message.get("item_id", "")).strip() or str(state.get("last_item_id", "")).strip()
-        delta = str(message.get("delta", ""))
+        text = str(message.get("text", "") or message.get("delta", ""))
         if item_id:
-            state["partials"][item_id] = str(state["partials"].get(item_id, "")) + delta
-            preview = combine_transcript(
-                str(state.get("confirmed_text", "")),
-                str(state["partials"].get(item_id, "")),
-            )
-        else:
-            preview = combine_transcript(str(state.get("confirmed_text", "")), delta)
-        write_stdout({"type": "partial", "text": preview})
+            state["partials"][item_id] = text
+        visible_text = combine_transcript(
+            str(state.get("confirmed_text", "")),
+            text,
+        )
+        emit_partial(visible_text)
         return
 
-    if message_type == "conversation.item.input_audio_transcription.completed":
+    if message_type in {
+        "conversation.item.input_audio_transcription.completed",
+        "response.audio_transcript.done",
+    }:
         item_id = str(message.get("item_id", "")).strip()
-        transcript = str(message.get("transcript", "")).strip()
+        transcript = str(message.get("transcript", "") or message.get("text", "")).strip()
         full_text = combine_transcript(str(state.get("confirmed_text", "")), transcript)
         state["confirmed_text"] = full_text
         if item_id:
+            state["completed_items"].add(item_id)
             state["partials"].pop(item_id, None)
-        state["completed_items"].add(item_id)
-        # NOTE: host ends the utterance on the first non-empty final, so surface
-        # mid-stream completions as partial; a single final goes out on finish.
-        if full_text:
-            write_stdout({"type": "partial", "text": full_text})
-        if state["finishing"] and len(state["completed_items"]) >= state["commits_sent"]:
+        emit_final(full_text)
+        if state.get("finishing") and len(state.get("completed_items", set())) >= state.get("commits_sent", 0):
             state["finished"].set()
         return
 
@@ -486,7 +553,7 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
             candidate = error.get("message")
             if isinstance(candidate, str) and candidate.strip():
                 error_message = candidate.strip()
-        write_stdout({"type": "error", "message": error_message})
+        notify_error("err_upstream", message=error_message)
         state["error"] = error_message
         state["finished"].set()
         return
@@ -498,28 +565,54 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
             candidate = error.get("message")
             if isinstance(candidate, str) and candidate.strip():
                 error_message = candidate.strip()
-        write_stdout({"type": "error", "message": error_message})
+        notify_error("err_upstream", message=error_message)
         state["error"] = error_message
         state["finished"].set()
         return
 
 
-def run() -> int:
-    api_key = get_required_env("VINPUT_ASR_API_KEY")
-    transcription_model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
-    session_model = get_optional_env("VINPUT_ASR_SESSION_MODEL", transcription_model)
+def load_config() -> StreamingConfig:
+    api_key = require_env("VINPUT_ASR_API_KEY")
+    transcription_model = optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
+    session_model = optional_env("VINPUT_ASR_SESSION_MODEL", transcription_model)
     session_type = "realtime" if session_model != transcription_model else "transcription"
-    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    target_sample_rate = get_optional_int_env("VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE)
-    finish_timeout = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", float(timeout))
+    timeout = optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
+    target_sample_rate = optional_int_env("VINPUT_ASR_TARGET_SAMPLE_RATE", DEFAULT_TARGET_SAMPLE_RATE)
+    finish_timeout = optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", float(timeout))
     url = build_url(session_model)
-    session_update = build_session_update_event(transcription_model, target_sample_rate, session_type)
+    use_binary = optional_bool_env("VINPUT_ASR_BINARY_MODE", False)
 
-    headers = {"Authorization": f"Bearer {api_key}"}
-    client = WebSocketClient(url, headers, timeout)
-    client.send_json(session_update)
+    return StreamingConfig(
+        api_key=api_key,
+        transcription_model=transcription_model,
+        session_model=session_model,
+        session_type=session_type,
+        timeout=timeout,
+        target_sample_rate=target_sample_rate,
+        finish_timeout=finish_timeout,
+        url=url,
+        use_binary=use_binary,
+    )
 
-    state: dict[str, Any] = {
+
+_CLIENT: WebSocketClient | None = None
+_STATE: dict[str, Any] = {}
+_STOP_EVENT = threading.Event()
+_CONFIG: StreamingConfig | None = None
+_HAS_AUDIO = False
+
+
+def connect(config: StreamingConfig) -> None:
+    global _CLIENT, _CONFIG, _STATE, _HAS_AUDIO
+    _CONFIG = config
+    _HAS_AUDIO = False
+    session_update = build_session_update_event(
+        config.transcription_model, config.target_sample_rate, config.session_type
+    )
+    headers = {"Authorization": f"Bearer {config.api_key}"}
+    _CLIENT = WebSocketClient(config.url, headers, config.timeout)
+    _CLIENT.send_json(session_update)
+    _STATE = {
         "session_started": False,
         "error": None,
         "closed": False,
@@ -531,7 +624,101 @@ def run() -> int:
         "finishing": False,
         "finished": threading.Event(),
     }
-    stop_event = threading.Event()
+
+
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    global _HAS_AUDIO
+    if not _CLIENT or not _CONFIG:
+        return
+    payload_audio = resample_pcm16_mono(
+        pcm_audio=pcm_bytes,
+        source_rate=16000,
+        target_rate=_CONFIG.target_sample_rate,
+    )
+    _HAS_AUDIO = True
+    if _CONFIG.use_binary:
+        _CLIENT.send_binary(payload_audio)
+    else:
+        _CLIENT.send_json(
+            {
+                "event_id": new_event_id(),
+                "type": "input_audio_buffer.append",
+                "audio": base64.b64encode(payload_audio).decode("ascii"),
+            }
+        )
+    if is_commit:
+        _STATE["commits_sent"] += 1
+        _HAS_AUDIO = False
+        _CLIENT.send_json(
+            {
+                "event_id": new_event_id(),
+                "type": "input_audio_buffer.commit",
+            }
+        )
+
+
+def on_finish() -> None:
+    global _HAS_AUDIO
+    if _CLIENT and _STATE:
+        _STATE["finishing"] = True
+        if _HAS_AUDIO:
+            _STATE["commits_sent"] += 1
+            _CLIENT.send_json(
+                {
+                    "event_id": new_event_id(),
+                    "type": "input_audio_buffer.commit",
+                }
+            )
+
+
+def on_cancel() -> None:
+    _STOP_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if not _STATE:
+        return
+    if isinstance(raw_msg, bytes):
+        raw_msg = raw_msg.decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw_msg)
+        if isinstance(data, dict):
+            handle_server_message(data, _STATE)
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+
+
+def cleanup() -> None:
+    global _CLIENT
+    _STOP_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
+
+
+def run() -> int:
+    global _STATE
+    try:
+        config = load_config()
+    except ValueError as exc:
+        notify_error("err_missing_api_key" if "API_KEY" in str(exc) else "err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
+
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+    state = _STATE
+    client = _CLIENT
+    stop_event = _STOP_EVENT
+    stop_event.clear()
+
+    if not client:
+        return EXIT_RUNTIME_ERROR
 
     def reader() -> None:
         try:
@@ -543,7 +730,7 @@ def run() -> int:
         except Exception as exc:
             if not stop_event.is_set():
                 state["error"] = str(exc)
-                write_stdout({"type": "error", "message": str(exc)})
+                notify_error("err_network", detail=str(exc))
         finally:
             state["finished"].set()
             stop_event.set()
@@ -552,8 +739,6 @@ def run() -> int:
     thread.start()
 
     saw_finish = False
-    has_audio = False
-    use_binary = get_optional_bool_env("VINPUT_ASR_BINARY_MODE", False)
     try:
         for raw_line in sys.stdin:
             if stop_event.is_set():
@@ -573,97 +758,54 @@ def run() -> int:
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
                     raise ValueError("audio event requires non-empty audio_base64.")
-
                 try:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
                     raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
-
-                source_rate = int(event.get("sample_rate", 16000))
-                payload_audio = resample_pcm16_mono(
-                    pcm_audio=pcm_audio,
-                    source_rate=source_rate,
-                    target_rate=target_sample_rate,
-                )
-                has_audio = True
-                if use_binary:
-                    client.send_binary(payload_audio)
-                else:
-                    client.send_json(
-                        {
-                            "event_id": new_event_id(),
-                            "type": "input_audio_buffer.append",
-                            "audio": base64.b64encode(payload_audio).decode("ascii"),
-                        }
-                    )
-                if bool(event.get("commit", False)):
-                    state["commits_sent"] += 1
-                    has_audio = False
-                    client.send_json(
-                        {
-                            "event_id": new_event_id(),
-                            "type": "input_audio_buffer.commit",
-                        }
-                    )
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
             if event_type == "finish":
                 saw_finish = True
-                state["finishing"] = True
-                if has_audio:
-                    state["commits_sent"] += 1
-                    client.send_json(
-                        {
-                            "event_id": new_event_id(),
-                            "type": "input_audio_buffer.commit",
-                        }
-                    )
+                on_finish()
                 break
 
             if event_type == "cancel":
-                stop_event.set()
+                on_cancel()
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        if saw_finish and state["commits_sent"] and not state.get("error"):
-            if len(state["completed_items"]) < state["commits_sent"]:
-                state["finished"].wait(timeout=finish_timeout)
-            if len(state["completed_items"]) < state["commits_sent"] and not state.get("error"):
+        if saw_finish and state.get("commits_sent") and not state.get("error"):
+            if len(state.get("completed_items", set())) < state.get("commits_sent", 0):
+                state["finished"].wait(timeout=config.finish_timeout)
+            if len(state.get("completed_items", set())) < state.get("commits_sent", 0) and not state.get("error"):
                 state["error"] = "ASR connection ended or timed out before the final transcript."
-                write_stdout({"type": "error", "message": state["error"]})
-        stop_event.set()
-        client.close()
+                notify_error("err_upstream", message=state["error"])
+        cleanup()
         thread.join(timeout=1.0)
         confirmed = str(state.get("confirmed_text", "")).strip()
         if confirmed and saw_finish and not state.get("error"):
-            write_stdout(
-                {
-                    "type": "final",
-                    "text": confirmed,
-                    "segment_final": True,
-                    "utterance_final": True,
-                }
-            )
-        if not state["closed"]:
-            write_stdout({"type": "closed"})
+            emit_final(confirmed)
+        if not state.get("closed"):
+            emit_closed()
             state["closed"] = True
 
     if state.get("error"):
         return EXIT_RUNTIME_ERROR
-    return 0
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     try:
         return run()
     except ValueError as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_USAGE_ERROR
     except Exception as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

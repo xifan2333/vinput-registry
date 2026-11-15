@@ -1,21 +1,8 @@
 #!/usr/bin/env python3
-"""讯飞输入法（iFlytek IME）流式语音识别 provider，遵循 Vinput provider 契约。
-
-协议来源：J3n5en/voicekey 仓库 crates/core/src/ifly.rs（Rust 实现），移植到
-Vinput 的 stdin/stdout JSONL 契约（基础设施照抄本机 doubaoime/streaming 模板）。
-
-协议要点：
-- 端点 wss://100ime-iat-api.xfyun.cn/v2/iat，讯飞输入法 App 内置的 IAT 通道
-- 鉴权：URL 携带 HMAC-SHA256 签名（host/date/request-line），凭证为 App 内嵌的
-  "100IME" 应用参数，与用户账号无关，无需登录、无需设备注册
-- 音频：16 kHz 单声道 S16LE 裸 PCM，base64 后按 1280 字节（40ms）一帧走 JSON 文本帧
-- 流式结果：dwa=wpgs 渐进式返回，pgs=rpl 区间替换，按 sn 有序合并
-"""
+"""iFlytek IME (讯飞输入法) duplex streaming speech-to-text provider via WebSocket protocol."""
 
 from __future__ import annotations
 
-import argparse
-import asyncio
 import base64
 import email.utils
 import hashlib
@@ -23,7 +10,6 @@ import hmac
 import json
 import os
 import secrets
-import signal
 import socket
 import ssl
 import struct
@@ -31,11 +17,14 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterable, Callable
-from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote, urlparse
 
+DEFAULT_TIMEOUT = 15.0
+DEFAULT_FINISH_GRACE_SECS = 5.0
+MAX_FINISH_GRACE_SECS = 9.0
+MAX_WEBSOCKET_MESSAGE_BYTES = 4 * 1024 * 1024
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 HOST = "100ime-iat-api.xfyun.cn"
@@ -43,10 +32,10 @@ PATH = "/v2/iat"
 APP_ID = "100IME"
 API_KEY = "15461402826c8360ebcf1270cbba88e5"
 API_SECRET = "sH8v2wSSxxHTy1UNfN6dFaSqVjlmR7BB"
-CHUNK_BYTES = 1280  # 16 kHz 单声道 S16LE 的 40 ms
+CHUNK_BYTES = 1280  # 16 kHz mono S16LE 40 ms
 AUDIO_FORMAT = "audio/L16;rate=16000"
 
-BUSINESS = {
+BUSINESS: dict[str, Any] = {
     "language": "zh_cn",
     "domain": "iat",
     "accent": "mandarin",
@@ -56,31 +45,179 @@ BUSINESS = {
     "ptt": 1,
 }
 
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
 
-def log(message: str) -> None:
-    """本地排障用。daemon 会把 provider 的每一行 stderr 当桌面通知弹给用户，
-    所以默认必须静默，只有显式设置 VINPUT_ASR_DEBUG 时才输出。"""
-    if os.getenv("VINPUT_ASR_DEBUG"):
-        print(f"[iflyime] {message}", file=sys.stderr, flush=True)
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_network": "iFlytek IME streaming network error: {detail}",
+        "err_upstream": "iFlytek IME streaming server error {code}: {detail}",
+        "err_runtime": "iFlytek IME streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_network": "讯飞输入法流式语音识别网络连接失败：{detail}",
+        "err_upstream": "讯飞输入法流式语音服务端报错 {code}：{detail}",
+        "err_runtime": "讯飞输入法流式语音运行异常：{detail}",
+    },
+}
+
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "iFlytek IME Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
+
+
+def build_auth_url(endpoint: str = "") -> str:
+    if endpoint:
+        return endpoint
+    date = email.utils.formatdate(usegmt=True)
+    origin = f"host: {HOST}\ndate: {date}\nGET {PATH} HTTP/1.1"
+    signature = base64.b64encode(
+        hmac.new(API_SECRET.encode("utf-8"), origin.encode("utf-8"), hashlib.sha256).digest()
+    ).decode("ascii")
+    authorization = base64.b64encode(
+        f'api_key="{API_KEY}", algorithm="hmac-sha256", headers="host date request-line", '
+        f'signature="{signature}"'.encode()
+    ).decode("ascii")
+    return f"wss://{HOST}{PATH}?authorization={quote(authorization, safe='')}&date={quote(date, safe='')}&host={HOST}"
+
+
+def build_frame(audio: bytes, status: int, include_business: bool) -> dict[str, Any]:
+    frame: dict[str, Any] = {
+        "data": {
+            "status": status,
+            "format": AUDIO_FORMAT,
+            "encoding": "raw",
+            "audio": base64.b64encode(audio).decode("ascii"),
+        }
+    }
+    if include_business:
+        frame["common"] = {"app_id": APP_ID}
+        frame["business"] = BUSINESS
+    return frame
+
+
+@dataclass
+class ProviderState:
+    error: str | None = None
+    closed: bool = False
+    cancelled: bool = False
+    latest_text: str = ""
+    final_received: bool = False
+    final_emitted: bool = False
+    upstream_error: bool = False
+    session_started: bool = False
+    segments: dict[int, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StreamingConfig:
+    endpoint: str
+    timeout: float
+    finish_grace_secs: float
+
+
+def load_config() -> StreamingConfig:
+    endpoint = os.getenv("VINPUT_ASR_ENDPOINT", "").strip()
+    timeout_str = os.getenv("VINPUT_ASR_TIMEOUT", "").strip()
+    grace_str = os.getenv("VINPUT_ASR_FINISH_GRACE_SECS", "").strip()
+
+    timeout = float(timeout_str) if timeout_str else DEFAULT_TIMEOUT
+    finish_grace_secs = float(grace_str) if grace_str else DEFAULT_FINISH_GRACE_SECS
+
+    if not 0 < finish_grace_secs <= MAX_FINISH_GRACE_SECS:
+        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 9 seconds.")
+    if not 0 < timeout <= 60:
+        raise ValueError("VINPUT_ASR_TIMEOUT must be between 0 and 60 seconds.")
+
+    return StreamingConfig(
+        endpoint=endpoint,
+        timeout=timeout,
+        finish_grace_secs=finish_grace_secs,
+    )
 
 
 class WebSocketClient:
-    def __init__(self, url: str, headers: dict[str, str], timeout: float) -> None:
+    def __init__(self, url: str, timeout: float) -> None:
         parsed = urlparse(url)
-        if parsed.scheme not in {"ws", "wss"}:
-            raise ValueError("WebSocket URL must use ws:// or wss://.")
-        if not parsed.hostname:
-            raise ValueError("WebSocket URL is missing a hostname.")
+        if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
+            raise ValueError("Authenticated URL must use ws:// or wss://.")
 
+        self.scheme = parsed.scheme
         self.host = parsed.hostname
         self.port = parsed.port or (443 if parsed.scheme == "wss" else 80)
         self.path = parsed.path or "/"
         if parsed.query:
             self.path += "?" + parsed.query
-        self.scheme = parsed.scheme
         self.timeout = timeout
-        self.headers = headers
-        self.response_headers: dict[str, str] = {}
         self._recv_buffer = b""
         self._closed = False
         self._send_lock = threading.Lock()
@@ -89,8 +226,6 @@ class WebSocketClient:
     def _connect(self) -> socket.socket:
         deadline = time.monotonic() + self.timeout
         addresses = socket.getaddrinfo(self.host, self.port, type=socket.SOCK_STREAM)
-        # IPv4 优先 + 单地址短超时：某条路由（如 IPv6/代理瞬断）不可达时
-        # 立即换下一条，避免把整个连接超时耗完而被 daemon 判定失败
         addresses.sort(key=lambda info: info[0] == socket.AF_INET6)
 
         last_error: Exception | None = None
@@ -110,18 +245,19 @@ class WebSocketClient:
                     sock = raw_sock
 
                 key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
-                lines = [
-                    f"GET {self.path} HTTP/1.1",
-                    f"Host: {self.host}:{self.port}",
-                    "Upgrade: websocket",
-                    "Connection: Upgrade",
-                    f"Sec-WebSocket-Key: {key}",
-                    "Sec-WebSocket-Version: 13",
-                ]
-                for name, value in self.headers.items():
-                    lines.append(f"{name}: {value}")
-                sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("utf-8"))
-
+                host_header = self.host if self.port in {80, 443} else f"{self.host}:{self.port}"
+                request = "\r\n".join(
+                    [
+                        f"GET {self.path} HTTP/1.1",
+                        f"Host: {host_header}",
+                        "Upgrade: websocket",
+                        "Connection: Upgrade",
+                        f"Sec-WebSocket-Key: {key}",
+                        "Sec-WebSocket-Version: 13",
+                        "\r\n",
+                    ]
+                )
+                sock.sendall(request.encode("utf-8"))
                 response, overflow = self._read_http_response(sock)
                 self._recv_buffer = overflow
                 self._validate_handshake(response, key)
@@ -132,7 +268,7 @@ class WebSocketClient:
                     raw_sock.close()
                 except OSError:
                     pass
-        raise RuntimeError(f"无法连接 {self.host}:{self.port}: {last_error}")
+        raise RuntimeError(f"Unable to connect to {self.host}:{self.port}: {last_error}")
 
     def _read_http_response(self, sock: socket.socket) -> tuple[bytes, bytes]:
         data = bytearray()
@@ -143,76 +279,48 @@ class WebSocketClient:
             data.extend(chunk)
             if len(data) > 65536:
                 raise RuntimeError("WebSocket handshake failed: response too large.")
-
         response, overflow = bytes(data).split(b"\r\n\r\n", 1)
         return response, overflow
 
     def _validate_handshake(self, response: bytes, key: str) -> None:
-        header_blob = response.decode("utf-8", errors="replace")
-        lines = header_blob.split("\r\n")
+        lines = response.decode("utf-8", errors="replace").split("\r\n")
+        if not lines or " 101 " not in f" {lines[0]} ":
+            status = lines[0] if lines else "invalid response"
+            raise RuntimeError(f"WebSocket handshake failed: {status}")
 
         headers: dict[str, str] = {}
         for line in lines[1:]:
-            if ":" not in line:
-                continue
-            name, value = line.split(":", 1)
-            headers[name.strip().lower()] = value.strip()
-
-        if not lines or "101" not in lines[0]:
-            status_line = lines[0] if lines else "invalid response"
-            details = [f"WebSocket handshake failed: {status_line}"]
-            if " 401" in f" {status_line} ":
-                details.append("鉴权被拒绝（检查系统时间是否准确）")
-            raise RuntimeError(", ".join(details))
-
-        accept = headers.get("sec-websocket-accept")
-        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("utf-8")).digest()).decode("ascii")
-        if accept != expected:
+            if ":" in line:
+                name, value = line.split(":", 1)
+                headers[name.strip().lower()] = value.strip()
+        expected = base64.b64encode(hashlib.sha1((key + GUID).encode("ascii")).digest()).decode("ascii")
+        if headers.get("sec-websocket-accept") != expected:
             raise RuntimeError("WebSocket handshake failed: invalid Sec-WebSocket-Accept header.")
-        self.response_headers = headers
 
-    def close(self):
-        self._closed = True
-        try:
-            self.socket.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self.socket.close()
+    def send_text(self, text: str) -> None:
+        self._send_frame(0x1, text.encode("utf-8"))
 
-    def _send_frame(self, opcode: int, payload: bytes) -> None:
-        if self._closed:
-            raise ConnectionError("WebSocket connection is closed")
-
-        first = 0x80 | (opcode & 0x0F)
-        mask_key = secrets.token_bytes(4)
-        length = len(payload)
-
-        header = bytearray([first])
-        if length < 126:
-            header.append(0x80 | length)
-        elif length < (1 << 16):
-            header.append(0x80 | 126)
-            header.extend(struct.pack("!H", length))
-        else:
-            header.append(0x80 | 127)
-            header.extend(struct.pack("!Q", length))
-
-        masked = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
+    def close(self) -> None:
         with self._send_lock:
-            self.socket.sendall(bytes(header) + mask_key + masked)
-
-    def send_text(self, payload: str) -> None:
-        self._send_frame(0x1, payload.encode("utf-8"))
+            if self._closed:
+                return
+            try:
+                self._send_frame_locked(0x8, b"")
+            except OSError:
+                pass
+            try:
+                self.socket.close()
+            finally:
+                self._closed = True
 
     def recv_message(self) -> tuple[int, bytes] | None:
         fragments = bytearray()
         current_opcode: int | None = None
-
+        fragment_bytes = 0
         while True:
             frame = self._recv_frame()
             if frame is None:
                 return None
-
             opcode, payload, fin = frame
             if opcode == 0x8:
                 self._closed = True
@@ -228,31 +336,52 @@ class WebSocketClient:
             if opcode in {0x1, 0x2}:
                 current_opcode = opcode
                 fragments = bytearray(payload)
-            else:
-                if current_opcode is None:
-                    continue
+                fragment_bytes = len(payload)
+            elif current_opcode is not None:
+                fragment_bytes += len(payload)
+                if fragment_bytes > MAX_WEBSOCKET_MESSAGE_BYTES:
+                    raise RuntimeError("WebSocket message exceeds 4 MiB.")
                 fragments.extend(payload)
 
-            if len(fragments) > 4 * 1024 * 1024:
-                raise ValueError("WebSocket message exceeds 4 MB")
+            if current_opcode is not None and fragment_bytes > MAX_WEBSOCKET_MESSAGE_BYTES:
+                raise RuntimeError("WebSocket message exceeds 4 MiB.")
+
             if not fin:
                 continue
-
             if current_opcode is None:
                 continue
             return current_opcode, bytes(fragments)
+
+    def _send_frame(self, opcode: int, payload: bytes) -> None:
+        with self._send_lock:
+            self._send_frame_locked(opcode, payload)
+
+    def _send_frame_locked(self, opcode: int, payload: bytes) -> None:
+        if self._closed:
+            return
+        mask_key = secrets.token_bytes(4)
+        length = len(payload)
+        header = bytearray([0x80 | (opcode & 0x0F)])
+        if length < 126:
+            header.append(0x80 | length)
+        elif length < 65536:
+            header.append(0x80 | 126)
+            header.extend(struct.pack("!H", length))
+        else:
+            header.append(0x80 | 127)
+            header.extend(struct.pack("!Q", length))
+        masked = bytes(value ^ mask_key[index % 4] for index, value in enumerate(payload))
+        self.socket.sendall(bytes(header) + mask_key + masked)
 
     def _recv_frame(self) -> tuple[int, bytes, bool] | None:
         header = self._recv_exact(2)
         if header is None:
             return None
-
         first, second = header
         fin = bool(first & 0x80)
         opcode = first & 0x0F
         masked = bool(second & 0x80)
         length = second & 0x7F
-
         if length == 126:
             raw_length = self._recv_exact(2)
             if raw_length is None:
@@ -264,22 +393,18 @@ class WebSocketClient:
                 return None
             length = struct.unpack("!Q", raw_length)[0]
 
-        if length > 4 * 1024 * 1024:
-            raise ValueError("WebSocket frame exceeds 4 MB")
-
         mask_key = b""
         if masked:
             mask_key = self._recv_exact(4)
             if mask_key is None:
                 return None
-
+        if length > MAX_WEBSOCKET_MESSAGE_BYTES:
+            raise RuntimeError("WebSocket frame exceeds 4 MiB.")
         payload = self._recv_exact(length)
         if payload is None:
             return None
-
         if masked:
-            payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(length))
-
+            payload = bytes(value ^ mask_key[index % 4] for index, value in enumerate(payload))
         return opcode, payload, fin
 
     def _recv_exact(self, size: int) -> bytes | None:
@@ -290,379 +415,235 @@ class WebSocketClient:
                     return None
                 raise RuntimeError("WebSocket connection closed unexpectedly.")
             self._recv_buffer += chunk
-
         data = self._recv_buffer[:size]
         self._recv_buffer = self._recv_buffer[size:]
         return data
 
 
-async def background(function, *args):
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-
-    def complete(value=None, error=None):
-        if not future.done():
-            if error is None:
-                future.set_result(value)
-            else:
-                future.set_exception(error)
-
-    def work():
-        try:
-            value = function(*args)
-        except BaseException as error:
-            try:
-                loop.call_soon_threadsafe(complete, None, error)
-            except RuntimeError:
-                pass
-        else:
-            try:
-                loop.call_soon_threadsafe(complete, value)
-            except RuntimeError:
-                pass
-
-    threading.Thread(target=work, daemon=True).start()
-    return await future
+# Global runtime singletons
+_CONFIG: StreamingConfig | None = None
+_CLIENT: WebSocketClient | None = None
+_STATE: ProviderState = ProviderState()
+_STOP_EVENT = threading.Event()
+_FINAL_EVENT = threading.Event()
+_PENDING_AUDIO = bytearray()
+_FIRST_FRAME: bool = True
+_SENT_FINISH: bool = False
 
 
-@asynccontextmanager
-async def connect_ws(url: str, headers: dict[str, str], timeout: float):
-    client = None
-    abandoned = threading.Event()
+def connect(config: StreamingConfig) -> None:
+    global _CONFIG, _CLIENT, _STATE, _STOP_EVENT, _FINAL_EVENT, _PENDING_AUDIO, _FIRST_FRAME, _SENT_FINISH
+    _CONFIG = config
+    _STATE = ProviderState()
+    _STOP_EVENT.clear()
+    _FINAL_EVENT.clear()
+    _PENDING_AUDIO.clear()
+    _FIRST_FRAME = True
+    _SENT_FINISH = False
 
-    def open_connection():
-        nonlocal client
-        client = WebSocketClient(url, headers, timeout)
-        client.socket.settimeout(None)
-        if abandoned.is_set():
-            client.close()
-            raise ConnectionError("Connection cancelled")
-        return client
+    url = build_auth_url(config.endpoint)
+    _CLIENT = WebSocketClient(url, config.timeout)
+    session_id = str(uuid.uuid4())
+    emit_session_started(session_id)
+    _STATE.session_started = True
 
-    class Connection:
-        def __init__(self, connected: WebSocketClient):
-            self.client = connected
 
-        async def send(self, data: str):
-            await background(self.client.send_text, data)
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    del is_commit
+    global _FIRST_FRAME
+    if not _CLIENT:
+        return
+    _PENDING_AUDIO.extend(pcm_bytes)
+    while len(_PENDING_AUDIO) >= CHUNK_BYTES:
+        frame_bytes = bytes(_PENDING_AUDIO[:CHUNK_BYTES])
+        del _PENDING_AUDIO[:CHUNK_BYTES]
+        frame = build_frame(frame_bytes, 0 if _FIRST_FRAME else 1, _FIRST_FRAME)
+        _CLIENT.send_text(json.dumps(frame, separators=(",", ":")))
+        _FIRST_FRAME = False
 
-        async def recv(self) -> bytes:
-            message = await background(self.client.recv_message)
-            if message is None:
-                raise ConnectionError("WebSocket closed before final result")
-            opcode, data = message
-            if opcode not in {0x1, 0x2}:
-                raise ValueError("Expected a text WebSocket message")
-            return data
+
+def on_finish() -> None:
+    global _FIRST_FRAME, _SENT_FINISH
+    if not _CLIENT:
+        return
+    if not _STATE.upstream_error and not _STATE.final_received and not _SENT_FINISH:
+        if _PENDING_AUDIO:
+            frame_bytes = bytes(_PENDING_AUDIO)
+            _PENDING_AUDIO.clear()
+            frame = build_frame(frame_bytes, 0 if _FIRST_FRAME else 1, _FIRST_FRAME)
+            _CLIENT.send_text(json.dumps(frame, separators=(",", ":")))
+            _FIRST_FRAME = False
+        final_frame = build_frame(b"", 2, _FIRST_FRAME)
+        _CLIENT.send_text(json.dumps(final_frame, separators=(",", ":")))
+        _SENT_FINISH = True
+
+
+def on_cancel() -> None:
+    _STATE.cancelled = True
+    cleanup()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if isinstance(raw_msg, str):
+        payload = raw_msg.encode("utf-8")
+    else:
+        payload = raw_msg
 
     try:
-        connected = await background(open_connection)
-        yield Connection(connected)
-    finally:
-        abandoned.set()
-        if client is not None:
-            client.close()
+        data = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Invalid iFlytek IME response JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Invalid iFlytek IME response: expected a JSON object.")
 
+    code = data.get("code", 0)
+    if code != 0:
+        details = str(data.get("message", "unknown error"))
+        notify_error("err_upstream", code=str(code), detail=details)
+        raise RuntimeError(f"iFlytek IME error {code}: {details}")
 
-def auth_url() -> str:
-    date = email.utils.formatdate(usegmt=True)
-    origin = f"host: {HOST}\ndate: {date}\nGET {PATH} HTTP/1.1"
-    signature = base64.b64encode(
-        hmac.new(API_SECRET.encode("utf-8"), origin.encode("utf-8"), hashlib.sha256).digest()
-    ).decode("ascii")
-    authorization = base64.b64encode(
-        f'api_key="{API_KEY}", algorithm="hmac-sha256", headers="host date request-line", '
-        f'signature="{signature}"'.encode()
-    ).decode("ascii")
-    return f"wss://{HOST}{PATH}?authorization={quote(authorization, safe='')}&date={quote(date, safe='')}&host={HOST}"
+    body = data.get("data")
+    if not isinstance(body, dict):
+        return
 
-
-class PgsTranscript:
-    """按 sn 有序合并 wpgs 渐进式结果；pgs=rpl 时用 rg 区间替换旧段。"""
-
-    def __init__(self):
-        self.segments: dict[int, str] = {}
-
-    def apply(self, result: dict[str, Any]) -> str:
+    result = body.get("result")
+    if isinstance(result, dict):
         sn = int(result.get("sn") or 0)
         words = "".join(chunk.get("w", "") for group in result.get("ws") or [] for chunk in (group.get("cw") or [])[:1])
         if result.get("pgs") == "rpl":
             rg = result.get("rg") or []
             if len(rg) == 2:
                 low, high = int(rg[0]), int(rg[1])
-                self.segments = {k: v for k, v in self.segments.items() if not low <= k <= high}
-        self.segments[sn] = words
-        return "".join(self.segments[key] for key in sorted(self.segments))
+                _STATE.segments = {k: v for k, v in _STATE.segments.items() if not low <= k <= high}
+        _STATE.segments[sn] = words
+        current_text = "".join(_STATE.segments[key] for key in sorted(_STATE.segments))
+        if current_text and current_text != _STATE.latest_text:
+            _STATE.latest_text = current_text
+            emit_partial(current_text)
+
+    if body.get("status") == 2:
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
 
 
-class IatError(RuntimeError):
-    pass
+def cleanup() -> None:
+    global _CLIENT
+    _STOP_EVENT.set()
+    _FINAL_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
 
 
-class IatClient:
-    def __init__(self, open_timeout: float, response_timeout: float):
-        self.open_timeout = open_timeout
-        self.response_timeout = response_timeout
+def run() -> int:
+    try:
+        config = load_config()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
 
-    @staticmethod
-    def endpoint() -> str:
-        # 仅测试用：允许覆盖端点以模拟断网（默认走真实鉴权 URL）
-        return os.getenv("VINPUT_ASR_ENDPOINT") or auth_url()
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
-    def _build_frame(self, audio: bytes, status: int, include_business: bool) -> str:
-        frame: dict[str, Any] = {
-            "data": {
-                "status": status,
-                "format": AUDIO_FORMAT,
-                "encoding": "raw",
-                "audio": base64.b64encode(audio).decode("ascii"),
-            }
-        }
-        if include_business:
-            frame["common"] = {"app_id": APP_ID}
-            frame["business"] = BUSINESS
-        return json.dumps(frame, separators=(",", ":"))
+    client = _CLIENT
+    if not client:
+        return EXIT_RUNTIME_ERROR
 
-    async def transcribe_stream(
-        self,
-        source: AsyncIterable[bytes],
-        on_update: Callable[[str], None] | None = None,
-        on_start: Callable[[], None] | None = None,
-    ) -> str:
-        transcript = PgsTranscript()
-        state = {"text": ""}
-        began = time.monotonic()
+    def reader() -> None:
+        try:
+            while not _STOP_EVENT.is_set():
+                message = client.recv_message()
+                if message is None:
+                    if not _STATE.final_received and not _STOP_EVENT.is_set():
+                        _STATE.upstream_error = True
+                        notify_error("err_network", detail="iFlytek IME connection closed unexpectedly.")
+                        _FINAL_EVENT.set()
+                    break
+                opcode, payload = message
+                if opcode != 0x1:
+                    continue
+                on_upstream_message(payload)
+        except Exception as exc:
+            if not _STOP_EVENT.is_set():
+                _STATE.upstream_error = True
+                notify_error("err_runtime", detail=str(exc))
+                _FINAL_EVENT.set()
+        finally:
+            _STOP_EVENT.set()
 
-        async with connect_ws(self.endpoint(), {}, self.open_timeout) as ws:
-            log("connected to " + HOST)
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
 
-            async def receiver() -> None:
-                while True:
-                    raw = await ws.recv()
-                    try:
-                        payload = json.loads(raw.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                        raise ValueError(f"讯飞返回了无法解析的消息: {error}") from error
-                    code = payload.get("code", -1)
-                    if code != 0:
-                        raise IatError(f"讯飞错误 code={code}: {payload.get('message') or '未知错误'}")
-                    data = payload.get("data") or {}
-                    result = data.get("result")
-                    if result:
-                        text = transcript.apply(result)
-                        if text and text != state["text"]:
-                            state["text"] = text
-                            if on_update:
-                                on_update(text)
-                    if data.get("status") == 2:
-                        log(f"识别定稿: segs={len(transcript.segments)} 用时{time.monotonic() - began:.2f}s")
-                        return
+    saw_finish = False
+    try:
+        for raw_line in sys.stdin:
+            if _STOP_EVENT.is_set():
+                break
 
-            async def sender() -> None:
-                pending = bytearray()
-                first = True
-                frames = 0
-                total = 0
-
-                async for chunk in source:
-                    pending.extend(chunk)
-                    while len(pending) >= CHUNK_BYTES:
-                        frame = bytes(pending[:CHUNK_BYTES])
-                        del pending[:CHUNK_BYTES]
-                        await ws.send(self._build_frame(frame, 0 if first else 1, first))
-                        first = False
-                        frames += 1
-                        total += len(frame)
-                if pending:
-                    await ws.send(self._build_frame(bytes(pending), 0 if first else 1, first))
-                    first = False
-                    frames += 1
-                    total += len(pending)
-                await ws.send(self._build_frame(b"", 2, first))
-                log(f"上传完成: {frames}帧 {total}字节 {total / 32000:.2f}秒")
-
-            if on_start is not None:
-                on_start()
-            receiver_task = asyncio.create_task(receiver())
-            sender_task = asyncio.create_task(sender())
-            try:
-                while True:
-                    if sender_task.done():
-                        await sender_task
-                        await asyncio.wait_for(receiver_task, timeout=self.response_timeout)
-                        break
-                    done, _ = await asyncio.wait({sender_task, receiver_task}, return_when=asyncio.FIRST_COMPLETED)
-                    if receiver_task in done:
-                        # 服务端提前结束（例如 vad_eos 静音判定），余下音频不再上传
-                        sender_task.cancel()
-                        await asyncio.gather(sender_task, return_exceptions=True)
-                        await receiver_task
-                        break
-            finally:
-                for task in (receiver_task, sender_task):
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(receiver_task, sender_task, return_exceptions=True)
-            return state["text"]
-
-
-MAX_BUFFER_BYTES = 320000
-
-
-class AudioInput:
-    def __init__(self):
-        self.queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=1001)
-        self.buffered = 0
-        self.finish_deadline: float | None = None
-        self.cancelled = False
-        self.changed = asyncio.Event()
-
-    def finish(self, grace: float):
-        if self.finish_deadline is None:
-            self.finish_deadline = asyncio.get_running_loop().time() + grace
-            self.queue.put_nowait(None)
-            self.changed.set()
-
-    async def read(self, lines: AsyncIterable[bytes], grace: float):
-        async for line in lines:
-            if not line.strip():
+            line = raw_line.strip()
+            if not line:
                 continue
-            message = json.loads(line)
-            if not isinstance(message, dict):
-                raise ValueError("Provider input must be a JSON object")
-            kind = message.get("type")
-            if kind == "cancel":
-                self.cancelled = True
-                self.changed.set()
-                return
-            if kind == "finish":
-                self.finish(grace)
-            elif kind == "audio":
-                if self.finish_deadline is not None:
-                    raise ValueError("Audio received after finish")
-                audio = base64.b64decode(message["audio_base64"], validate=True)
-                if len(audio) % 2:
-                    raise ValueError("PCM must contain complete 16-bit samples")
-                if audio:
-                    if self.buffered + len(audio) > MAX_BUFFER_BYTES or self.queue.qsize() >= 1000:
-                        raise ValueError("Audio buffer exceeded 10 seconds while the provider was unavailable")
-                    self.buffered += len(audio)
-                    self.queue.put_nowait(audio)
-                if message.get("commit") is True:
-                    self.finish(grace)
-            else:
-                raise ValueError(f"Unsupported provider input: {kind}")
-        self.finish(grace)
 
-    async def chunks(self):
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                return
-            self.buffered -= len(item)
-            yield item
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON input: {exc}") from exc
 
+            event_type = str(event.get("type", "")).strip()
+            if event_type == "audio":
+                audio_base64 = event.get("audio_base64")
+                if not isinstance(audio_base64, str) or not audio_base64:
+                    raise ValueError("audio event requires non-empty audio_base64.")
+                try:
+                    pcm_audio = base64.b64decode(audio_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                continue
 
-async def run_provider(
-    lines: AsyncIterable[bytes], emit: Callable[[dict], None], *, finish_grace=5.0, open_timeout=15.0
-):
-    if not 0 < finish_grace <= 9:
-        raise ValueError("Finish grace must be greater than zero and at most 9 seconds")
-    audio = AudioInput()
+            if event_type == "finish":
+                saw_finish = True
+                on_finish()
+                break
 
-    def partial(text: str):
-        if text:
-            emit({"type": "partial", "text": text})
+            if event_type == "cancel":
+                on_cancel()
+                break
 
-    async def recognize():
-        client = IatClient(open_timeout=open_timeout, response_timeout=finish_grace)
-        return await client.transcribe_stream(
-            audio.chunks(), partial, on_start=lambda: emit({"type": "session_started", "session_id": str(uuid.uuid4())})
-        )
-
-    reader = asyncio.create_task(audio.read(lines, finish_grace))
-    recognition = asyncio.create_task(recognize())
-    changed = asyncio.create_task(audio.changed.wait())
-    try:
-        while True:
-            tasks: set[asyncio.Task[Any]] = {recognition}
-            if not reader.done():
-                tasks.add(reader)
-            if not changed.done():
-                tasks.add(changed)
-            timeout = (
-                None if audio.finish_deadline is None else audio.finish_deadline - asyncio.get_running_loop().time()
-            )
-            if timeout is not None and timeout <= 0:
-                raise TimeoutError("Timed out waiting for the final transcript")
-            done, _ = await asyncio.wait(tasks, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                raise TimeoutError("Timed out waiting for the final transcript")
-            if reader.done():
-                await reader
-            if audio.cancelled:
-                return 0
-            if recognition in done:
-                text = await recognition
-                if not text:
-                    raise ValueError("No speech was recognized")
-                emit({"type": "final", "text": text})
-                return 0
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        emit({"type": "error", "message": f"{type(error).__name__}: {error}"})
-        return 1
+            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        for task in (reader, recognition, changed):
-            task.cancel()
-        await asyncio.gather(reader, recognition, changed, return_exceptions=True)
-        emit({"type": "closed"})
+        if saw_finish and not _STOP_EVENT.is_set():
+            _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
+
+        if not _STATE.cancelled and _STATE.latest_text and not _STATE.final_emitted:
+            emit_final(_STATE.latest_text)
+            _STATE.final_emitted = True
+
+        cleanup()
+        reader_thread.join(timeout=1.0)
+
+        if not _STATE.closed:
+            emit_closed()
+            _STATE.closed = True
+
+    if _STATE.error or _STATE.upstream_error:
+        return EXIT_RUNTIME_ERROR
+    return EXIT_SUCCESS
 
 
-async def stdin_lines():
-    reader = asyncio.StreamReader(limit=1_000_000)
-    protocol = asyncio.StreamReaderProtocol(reader)
-    transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: protocol, sys.stdin.buffer)
+def main() -> int:
     try:
-        while line := await reader.readline():
-            yield line
-    finally:
-        transport.close()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="iFlytek IME (讯飞输入法) streaming provider")
-    parser.add_argument("--finish-grace", type=float, default=float(os.getenv("VINPUT_ASR_FINISH_GRACE_SECS") or "5"))
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=float(os.getenv("VINPUT_ASR_TIMEOUT") or "15"),
-        help="WebSocket 连接超时秒数",
-    )
-    args = parser.parse_args()
-    if not 0 < args.finish_grace <= 9:
-        parser.error("finish grace must be greater than zero and at most 9 seconds")
-    if not 0 < args.timeout <= 60:
-        parser.error("timeout must be greater than zero and at most 60 seconds")
-
-    async def run():
-        task = asyncio.current_task()
-        assert task is not None
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            asyncio.get_running_loop().add_signal_handler(sig, task.cancel)
-        return await run_provider(
-            stdin_lines(),
-            lambda event: print(json.dumps(event, ensure_ascii=False), flush=True),
-            finish_grace=args.finish_grace,
-            open_timeout=args.timeout,
-        )
-
-    try:
-        raise SystemExit(asyncio.run(run()))
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        raise SystemExit(130) from None
+        return run()
+    except ValueError as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_USAGE_ERROR
+    except Exception as exc:
+        notify_error("err_runtime", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

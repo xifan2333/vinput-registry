@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Doubao (ByteDance OpenSpeech) duplex streaming speech-to-text provider via WebSocket binary protocol."""
+
+from __future__ import annotations
 
 import base64
 import gzip
@@ -17,12 +20,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 DEFAULT_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-DEFAULT_RESOURCE_ID = "volc.seedasr.sauc.duration"
 DEFAULT_MODEL = "bigmodel"
 DEFAULT_RESOURCE_ID = "volc.seedasr.sauc.duration"
 DEFAULT_TIMEOUT = 30
 DEFAULT_FINISH_GRACE_SECS = 1.0
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
@@ -45,15 +49,98 @@ SERIALIZATION_JSON = 0x1
 COMPRESSION_NONE = 0x0
 COMPRESSION_GZIP = 0x1
 
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_missing_credentials": (
+            "Missing Doubao credentials. Set VINPUT_ASR_APP_ID with VINPUT_ASR_ACCESS_TOKEN, "
+            "or set VINPUT_ASR_API_KEY to 'app_id:access_key'."
+        ),
+        "err_network": "Doubao streaming network error: {detail}",
+        "err_upstream": "Doubao streaming server error {code}: {detail}",
+        "err_runtime": "Doubao streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_missing_credentials": (
+            "缺少豆包认证信息。请配置 VINPUT_ASR_APP_ID 与 VINPUT_ASR_ACCESS_TOKEN，"
+            "或将 VINPUT_ASR_API_KEY 设为 'app_id:access_key'。"
+        ),
+        "err_network": "豆包流式语音识别网络连接失败：{detail}",
+        "err_upstream": "豆包流式语音服务端报错 {code}：{detail}",
+        "err_runtime": "豆包流式语音运行异常：{detail}",
+    },
+}
 
-def write_stdout(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
+
+
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "Doubao Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
+    sys.stderr.flush()
+
+
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def write_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
 
 
 def normalize_transcript_text(text: str) -> str:
@@ -75,16 +162,44 @@ def combine_transcript(committed_text: str, current_text: str) -> str:
     return committed + " " + current
 
 
-def get_required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise ValueError(f"Missing {name}.")
-    return value
+@dataclass
+class ProviderState:
+    error: str | None = None
+    closed: bool = False
+    cancelled: bool = False
+    confirmed_text: str = ""
+    latest_partial_text: str = ""
+    last_final_text: str = ""
+    final_received: bool = False
+    final_emitted: bool = False
+    upstream_error: bool = False
+    session_started: bool = False
+
+    def get_last_final_text(self) -> str:
+        return normalize_transcript_text(self.last_final_text)
+
+    def get_confirmed_text(self) -> str:
+        return normalize_transcript_text(self.confirmed_text)
+
+    def has_pending_partial(self) -> bool:
+        return normalize_transcript_text(self.latest_partial_text) != self.get_confirmed_text()
+
+
+@dataclass(frozen=True)
+class StreamingConfig:
+    app_id: str
+    access_key: str
+    url: str
+    model: str
+    resource_id: str
+    user_id: str
+    timeout: int
+    finish_grace_secs: float
+    request_payload: dict[str, Any]
 
 
 def get_optional_env(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    return value or default
+    return os.getenv(name, "").strip() or default
 
 
 def get_optional_int_env(name: str, default: int | None = None) -> int | None:
@@ -123,10 +238,6 @@ def get_optional_json_object_env(name: str) -> dict[str, Any] | None:
     return data
 
 
-def new_connect_id() -> str:
-    return str(uuid.uuid4())
-
-
 def resolve_credentials() -> tuple[str, str]:
     app_id = get_optional_env("VINPUT_ASR_APP_ID")
     access_key = get_optional_env("VINPUT_ASR_ACCESS_TOKEN")
@@ -144,11 +255,7 @@ def resolve_credentials() -> tuple[str, str]:
         if app_id:
             return app_id, combined
 
-    raise ValueError(
-        "Missing Doubao credentials. Set VINPUT_ASR_APP_ID with "
-        "VINPUT_ASR_ACCESS_TOKEN, or set VINPUT_ASR_API_KEY to "
-        "'app_id:access_key'."
-    )
+    raise ValueError("Missing Doubao credentials.")
 
 
 def coerce_result_type(value: str) -> str:
@@ -169,7 +276,6 @@ def build_request_payload(model: str, user_id: str) -> dict[str, Any]:
     request["model_name"] = model
 
     language = get_optional_env("VINPUT_ASR_LANGUAGE")
-
     enable_nonstream = get_optional_bool_env("VINPUT_ASR_ENABLE_NONSTREAM")
     enable_itn = get_optional_bool_env("VINPUT_ASR_ENABLE_ITN")
     enable_punc = get_optional_bool_env("VINPUT_ASR_ENABLE_PUNC")
@@ -184,7 +290,6 @@ def build_request_payload(model: str, user_id: str) -> dict[str, Any]:
     vad_segment_duration = get_optional_int_env("VINPUT_ASR_VAD_SEGMENT_DURATION")
     force_to_speech_time = get_optional_int_env("VINPUT_ASR_FORCE_TO_SPEECH_TIME")
 
-    # Compat: the previous edge-gateway script exposed a VAD silence env.
     if end_window_size is None and get_optional_bool_env("VINPUT_ASR_ENABLE_VAD"):
         end_window_size = get_optional_int_env("VINPUT_ASR_VAD_SILENCE_DURATION_MS", 800)
 
@@ -252,6 +357,31 @@ def build_request_payload(model: str, user_id: str) -> dict[str, Any]:
     return payload
 
 
+def load_config() -> StreamingConfig:
+    app_id, access_key = resolve_credentials()
+    url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
+    model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
+    resource_id = get_optional_env("VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID)
+    user_id = get_optional_env("VINPUT_ASR_USER_ID", app_id)
+    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT) or DEFAULT_TIMEOUT
+    finish_grace_secs = (
+        get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS) or DEFAULT_FINISH_GRACE_SECS
+    )
+
+    request_payload = build_request_payload(model, user_id)
+    return StreamingConfig(
+        app_id=app_id,
+        access_key=access_key,
+        url=url,
+        model=model,
+        resource_id=resource_id,
+        user_id=user_id,
+        timeout=timeout,
+        finish_grace_secs=finish_grace_secs,
+        request_payload=request_payload,
+    )
+
+
 def pack_protocol_header(
     message_type: int,
     flags: int,
@@ -296,73 +426,6 @@ def build_audio_request(audio_bytes: bytes, *, final: bool) -> bytes:
         + struct.pack("!I", len(compressed))
         + compressed
     )
-
-
-@dataclass
-class ProviderState:
-    error: str | None = None
-    closed: bool = False
-    confirmed_text: str = ""
-    latest_partial_text: str = ""
-    last_final_text: str = ""
-
-    def get_last_final_text(self) -> str:
-        return normalize_transcript_text(self.last_final_text)
-
-    def get_confirmed_text(self) -> str:
-        return normalize_transcript_text(self.confirmed_text)
-
-    def has_pending_partial(self) -> bool:
-        return normalize_transcript_text(self.latest_partial_text) != self.get_confirmed_text()
-
-
-def emit_partial_text(state: ProviderState, text: str) -> bool:
-    partial_text = normalize_transcript_text(text)
-    if not partial_text:
-        return False
-    if partial_text == normalize_transcript_text(state.latest_partial_text):
-        return False
-
-    state.latest_partial_text = partial_text
-    write_stdout({"type": "partial", "text": partial_text})
-    return True
-
-
-def emit_final_event(
-    state: ProviderState,
-    text: str,
-    *,
-    utterances: list[dict[str, Any]] | None = None,
-    words: list[dict[str, Any]] | None = None,
-    audio_info: dict[str, Any] | None = None,
-) -> bool:
-    final_text = normalize_transcript_text(text)
-    if not final_text or final_text == state.get_last_final_text():
-        return False
-
-    state.last_final_text = final_text
-    state.confirmed_text = final_text
-    state.latest_partial_text = final_text
-
-    event: dict[str, Any] = {
-        "type": "final_timestamps" if utterances or words else "final",
-        "text": final_text,
-        "segment_final": True,
-    }
-    if utterances:
-        event["utterances"] = utterances
-    if words:
-        event["words"] = words
-    if audio_info:
-        event["audio_info"] = audio_info
-    write_stdout(event)
-    return True
-
-
-def emit_fallback_final(state: ProviderState) -> bool:
-    if not state.has_pending_partial():
-        return False
-    return emit_final_event(state, state.latest_partial_text)
 
 
 def extract_error_message(payload: Any) -> str:
@@ -513,12 +576,6 @@ class WebSocketClient:
             connect_id = headers.get("x-api-connect-id")
             if connect_id:
                 details.append(f"connect_id={connect_id}")
-            if " 403" in f" {status_line} ":
-                details.append(
-                    "check VINPUT_ASR_APP_ID / VINPUT_ASR_ACCESS_TOKEN and "
-                    "make sure VINPUT_ASR_RESOURCE_ID matches an activated "
-                    "OpenSpeech streaming ASR resource"
-                )
             raise RuntimeError(", ".join(details))
 
         accept = headers.get("sec-websocket-accept")
@@ -740,136 +797,134 @@ def decode_server_packet(raw: bytes) -> DecodedServerPacket:
     raise RuntimeError(f"Unsupported Doubao server message type: {message_type}")
 
 
-class ActiveStream:
-    def __init__(
-        self,
-        *,
-        state: ProviderState,
-        url: str,
-        app_id: str,
-        access_key: str,
-        resource_id: str,
-        timeout: int,
-        request_payload: dict[str, Any],
-    ) -> None:
-        self.state = state
-        self.url = url
-        self.timeout = timeout
-        self.request_payload = request_payload
-        self.connect_id = new_connect_id()
-        self.client = WebSocketClient(
-            url,
-            {
-                "X-Api-App-Key": app_id,
-                "X-Api-Access-Key": access_key,
-                "X-Api-Resource-Id": resource_id,
-                "X-Api-Connect-Id": self.connect_id,
-            },
-            timeout,
-        )
-        self.session_id = self.client.response_headers.get("x-api-connect-id") or self.connect_id
-        self.log_id = self.client.response_headers.get("x-tt-logid", "")
-        self.final_received = threading.Event()
-        self.stop_event = threading.Event()
-        self.session_started = False
-        self.sent_final = False
+# Global runtime singletons
+_CONFIG: StreamingConfig | None = None
+_CLIENT: WebSocketClient | None = None
+_STATE: ProviderState = ProviderState()
+_STOP_EVENT = threading.Event()
+_FINAL_EVENT = threading.Event()
+_SENT_FINAL: bool = False
 
-        self.client.send_binary(build_full_client_request(request_payload))
-        self.thread = threading.Thread(target=self._reader, daemon=True)
-        self.thread.start()
 
-    def send_audio(self, audio_bytes: bytes, *, final: bool) -> None:
-        self.client.send_binary(build_audio_request(audio_bytes, final=final))
-        if final:
-            self.sent_final = True
+def connect(config: StreamingConfig) -> None:
+    global _CONFIG, _CLIENT, _STATE, _STOP_EVENT, _FINAL_EVENT, _SENT_FINAL
+    _CONFIG = config
+    _STATE = ProviderState()
+    _STOP_EVENT.clear()
+    _FINAL_EVENT.clear()
+    _SENT_FINAL = False
 
-    def finish(self, grace_secs: float) -> bool:
-        if not self.sent_final:
-            self.client.send_binary(build_audio_request(b"", final=True))
-            self.sent_final = True
+    connect_id = str(uuid.uuid4())
+    headers = {
+        "X-Api-App-Key": config.app_id,
+        "X-Api-Access-Key": config.access_key,
+        "X-Api-Resource-Id": config.resource_id,
+        "X-Api-Connect-Id": connect_id,
+    }
+    _CLIENT = WebSocketClient(config.url, headers, config.timeout)
+    session_id = _CLIENT.response_headers.get("x-api-connect-id") or connect_id
+    emit_session_started(session_id)
+    _STATE.session_started = True
 
-        received_final = self.final_received.wait(timeout=max(grace_secs, 0.0))
-        self.stop_event.set()
-        self.client.close()
-        self.thread.join(timeout=1.0)
-        return received_final
+    _CLIENT.send_binary(build_full_client_request(config.request_payload))
 
-    def cancel(self) -> None:
-        self.stop_event.set()
-        self.client.close()
-        self.thread.join(timeout=1.0)
 
-    def _emit_session_started(self) -> None:
-        if self.session_started:
-            return
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    global _SENT_FINAL
+    if not _CLIENT or _STATE.cancelled:
+        return
+    _CLIENT.send_binary(build_audio_request(pcm_bytes, final=is_commit))
+    if is_commit:
+        _SENT_FINAL = True
 
-        config: dict[str, Any] = {
-            "url": self.url,
-            "request": self.request_payload,
-            "connect_id": self.connect_id,
-        }
-        if self.log_id:
-            config["log_id"] = self.log_id
 
-        write_stdout(
-            {
-                "type": "session_started",
-                "session_id": self.session_id,
-                "config": config,
-            }
-        )
-        self.session_started = True
+def on_finish() -> None:
+    global _SENT_FINAL
+    if not _CLIENT or _STATE.cancelled:
+        return
+    if not _SENT_FINAL:
+        _CLIENT.send_binary(build_audio_request(b"", final=True))
+        _SENT_FINAL = True
 
-    def _handle_server_response(self, packet: DecodedServerPacket) -> None:
-        self._emit_session_started()
 
+def on_cancel() -> None:
+    _STATE.cancelled = True
+    cleanup()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if isinstance(raw_msg, str):
+        raw_msg = raw_msg.encode("utf-8")
+
+    packet = decode_server_packet(raw_msg)
+    if packet.message_type == MESSAGE_TYPE_FULL_SERVER_RESPONSE:
         if not isinstance(packet.payload, dict):
             if packet.is_final:
-                emit_fallback_final(self.state)
-                self.final_received.set()
+                _STATE.final_received = True
+                _FINAL_EVENT.set()
             return
 
-        transcript, utterances, words, audio_info = extract_result_fields(packet.payload)
+        transcript, _utterances, _words, _audio_info = extract_result_fields(packet.payload)
         if packet.is_final:
-            final_text = combine_transcript(self.state.confirmed_text, transcript)
-            if not normalize_transcript_text(final_text):
-                emit_fallback_final(self.state)
-            else:
-                emit_final_event(
-                    self.state,
-                    final_text,
-                    utterances=utterances or None,
-                    words=words or None,
-                    audio_info=audio_info,
-                )
-            self.final_received.set()
+            final_text = combine_transcript(_STATE.confirmed_text, transcript)
+            if final_text:
+                _STATE.latest_partial_text = final_text
+                _STATE.confirmed_text = final_text
+            _STATE.final_received = True
+            _FINAL_EVENT.set()
             return
 
         if transcript:
-            emit_partial_text(
-                self.state,
-                combine_transcript(self.state.confirmed_text, transcript),
-            )
+            combined = combine_transcript(_STATE.confirmed_text, transcript)
+            if combined and combined != _STATE.latest_partial_text:
+                _STATE.latest_partial_text = combined
+                emit_partial(combined)
 
-    def _handle_server_error(self, packet: DecodedServerPacket) -> None:
-        if emit_fallback_final(self.state):
-            self.final_received.set()
-            return
-
+    elif packet.message_type == MESSAGE_TYPE_SERVER_ERROR:
         error_message = extract_error_message(packet.payload)
-        if packet.error_code is not None:
-            error_message = f"Doubao ASR error {packet.error_code}: {error_message}"
-        write_stdout({"type": "error", "message": error_message})
-        self.state.error = error_message
-        self.final_received.set()
+        code = str(packet.error_code or "unknown")
+        notify_error("err_upstream", code=code, detail=error_message)
+        _STATE.upstream_error = True
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
 
-    def _reader(self) -> None:
+
+def cleanup() -> None:
+    global _CLIENT
+    _STOP_EVENT.set()
+    _FINAL_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
+
+
+def run() -> int:
+    try:
+        config = load_config()
+    except ValueError as exc:
+        err_msg = str(exc)
+        if "credentials" in err_msg.lower():
+            notify_error("err_missing_credentials")
+        else:
+            notify_error("err_runtime", detail=err_msg)
+        return EXIT_USAGE_ERROR
+
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+    client = _CLIENT
+    if not client:
+        return EXIT_RUNTIME_ERROR
+
+    def reader() -> None:
         try:
-            while not self.stop_event.is_set():
-                message = self.client.recv_message()
+            while not _STOP_EVENT.is_set():
+                message = client.recv_message()
                 if message is None:
                     break
-
                 opcode, payload = message
                 if opcode == 0x1:
                     text = payload.decode("utf-8", errors="replace").strip()
@@ -879,58 +934,33 @@ class ActiveStream:
                         decoded = json.loads(text)
                     except json.JSONDecodeError:
                         decoded = text
-                    if emit_fallback_final(self.state):
-                        self.final_received.set()
-                        return
                     error_message = extract_error_message(decoded)
-                    write_stdout({"type": "error", "message": error_message})
-                    self.state.error = error_message
-                    self.final_received.set()
+                    notify_error("err_upstream", code="1", detail=error_message)
+                    _STATE.upstream_error = True
+                    _FINAL_EVENT.set()
                     return
 
                 if opcode != 0x2:
                     continue
 
-                packet = decode_server_packet(payload)
-                if packet.message_type == MESSAGE_TYPE_FULL_SERVER_RESPONSE:
-                    self._handle_server_response(packet)
-                    continue
-                if packet.message_type == MESSAGE_TYPE_SERVER_ERROR:
-                    self._handle_server_error(packet)
-                    return
+                on_upstream_message(payload)
+                if _STATE.final_received:
+                    break
         except Exception as exc:
-            if not self.stop_event.is_set():
-                if emit_fallback_final(self.state):
-                    self.final_received.set()
-                else:
-                    error_message = str(exc)
-                    write_stdout({"type": "error", "message": error_message})
-                    self.state.error = error_message
-                    self.final_received.set()
+            if not _STOP_EVENT.is_set():
+                _STATE.upstream_error = True
+                notify_error("err_runtime", detail=str(exc))
+                _FINAL_EVENT.set()
         finally:
-            self.stop_event.set()
+            _STOP_EVENT.set()
 
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
 
-def run() -> int:
-    app_id, access_key = resolve_credentials()
-    url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
-    model = get_optional_env("VINPUT_ASR_MODEL", DEFAULT_MODEL)
-    resource_id = get_optional_env("VINPUT_ASR_RESOURCE_ID", DEFAULT_RESOURCE_ID)
-    user_id = get_optional_env("VINPUT_ASR_USER_ID", app_id)
-    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    finish_grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
-    if timeout is None:
-        raise ValueError("VINPUT_ASR_TIMEOUT must not be empty.")
-    if finish_grace_secs is None:
-        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must not be empty.")
-
-    request_payload = build_request_payload(model, user_id)
-    state = ProviderState()
-    active_stream: ActiveStream | None = None
-
+    saw_finish = False
     try:
         for raw_line in sys.stdin:
-            if state.error:
+            if _STATE.cancelled or _STOP_EVENT.is_set():
                 break
 
             line = raw_line.strip()
@@ -947,74 +977,53 @@ def run() -> int:
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
                     raise ValueError("audio event requires non-empty audio_base64.")
-
                 try:
-                    audio_bytes = base64.b64decode(audio_base64, validate=True)
-                except ValueError as exc:
-                    raise ValueError("audio_base64 is not valid base64.") from exc
-
-                if not audio_bytes:
-                    raise ValueError("audio event decoded to empty audio.")
-
-                if active_stream is None:
-                    active_stream = ActiveStream(
-                        state=state,
-                        url=url,
-                        app_id=app_id,
-                        access_key=access_key,
-                        resource_id=resource_id,
-                        timeout=timeout,
-                        request_payload=request_payload,
-                    )
-
-                should_commit = bool(event.get("commit", False))
-                active_stream.send_audio(audio_bytes, final=should_commit)
-                if should_commit:
-                    active_stream.finish(finish_grace_secs)
-                    emit_fallback_final(state)
-                    active_stream = None
+                    pcm_audio = base64.b64decode(audio_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
             if event_type == "finish":
-                if active_stream is not None:
-                    active_stream.finish(finish_grace_secs)
-                    emit_fallback_final(state)
-                    active_stream = None
+                saw_finish = True
+                on_finish()
                 break
 
             if event_type == "cancel":
-                if active_stream is not None:
-                    active_stream.cancel()
-                    active_stream = None
+                on_cancel()
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
     finally:
-        if active_stream is not None:
-            if state.error:
-                active_stream.cancel()
-            else:
-                active_stream.finish(finish_grace_secs)
-                emit_fallback_final(state)
-        if not state.closed:
-            write_stdout({"type": "closed"})
-            state.closed = True
+        if saw_finish and not _STATE.cancelled:
+            _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
 
-    if state.error:
+        if not _STATE.cancelled and _STATE.latest_partial_text and not _STATE.final_emitted:
+            emit_final(_STATE.latest_partial_text)
+            _STATE.final_emitted = True
+
+        cleanup()
+        reader_thread.join(timeout=1.0)
+
+        if not _STATE.closed:
+            emit_closed()
+            _STATE.closed = True
+
+    if _STATE.error or _STATE.upstream_error:
         return EXIT_RUNTIME_ERROR
-    return 0
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     try:
         return run()
     except ValueError as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_USAGE_ERROR
     except Exception as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""iFlytek (XFyun) duplex streaming speech-to-text provider via WebSocket protocol."""
+
+from __future__ import annotations
 
 import base64
 import gzip
@@ -13,7 +16,7 @@ import struct
 import sys
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.utils import formatdate
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -24,71 +27,266 @@ DEFAULT_FINISH_GRACE_SECS = 8.0
 MAX_FINISH_GRACE_SECS = 8.0
 MAX_WEBSOCKET_MESSAGE_BYTES = 4 * 1024 * 1024
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
-_stdout_lock = threading.Lock()
+MESSAGES: dict[str, dict[str, str]] = {
+    "en_US": {
+        "err_missing_app_id": "Missing VINPUT_ASR_APP_ID.",
+        "err_missing_api_key": "Missing VINPUT_ASR_API_KEY.",
+        "err_missing_api_secret": "Missing VINPUT_ASR_API_SECRET.",
+        "err_network": "iFlytek streaming network error: {detail}",
+        "err_upstream": "iFlytek streaming server error {code}: {detail}",
+        "err_runtime": "iFlytek streaming runtime error: {detail}",
+    },
+    "zh_CN": {
+        "err_missing_app_id": "缺少 VINPUT_ASR_APP_ID 环境变量。",
+        "err_missing_api_key": "缺少 VINPUT_ASR_API_KEY 环境变量。",
+        "err_missing_api_secret": "缺少 VINPUT_ASR_API_SECRET 环境变量。",
+        "err_network": "讯飞流式语音识别网络连接失败：{detail}",
+        "err_upstream": "讯飞流式语音服务端报错 {code}：{detail}",
+        "err_runtime": "讯飞流式语音运行异常：{detail}",
+    },
+}
 
 
-def write_stdout(event: dict[str, Any]) -> None:
-    with _stdout_lock:
-        sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+def detect_locale() -> str:
+    """Detect system locale from LC_ALL, LC_MESSAGES, or LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.getenv(var, "").strip()
+        if not val:
+            continue
+        base = val.split(".")[0].split("@")[0]
+        if base in MESSAGES:
+            return base
+        prefix = base.split("_")[0]
+        for key in MESSAGES:
+            if key.startswith(prefix + "_"):
+                return key
+    return "en_US"
 
 
-def write_stderr(message: str) -> None:
-    sys.stderr.write(message + "\n")
+def get_message(key: str, **kwargs: object) -> str:
+    """Retrieve localized message string with fallback chain."""
+    loc = detect_locale()
+    tpl = MESSAGES.get(loc, {}).get(key)
+    if not tpl:
+        tpl = MESSAGES.get("en_US", {}).get(key, key)
+    try:
+        return tpl.format(**kwargs)
+    except Exception:
+        return tpl
+
+
+def notify_error(key: str, **kwargs: object) -> None:
+    """Emit JSONL user desktop notification to stderr."""
+    msg = get_message(key, **kwargs)
+    payload = json.dumps({"title": "iFlytek Streaming ASR", "body": msg}, ensure_ascii=False)
+    sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
 
-def emit_error(state: "ProviderState", message: str) -> None:
-    if state.error:
-        return
-    state.error = message
-    write_stdout({"type": "error", "message": message})
+def emit_event(payload: dict[str, Any]) -> None:
+    """Write protocol JSON event to stdout."""
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
 
 
-def get_required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
+def emit_session_started(session_id: str = "") -> None:
+    """Emit session_started event to stdout."""
+    event: dict[str, Any] = {"type": "session_started"}
+    if session_id:
+        event["session_id"] = session_id
+    emit_event(event)
+
+
+def emit_partial(text: str) -> None:
+    """Emit partial recognition event to stdout."""
+    emit_event({"type": "partial", "text": text})
+
+
+def emit_final(text: str) -> None:
+    """Emit committed final transcript event to stdout."""
+    emit_event(
+        {
+            "type": "final",
+            "text": text,
+            "segment_final": True,
+            "utterance_final": True,
+        }
+    )
+
+
+def emit_closed() -> None:
+    """Emit closed event to stdout."""
+    emit_event({"type": "closed"})
+
+
+def normalize_text(text: str) -> str:
+    return text.strip()
+
+
+def is_ascii_word_character(value: str) -> bool:
+    return bool(value) and value.isascii() and (value.isalnum() or value == "_")
+
+
+def combine_text_fragments(fragments: list[str]) -> str:
+    combined = ""
+    for fragment in fragments:
+        frag = normalize_text(fragment)
+        if not frag:
+            continue
+        if combined and is_ascii_word_character(combined[-1]) and is_ascii_word_character(frag[0]):
+            combined += " "
+        combined += frag
+    return combined
+
+
+@dataclass
+class ProviderState:
+    error: str | None = None
+    closed: bool = False
+    cancelled: bool = False
+    latest_text: str = ""
+    final_received: bool = False
+    final_emitted: bool = False
+    upstream_error: bool = False
+    session_started: bool = False
+    segments: dict[int, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StreamingConfig:
+    app_id: str
+    api_key: str
+    api_secret: str
+    base_url: str
+    res_id: str
+    timeout: int
+    finish_grace_secs: float
+    enable_wpgs: bool
+    bos: int | None
+    vgap: int | None
+    eos: int | None
+    vinfo: int | None
+    evl: int | None
+    opt: int | None
+    ltc: int | None
+    ett: int | None
+    svad: int
+    fa_nbest: bool | None
+    res_language: str
+    hotwords: str
+    context: str
+
+
+def require_env(name: str) -> str:
+    val = os.getenv(name, "").strip()
+    if not val:
         raise ValueError(f"Missing {name}.")
-    return value
+    return val
 
 
-def get_optional_env(name: str, default: str = "") -> str:
-    value = os.getenv(name, "").strip()
-    return value or default
+def optional_env(name: str, default: str = "") -> str:
+    val = os.getenv(name, "").strip()
+    return val if val else default
 
 
-def get_optional_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
+def optional_int_env(name: str, default: int) -> int:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
     try:
-        return int(value)
+        return int(val)
     except ValueError as exc:
         raise ValueError(f"{name} must be an integer.") from exc
 
 
-def get_optional_float_env(name: str, default: float) -> float:
-    value = os.getenv(name, "").strip()
-    if not value:
+def optional_float_env(name: str, default: float) -> float:
+    val = os.getenv(name, "").strip()
+    if not val:
         return default
     try:
-        return float(value)
+        return float(val)
     except ValueError as exc:
         raise ValueError(f"{name} must be a number.") from exc
 
 
-def get_optional_bool_env(name: str, default: bool) -> bool:
-    value = os.getenv(name, "").strip().lower()
-    if not value:
+def optional_bool_env(name: str, default: bool) -> bool:
+    val = os.getenv(name, "").strip().lower()
+    if not val:
         return default
-    if value in {"1", "true", "yes", "on"}:
+    if val in {"1", "true", "yes", "on"}:
         return True
-    if value in {"0", "false", "no", "off"}:
+    if val in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean.")
+
+
+def optional_nullable_int_env(name: str) -> int | None:
+    val = os.getenv(name, "").strip()
+    if not val:
+        return None
+    try:
+        return int(val)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+
+
+def optional_nullable_bool_env(name: str) -> bool | None:
+    val = os.getenv(name, "").strip().lower()
+    if not val:
+        return None
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean.")
+
+
+def load_config() -> StreamingConfig:
+    app_id = require_env("VINPUT_ASR_APP_ID")
+    api_key = require_env("VINPUT_ASR_API_KEY")
+    api_secret = require_env("VINPUT_ASR_API_SECRET")
+    base_url = optional_env("VINPUT_ASR_URL", DEFAULT_URL)
+    res_id = optional_env("VINPUT_ASR_RES_ID")
+    timeout = optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
+    finish_grace_secs = optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
+
+    if timeout <= 0:
+        raise ValueError("VINPUT_ASR_TIMEOUT must be greater than zero.")
+    if finish_grace_secs < 0 or finish_grace_secs > MAX_FINISH_GRACE_SECS:
+        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 8 seconds.")
+
+    svad = optional_int_env("VINPUT_ASR_SVAD", 0)
+    if svad not in {0, 1}:
+        raise ValueError("VINPUT_ASR_SVAD must be 0 or 1.")
+
+    return StreamingConfig(
+        app_id=app_id,
+        api_key=api_key,
+        api_secret=api_secret,
+        base_url=base_url,
+        res_id=res_id,
+        timeout=timeout,
+        finish_grace_secs=finish_grace_secs,
+        enable_wpgs=optional_bool_env("VINPUT_ASR_ENABLE_WPGS", True),
+        bos=optional_nullable_int_env("VINPUT_ASR_BOS"),
+        vgap=optional_nullable_int_env("VINPUT_ASR_VGAP"),
+        eos=optional_nullable_int_env("VINPUT_ASR_EOS"),
+        vinfo=optional_nullable_int_env("VINPUT_ASR_VINFO"),
+        evl=optional_nullable_int_env("VINPUT_ASR_EVL"),
+        opt=optional_nullable_int_env("VINPUT_ASR_OPT"),
+        ltc=optional_nullable_int_env("VINPUT_ASR_LTC"),
+        ett=optional_nullable_int_env("VINPUT_ASR_ETT"),
+        svad=svad,
+        fa_nbest=optional_nullable_bool_env("VINPUT_ASR_FA_NBEST"),
+        res_language=optional_env("VINPUT_ASR_RES_LANGUAGE"),
+        hotwords=optional_env("VINPUT_ASR_HOTWORDS"),
+        context=optional_env("VINPUT_ASR_CONTEXT"),
+    )
 
 
 def build_auth_url(url: str, api_key: str, api_secret: str) -> str:
@@ -119,13 +317,7 @@ def build_auth_url(url: str, api_key: str, api_secret: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
-def json_bool_env(name: str, default: bool) -> bool | None:
-    if not os.getenv(name, "").strip():
-        return None
-    return get_optional_bool_env(name, default)
-
-
-def build_iat_parameters() -> dict[str, Any]:
+def build_iat_parameters(config: StreamingConfig) -> dict[str, Any]:
     iat: dict[str, Any] = {
         "domain": "spark_asr_v2",
         "language": "zh_cn",
@@ -136,40 +328,33 @@ def build_iat_parameters() -> dict[str, Any]:
             "format": "json",
         },
     }
-    if get_optional_bool_env("VINPUT_ASR_ENABLE_WPGS", True):
+    if config.enable_wpgs:
         iat["dwa"] = "wpgs"
 
-    integer_options = {
-        "VINPUT_ASR_BOS": "bos",
-        "VINPUT_ASR_VGAP": "vgap",
-        "VINPUT_ASR_EOS": "eos",
-        "VINPUT_ASR_VINFO": "vinfo",
-        "VINPUT_ASR_EVL": "evl",
-        "VINPUT_ASR_OPT": "opt",
-        "VINPUT_ASR_LTC": "ltc",
-        "VINPUT_ASR_ETT": "ett",
+    options = {
+        "bos": config.bos,
+        "vgap": config.vgap,
+        "eos": config.eos,
+        "vinfo": config.vinfo,
+        "evl": config.evl,
+        "opt": config.opt,
+        "ltc": config.ltc,
+        "ett": config.ett,
     }
-    for env_name, parameter_name in integer_options.items():
-        if os.getenv(env_name, "").strip():
-            iat[parameter_name] = get_optional_int_env(env_name, 0)
+    for param_name, param_val in options.items():
+        if param_val is not None:
+            iat[param_name] = param_val
 
-    svad = get_optional_int_env("VINPUT_ASR_SVAD", 0)
-    if svad not in {0, 1}:
-        raise ValueError("VINPUT_ASR_SVAD must be 0 or 1.")
-    iat["svad"] = svad
+    iat["svad"] = config.svad
+    if config.fa_nbest is not None:
+        iat["fa_nbest"] = config.fa_nbest
 
-    fa_nbest = json_bool_env("VINPUT_ASR_FA_NBEST", False)
-    if fa_nbest is not None:
-        iat["fa_nbest"] = fa_nbest
-
-    for env_name, parameter_name in (
-        ("VINPUT_ASR_RES_LANGUAGE", "rlang"),
-        ("VINPUT_ASR_HOTWORDS", "dhw"),
-        ("VINPUT_ASR_CONTEXT", "context"),
-    ):
-        value = get_optional_env(env_name)
-        if value:
-            iat[parameter_name] = value
+    if config.res_language:
+        iat["rlang"] = config.res_language
+    if config.hotwords:
+        iat["dhw"] = config.hotwords
+    if config.context:
+        iat["context"] = config.context
 
     return iat
 
@@ -203,62 +388,6 @@ def build_audio_message(
     if iat_parameters is not None:
         message["parameter"] = {"iat": iat_parameters}
     return message
-
-
-def normalize_text(text: str) -> str:
-    return text.strip()
-
-
-@dataclass
-class ProviderState:
-    error: str | None = None
-    closed: bool = False
-    cancelled: bool = False
-    latest_text: str = ""
-    final_received: bool = False
-    final_emitted: bool = False
-    upstream_error: bool = False
-    session_started: bool = False
-
-
-def is_ascii_word_character(value: str) -> bool:
-    return bool(value) and value.isascii() and (value.isalnum() or value == "_")
-
-
-def combine_text_fragments(fragments: list[str]) -> str:
-    combined = ""
-    for fragment in fragments:
-        fragment = normalize_text(fragment)
-        if not fragment:
-            continue
-        if combined and is_ascii_word_character(combined[-1]) and is_ascii_word_character(fragment[0]):
-            combined += " "
-        combined += fragment
-    return combined
-
-
-def emit_partial(state: ProviderState, text: str) -> None:
-    text = normalize_text(text)
-    if not text or text == state.latest_text:
-        return
-    state.latest_text = text
-    write_stdout({"type": "partial", "text": text})
-
-
-def emit_final(state: ProviderState) -> bool:
-    text = normalize_text(state.latest_text)
-    if not text or state.final_emitted:
-        return False
-    write_stdout(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
-    state.final_emitted = True
-    return True
 
 
 class WebSocketClient:
@@ -459,178 +588,6 @@ class WebSocketClient:
         return data
 
 
-class ActiveStream:
-    def __init__(
-        self,
-        *,
-        state: ProviderState,
-        url: str,
-        app_id: str,
-        res_id: str,
-        timeout: int,
-    ) -> None:
-        self.state = state
-        self.app_id = app_id
-        self.res_id = res_id
-        self.sequence = 1
-        self.sent_audio = False
-        self.sent_finish = False
-        self.stop_event = threading.Event()
-        self.final_event = threading.Event()
-        self.iat_parameters = build_iat_parameters()
-        self.client = WebSocketClient(url, timeout)
-        self.segments: dict[int, str] = {}
-        self.session_id = str(uuid.uuid4())
-        self._emit_session_started()
-        self.reader = threading.Thread(target=self._reader, daemon=True)
-        self.reader.start()
-
-    def _emit_session_started(self) -> None:
-        if self.state.session_started:
-            return
-        write_stdout({"type": "session_started", "session_id": self.session_id, "config": {}})
-        self.state.session_started = True
-
-    def send_audio(self, audio: bytes) -> None:
-        status = 0 if not self.sent_audio else 1
-        message = build_audio_message(
-            app_id=self.app_id,
-            res_id=self.res_id,
-            status=status,
-            sequence=self.sequence,
-            audio=audio,
-            iat_parameters=self.iat_parameters if not self.sent_audio else None,
-        )
-        self.client.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
-        self.sequence += 1
-        self.sent_audio = True
-
-    def finish(self, grace_secs: float) -> bool:
-        try:
-            if not self.state.upstream_error and not self.state.final_received and not self.sent_finish:
-                message = build_audio_message(
-                    app_id=self.app_id,
-                    res_id=self.res_id,
-                    status=2,
-                    sequence=self.sequence,
-                    audio=b"",
-                    iat_parameters=None,
-                )
-                self.client.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
-                self.sequence += 1
-                self.sent_finish = True
-            if not self.state.upstream_error and not self.state.final_received:
-                if not self.final_event.wait(timeout=grace_secs):
-                    emit_error(self.state, "Timed out waiting for the iFlytek final recognition result.")
-            return self.state.final_received or self.state.upstream_error
-        finally:
-            self.stop_event.set()
-            self.client.close()
-            self.reader.join(timeout=1.0)
-
-    def cancel(self) -> None:
-        self.state.cancelled = True
-        self.stop_event.set()
-        self.client.close()
-        self.reader.join(timeout=1.0)
-
-    def _handle_message(self, payload: bytes) -> None:
-        try:
-            message = json.loads(payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Invalid iFlytek response JSON: {exc}") from exc
-        if not isinstance(message, dict):
-            raise RuntimeError("Invalid iFlytek response: expected a JSON object.")
-
-        header = message.get("header")
-        if not isinstance(header, dict):
-            raise RuntimeError("Invalid iFlytek response: missing header.")
-        code = header.get("code", 0)
-        if code not in {0, "0", None}:
-            details = header.get("message", "unknown error")
-            raise RuntimeError(f"iFlytek ASR error {code}: {details}")
-
-        result_container = message.get("payload")
-        result = result_container.get("result") if isinstance(result_container, dict) else None
-        if not isinstance(result, dict):
-            if header.get("status") == 2:
-                self.state.final_received = True
-                self.final_event.set()
-            return
-
-        decoded_result: dict[str, Any] | None = None
-        text = result.get("text")
-        if isinstance(text, str) and text:
-            decoded_result = self._decode_result_text(text, result.get("compress", "raw"))
-            self._update_segments(decoded_result)
-            emit_partial(
-                self.state,
-                combine_text_fragments([self.segments[index] for index in sorted(self.segments)]),
-            )
-
-        result_status = result.get("status", header.get("status"))
-        if result_status in {2, "2"} or decoded_result_is_last(decoded_result):
-            self.state.final_received = True
-            self.final_event.set()
-
-    def _decode_result_text(self, text: str, compression: str) -> dict[str, Any]:
-        try:
-            decoded = base64.b64decode(text, validate=True)
-            if compression == "gzip":
-                decoded = gzip.decompress(decoded)
-            elif compression not in {"raw", ""}:
-                raise RuntimeError(f"Unsupported iFlytek result compression: {compression}")
-            result = json.loads(decoded.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
-            raise RuntimeError(f"Invalid iFlytek result payload: {exc}") from exc
-        if not isinstance(result, dict):
-            raise RuntimeError("Invalid iFlytek result payload: expected a JSON object.")
-        ret = result.get("ret", 0)
-        if ret not in {0, "0", None}:
-            raise RuntimeError(f"iFlytek ASR recognition error {ret}: {result.get('msg', 'unknown error')}")
-        return result
-
-    def _update_segments(self, result: dict[str, Any]) -> None:
-        sequence = result.get("sn")
-        if not isinstance(sequence, int):
-            sequence = max(self.segments, default=0) + 1
-
-        pgs = result.get("pgs")
-        if pgs == "rpl":
-            replacement_range = result.get("rg")
-            if isinstance(replacement_range, list) and len(replacement_range) == 2:
-                try:
-                    start, end = int(replacement_range[0]), int(replacement_range[1])
-                except (TypeError, ValueError):
-                    start, end = sequence, sequence
-                for index in range(start, end + 1):
-                    self.segments.pop(index, None)
-
-        self.segments[sequence] = extract_result_text(result)
-
-    def _reader(self) -> None:
-        try:
-            while not self.stop_event.is_set():
-                message = self.client.recv_message()
-                if message is None:
-                    if not self.state.final_received and not self.stop_event.is_set():
-                        self.state.upstream_error = True
-                        emit_error(self.state, "iFlytek WebSocket closed before the final recognition result.")
-                        self.final_event.set()
-                    break
-                opcode, payload = message
-                if opcode != 0x1:
-                    continue
-                self._handle_message(payload)
-        except Exception as exc:
-            if not self.stop_event.is_set():
-                self.state.upstream_error = True
-                emit_error(self.state, str(exc))
-                self.final_event.set()
-        finally:
-            self.stop_event.set()
-
-
 def extract_result_text(result: dict[str, Any]) -> str:
     parts: list[str] = []
     words = result.get("ws")
@@ -656,32 +613,232 @@ def decoded_result_is_last(result: dict[str, Any] | None) -> bool:
     return bool(result and result.get("ls") is True)
 
 
-def run() -> int:
-    app_id = get_required_env("VINPUT_ASR_APP_ID")
-    api_key = get_required_env("VINPUT_ASR_API_KEY")
-    api_secret = get_required_env("VINPUT_ASR_API_SECRET")
-    base_url = get_optional_env("VINPUT_ASR_URL", DEFAULT_URL)
-    res_id = get_optional_env("VINPUT_ASR_RES_ID")
-    timeout = get_optional_int_env("VINPUT_ASR_TIMEOUT", DEFAULT_TIMEOUT)
-    grace_secs = get_optional_float_env("VINPUT_ASR_FINISH_GRACE_SECS", DEFAULT_FINISH_GRACE_SECS)
-    if timeout <= 0:
-        raise ValueError("VINPUT_ASR_TIMEOUT must be greater than zero.")
-    if grace_secs < 0 or grace_secs > MAX_FINISH_GRACE_SECS:
-        raise ValueError("VINPUT_ASR_FINISH_GRACE_SECS must be between 0 and 8 seconds.")
+def decode_result_text(text: str, compression: str) -> dict[str, Any]:
+    try:
+        decoded = base64.b64decode(text, validate=True)
+        if compression == "gzip":
+            decoded = gzip.decompress(decoded)
+        elif compression not in {"raw", ""}:
+            raise RuntimeError(f"Unsupported iFlytek result compression: {compression}")
+        result = json.loads(decoded.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
+        raise RuntimeError(f"Invalid iFlytek result payload: {exc}") from exc
+    if not isinstance(result, dict):
+        raise RuntimeError("Invalid iFlytek result payload: expected a JSON object.")
+    ret = result.get("ret", 0)
+    if ret not in {0, "0", None}:
+        raise RuntimeError(f"iFlytek ASR recognition error {ret}: {result.get('msg', 'unknown error')}")
+    return result
 
-    state = ProviderState()
-    active_stream: ActiveStream | None = None
+
+def update_segments(segments: dict[int, str], result: dict[str, Any]) -> None:
+    sequence = result.get("sn")
+    if not isinstance(sequence, int):
+        sequence = max(segments, default=0) + 1
+
+    pgs = result.get("pgs")
+    if pgs == "rpl":
+        replacement_range = result.get("rg")
+        if isinstance(replacement_range, list) and len(replacement_range) == 2:
+            try:
+                start, end = int(replacement_range[0]), int(replacement_range[1])
+            except (TypeError, ValueError):
+                start, end = sequence, sequence
+            for index in range(start, end + 1):
+                segments.pop(index, None)
+
+    segments[sequence] = extract_result_text(result)
+
+
+# Global runtime singletons
+_CONFIG: StreamingConfig | None = None
+_CLIENT: WebSocketClient | None = None
+_STATE: ProviderState = ProviderState()
+_STOP_EVENT = threading.Event()
+_FINAL_EVENT = threading.Event()
+_SEQUENCE: int = 1
+_SENT_AUDIO: bool = False
+_SENT_FINISH: bool = False
+
+
+def connect(config: StreamingConfig) -> None:
+    global _CONFIG, _CLIENT, _STATE, _SEQUENCE, _SENT_AUDIO, _SENT_FINISH
+    _CONFIG = config
+    _STATE = ProviderState()
+    _STOP_EVENT.clear()
+    _FINAL_EVENT.clear()
+    _SEQUENCE = 1
+    _SENT_AUDIO = False
+    _SENT_FINISH = False
+
+    auth_url = build_auth_url(config.base_url, config.api_key, config.api_secret)
+    _CLIENT = WebSocketClient(auth_url, config.timeout)
+    session_id = str(uuid.uuid4())
+    emit_session_started(session_id)
+    _STATE.session_started = True
+
+
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+    del is_commit
+    global _SEQUENCE, _SENT_AUDIO
+    if not _CLIENT or not _CONFIG:
+        return
+    status = 0 if not _SENT_AUDIO else 1
+    message = build_audio_message(
+        app_id=_CONFIG.app_id,
+        res_id=_CONFIG.res_id,
+        status=status,
+        sequence=_SEQUENCE,
+        audio=pcm_bytes,
+        iat_parameters=build_iat_parameters(_CONFIG) if not _SENT_AUDIO else None,
+    )
+    _CLIENT.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
+    _SEQUENCE += 1
+    _SENT_AUDIO = True
+
+
+def on_finish() -> None:
+    global _SEQUENCE, _SENT_FINISH
+    if not _CLIENT or not _CONFIG:
+        return
+    if not _STATE.upstream_error and not _STATE.final_received and not _SENT_FINISH:
+        message = build_audio_message(
+            app_id=_CONFIG.app_id,
+            res_id=_CONFIG.res_id,
+            status=2,
+            sequence=_SEQUENCE,
+            audio=b"",
+            iat_parameters=None,
+        )
+        _CLIENT.send_text(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
+        _SEQUENCE += 1
+        _SENT_FINISH = True
+
+
+def on_cancel() -> None:
+    _STATE.cancelled = True
+    cleanup()
+
+
+def on_upstream_message(raw_msg: str | bytes) -> None:
+    if isinstance(raw_msg, str):
+        payload = raw_msg.encode("utf-8")
+    else:
+        payload = raw_msg
+
+    try:
+        message = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Invalid iFlytek response JSON: {exc}") from exc
+    if not isinstance(message, dict):
+        raise RuntimeError("Invalid iFlytek response: expected a JSON object.")
+
+    header = message.get("header")
+    if not isinstance(header, dict):
+        raise RuntimeError("Invalid iFlytek response: missing header.")
+    code = header.get("code", 0)
+    if code not in {0, "0", None}:
+        details = str(header.get("message", "unknown error"))
+        notify_error("err_upstream", code=str(code), detail=details)
+        raise RuntimeError(f"iFlytek ASR error {code}: {details}")
+
+    result_container = message.get("payload")
+    result = result_container.get("result") if isinstance(result_container, dict) else None
+    if not isinstance(result, dict):
+        if header.get("status") == 2:
+            _STATE.final_received = True
+            _FINAL_EVENT.set()
+        return
+
+    decoded_result: dict[str, Any] | None = None
+    text = result.get("text")
+    if isinstance(text, str) and text:
+        decoded_result = decode_result_text(text, str(result.get("compress", "raw")))
+        update_segments(_STATE.segments, decoded_result)
+        current_text = combine_text_fragments([_STATE.segments[idx] for idx in sorted(_STATE.segments)])
+        if current_text and current_text != _STATE.latest_text:
+            _STATE.latest_text = current_text
+            emit_partial(current_text)
+
+    result_status = result.get("status", header.get("status"))
+    if result_status in {2, "2"} or decoded_result_is_last(decoded_result):
+        _STATE.final_received = True
+        _FINAL_EVENT.set()
+
+
+def cleanup() -> None:
+    global _CLIENT
+    _STOP_EVENT.set()
+    _FINAL_EVENT.set()
+    if _CLIENT:
+        _CLIENT.close()
+        _CLIENT = None
+
+
+def run() -> int:
+    try:
+        config = load_config()
+    except ValueError as exc:
+        err_text = str(exc)
+        if "APP_ID" in err_text:
+            notify_error("err_missing_app_id")
+        elif "API_KEY" in err_text:
+            notify_error("err_missing_api_key")
+        elif "API_SECRET" in err_text:
+            notify_error("err_missing_api_secret")
+        else:
+            notify_error("err_runtime", detail=err_text)
+        return EXIT_USAGE_ERROR
+
+    try:
+        connect(config)
+    except Exception as exc:
+        notify_error("err_network", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
+
+    client = _CLIENT
+    if not client:
+        return EXIT_RUNTIME_ERROR
+
+    def reader() -> None:
+        try:
+            while not _STOP_EVENT.is_set():
+                message = client.recv_message()
+                if message is None:
+                    if not _STATE.final_received and not _STOP_EVENT.is_set():
+                        _STATE.upstream_error = True
+                        notify_error("err_network", detail="iFlytek connection closed unexpectedly.")
+                        _FINAL_EVENT.set()
+                    break
+                opcode, payload = message
+                if opcode != 0x1:
+                    continue
+                on_upstream_message(payload)
+        except Exception as exc:
+            if not _STOP_EVENT.is_set():
+                _STATE.upstream_error = True
+                notify_error("err_runtime", detail=str(exc))
+                _FINAL_EVENT.set()
+        finally:
+            _STOP_EVENT.set()
+
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
+
+    saw_finish = False
     try:
         for raw_line in sys.stdin:
+            if _STOP_EVENT.is_set():
+                break
+
             line = raw_line.strip()
             if not line:
                 continue
+
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSON input: {exc}") from exc
-            if not isinstance(event, dict):
-                raise ValueError("Provider input must be a JSON object.")
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
@@ -689,80 +846,52 @@ def run() -> int:
                 if not isinstance(audio_base64, str) or not audio_base64:
                     raise ValueError("audio event requires non-empty audio_base64.")
                 try:
-                    audio = base64.b64decode(audio_base64, validate=True)
-                except ValueError as exc:
-                    raise ValueError("audio_base64 is not valid base64.") from exc
-                if not audio:
-                    raise ValueError("audio event decoded to empty audio.")
-                if active_stream is None:
-                    auth_url = build_auth_url(base_url, api_key, api_secret)
-                    active_stream = ActiveStream(
-                        state=state,
-                        url=auth_url,
-                        app_id=app_id,
-                        res_id=res_id,
-                        timeout=timeout,
-                    )
-                active_stream.send_audio(audio)
-                # The daemon's commit flag is only an upstream hint. The vinput
-                # utterance ends on the separate finish event, not on a chunk commit.
+                    pcm_audio = base64.b64decode(audio_base64)
+                except Exception as exc:
+                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
             if event_type == "finish":
-                if active_stream is not None:
-                    should_emit_final = active_stream.finish(grace_secs)
-                    if should_emit_final:
-                        emit_final(state)
-                    active_stream = None
+                saw_finish = True
+                on_finish()
                 break
 
             if event_type == "cancel":
-                state.cancelled = True
-                if active_stream is not None:
-                    active_stream.cancel()
-                    active_stream = None
+                on_cancel()
                 break
 
             raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
-    except Exception as exc:
-        emit_error(state, str(exc))
-        if active_stream is not None:
-            try:
-                active_stream.cancel()
-            except Exception:
-                pass
-            active_stream = None
     finally:
-        if active_stream is not None and not state.cancelled:
-            try:
-                should_emit_final = active_stream.finish(grace_secs)
-                if should_emit_final:
-                    emit_final(state)
-            except Exception as exc:
-                emit_error(state, str(exc))
-                try:
-                    active_stream.cancel()
-                except Exception:
-                    pass
-        if not state.closed:
-            write_stdout({"type": "closed"})
-            state.closed = True
+        if saw_finish and not _STOP_EVENT.is_set():
+            _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
 
-    if state.error:
+        if not _STATE.cancelled and _STATE.latest_text and not _STATE.final_emitted:
+            emit_final(_STATE.latest_text)
+            _STATE.final_emitted = True
+
+        cleanup()
+        reader_thread.join(timeout=1.0)
+
+        if not _STATE.closed:
+            emit_closed()
+            _STATE.closed = True
+
+    if _STATE.error or _STATE.upstream_error:
         return EXIT_RUNTIME_ERROR
-    return 0
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     try:
         return run()
     except ValueError as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_USAGE_ERROR
     except Exception as exc:
-        write_stderr(str(exc))
+        notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
