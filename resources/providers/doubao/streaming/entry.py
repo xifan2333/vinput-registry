@@ -51,24 +51,45 @@ COMPRESSION_GZIP = 0x1
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "Doubao Streaming ASR",
         "err_missing_credentials": (
             "Missing Doubao credentials. Set VINPUT_ASR_APP_ID with VINPUT_ASR_ACCESS_TOKEN, "
             "or set VINPUT_ASR_API_KEY to 'app_id:access_key'."
         ),
+        "err_invalid_event": "Invalid input event: {detail}",
         "err_network": "Doubao streaming network error: {detail}",
         "err_upstream": "Doubao streaming server error {code}: {detail}",
         "err_runtime": "Doubao streaming runtime error: {detail}",
     },
     "zh_CN": {
+        "title": "豆包实时语音识别",
         "err_missing_credentials": (
             "缺少豆包认证信息。请配置 VINPUT_ASR_APP_ID 与 VINPUT_ASR_ACCESS_TOKEN，"
             "或将 VINPUT_ASR_API_KEY 设为 'app_id:access_key'。"
         ),
+        "err_invalid_event": "输入事件格式错误：{detail}",
         "err_network": "豆包流式语音识别网络连接失败：{detail}",
         "err_upstream": "豆包流式语音服务端报错 {code}：{detail}",
         "err_runtime": "豆包流式语音运行异常：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput provider errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -101,8 +122,9 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "Doubao Streaming ASR", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -206,14 +228,20 @@ def get_optional_int_env(name: str, default: int | None = None) -> int | None:
     value = os.getenv(name, "").strip()
     if not value:
         return default
-    return int(value)
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ConfigError("err_runtime", detail=f"{name} must be an integer.") from exc
 
 
 def get_optional_float_env(name: str, default: float | None = None) -> float | None:
     value = os.getenv(name, "").strip()
     if not value:
         return default
-    return float(value)
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ConfigError("err_runtime", detail=f"{name} must be a number.") from exc
 
 
 def get_optional_bool_env(name: str, default: bool | None = None) -> bool | None:
@@ -231,10 +259,10 @@ def get_optional_json_object_env(name: str) -> dict[str, Any] | None:
     try:
         data = json.loads(value)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{name} must contain valid JSON: {exc}") from exc
+        raise ConfigError("err_runtime", detail=f"{name} must contain valid JSON: {exc}") from exc
 
     if not isinstance(data, dict):
-        raise ValueError(f"{name} must contain a JSON object.")
+        raise ConfigError("err_runtime", detail=f"{name} must contain a JSON object.")
     return data
 
 
@@ -255,7 +283,7 @@ def resolve_credentials() -> tuple[str, str]:
         if app_id:
             return app_id, combined
 
-    raise ValueError("Missing Doubao credentials.")
+    raise ConfigError("err_missing_credentials")
 
 
 def coerce_result_type(value: str) -> str:
@@ -497,9 +525,9 @@ class WebSocketClient:
     def __init__(self, url: str, headers: dict[str, str], timeout: int) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"ws", "wss"}:
-            raise ValueError("WebSocket URL must use ws:// or wss://.")
+            raise VInputError("err_network", detail="WebSocket URL must use ws:// or wss://.")
         if not parsed.hostname:
-            raise ValueError("WebSocket URL is missing a hostname.")
+            raise VInputError("err_network", detail="WebSocket URL is missing a hostname.")
 
         self.host = parsed.hostname
         self.port = parsed.port or (443 if parsed.scheme == "wss" else 80)
@@ -899,15 +927,7 @@ def cleanup() -> None:
 
 
 def run() -> int:
-    try:
-        config = load_config()
-    except ValueError as exc:
-        err_msg = str(exc)
-        if "credentials" in err_msg.lower():
-            notify_error("err_missing_credentials")
-        else:
-            notify_error("err_runtime", detail=err_msg)
-        return EXIT_USAGE_ERROR
+    config = load_config()
 
     try:
         connect(config)
@@ -970,17 +990,17 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
                 audio_base64 = event.get("audio_base64")
                 if not isinstance(audio_base64, str) or not audio_base64:
-                    raise ValueError("audio event requires non-empty audio_base64.")
+                    raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 try:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
-                    raise ValueError(f"Invalid audio_base64 payload: {exc}") from exc
+                    raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
                 on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
                 continue
 
@@ -993,7 +1013,7 @@ def run() -> int:
                 on_cancel()
                 break
 
-            raise ValueError(f"Unsupported event type: {event_type or '<missing>'}")
+            raise VInputError("err_invalid_event", detail=f"Unsupported event type: {event_type or '<missing>'}")
     finally:
         if saw_finish and not _STATE.cancelled:
             _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
@@ -1017,9 +1037,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
-    except ValueError as exc:
-        notify_error("err_runtime", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR
