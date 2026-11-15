@@ -1,0 +1,28 @@
+id: batch-asr-contract
+message: "Batch ASR entry.py 缺少核心契约函数。必须实现 load_config, read_audio_input, transcribe, emit_transcript, run, main。"
+severity: error
+language: Python
+files:
+  - "resources/providers/**/batch/entry.py"
+rule:
+  kind: module
+  not:
+    all:
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^load_config$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^read_audio_input$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^transcribe$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^emit_transcript$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^run$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^main$" }

@@ -1,0 +1,11 @@
+[files]
+extend-exclude = [
+  "i18n",
+  ".git",
+  ".ruff_cache",
+]
+
+[default.extend-words]
+nam = "nam"
+datas = "datas"
+Nd = "Nd"

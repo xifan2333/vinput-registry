@@ -1,0 +1,19 @@
+id: nested-loops
+message: "检测到 3 层及以上的多重嵌套循环。请提取子逻辑为独立函数，降低算法复杂度并避免阻塞热路径。"
+severity: warning
+language: Python
+files:
+  - "resources/**/entry.py"
+utils:
+  loop_node:
+    any:
+      - kind: for_statement
+      - kind: while_statement
+rule:
+  matches: loop_node
+  inside:
+    matches: loop_node
+    stopBy: end
+    inside:
+      matches: loop_node
+      stopBy: end

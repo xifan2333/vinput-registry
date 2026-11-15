@@ -1,0 +1,50 @@
+id: streaming-asr-contract
+message: "Streaming ASR entry.py 缺少核心流式契约函数。必须实现 load_config, connect, on_audio_chunk, on_finish, on_cancel, on_upstream_message, emit_session_started, emit_partial, emit_final, emit_closed, cleanup, run, main。"
+severity: error
+language: Python
+files:
+  - "resources/providers/**/streaming/entry.py"
+  - "resources/providers/**/*.streaming/entry.py"
+rule:
+  kind: module
+  not:
+    all:
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^load_config$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^connect$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^on_audio_chunk$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^on_finish$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^on_cancel$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^on_upstream_message$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^emit_session_started$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^emit_partial$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^emit_final$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^emit_closed$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^cleanup$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^run$" }
+      - has:
+          kind: function_definition
+          has: { field: name, regex: "^main$" }

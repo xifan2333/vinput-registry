@@ -1,0 +1,10 @@
+id: no-silent-except
+message: "严禁使用 except: pass 静默吞掉异常。所有异常必须显式处理或通过 notify_error() 写入 stderr 桌面通知并返回标准退出码。"
+severity: warning
+language: Python
+files:
+  - "resources/**/entry.py"
+rule:
+  kind: except_clause
+  has:
+    pattern: pass

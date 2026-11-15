@@ -1,0 +1,20 @@
+id: deep-if-branching
+message: "代码分支嵌套过深 (>= 4 层)。请优先采用卫语句（Guard Clauses）提前 return，保持主干逻辑平铺扁平。"
+severity: warning
+language: Python
+files:
+  - "resources/**/entry.py"
+utils:
+  nested_if:
+    kind: if_statement
+rule:
+  matches: nested_if
+  inside:
+    matches: nested_if
+    stopBy: end
+    inside:
+      matches: nested_if
+      stopBy: end
+      inside:
+        matches: nested_if
+        stopBy: end

@@ -29,6 +29,16 @@ steps {
     check = "python3 scripts/validate_registry.py"
   }
 
+  ["check-typos"] {
+    glob = List("resources/**", "registry/**", "scripts/**", "AGENTS.md", "GLOSSARY.md")
+    check = "typos"
+  }
+
+  ["check-ast"] {
+    glob = List("resources/**/*.py")
+    check = "ast-grep scan --error {{files}}"
+  }
+
   ["mise"] = Builtins.mise
   ["trailing-whitespace"] = Builtins.trailing_whitespace
   ["newlines"] = Builtins.newlines
