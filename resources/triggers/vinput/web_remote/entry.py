@@ -29,6 +29,7 @@ EXIT_USAGE_ERROR = 2
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "Web Remote Trigger",
         "connected": "Mobile phone connected.",
         "err_missing_api_key": "Missing required VINPUT_TRIGGER_API_KEY environment variable.",
         "err_invalid_port": "VINPUT_TRIGGER_PORT must be an integer between 1 and 65535.",
@@ -36,6 +37,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "err_runtime": "Web Remote runtime error: {detail}",
     },
     "zh_CN": {
+        "title": "网页远控触发器",
         "connected": "手机端已成功连接。",
         "err_missing_api_key": "缺少必需的 VINPUT_TRIGGER_API_KEY 环境变量。",
         "err_invalid_port": "VINPUT_TRIGGER_PORT 必须是 1 到 65535 之间的整数。",
@@ -43,6 +45,23 @@ MESSAGES: dict[str, dict[str, str]] = {
         "err_runtime": "网页远控触发器运行异常：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput client/trigger errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -75,16 +94,18 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "Web Remote", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
 
 def notify_info(key: str, **kwargs: object) -> None:
     """Emit informational notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "Web Remote", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -709,11 +730,11 @@ class RemoteConfig:
 def load_config() -> RemoteConfig:
     api_key = os.environ.get("VINPUT_TRIGGER_API_KEY", "").strip()
     if not api_key:
-        raise ValueError(get_message("err_missing_api_key"))
+        raise ConfigError("err_missing_api_key")
 
     port_raw = os.environ.get("VINPUT_TRIGGER_PORT", "").strip()
     if not port_raw.isdigit() or not (1 <= int(port_raw) <= 65535):
-        raise ValueError(get_message("err_invalid_port"))
+        raise ConfigError("err_invalid_port")
     port = int(port_raw)
 
     debounce_raw = os.environ.get("VINPUT_TRIGGER_DEBOUNCE_MS", "1500").strip()
@@ -724,17 +745,7 @@ def load_config() -> RemoteConfig:
 
 def run() -> int:
     global _API_KEY, _DEBOUNCE_SEC
-    try:
-        config = load_config()
-    except ValueError as exc:
-        err_msg = str(exc)
-        if "API_KEY" in err_msg:
-            notify_error("err_missing_api_key")
-        elif "PORT" in err_msg:
-            notify_error("err_invalid_port")
-        else:
-            notify_error("err_runtime", detail=err_msg)
-        return EXIT_USAGE_ERROR
+    config = load_config()
 
     _API_KEY = config.api_key
     _DEBOUNCE_SEC = config.debounce_ms / 1000.0
@@ -761,6 +772,9 @@ def run() -> int:
 def main() -> int:
     try:
         return run()
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_runtime", detail=str(exc))
         return EXIT_RUNTIME_ERROR

@@ -23,14 +23,33 @@ DEFAULT_MTRAN_URL = "http://127.0.0.1:8989"
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
+        "title": "MTranServer Adapter",
         "err_translate_failed": "MTranServer translation failed: {detail}",
         "err_network": "Network error communicating with MTranServer: {detail}",
     },
     "zh_CN": {
+        "title": "MTranServer 翻译适配器",
         "err_translate_failed": "MTranServer 翻译失败：{detail}",
         "err_network": "连接 MTranServer 发生网络错误：{detail}",
     },
 }
+
+
+class VInputError(Exception):
+    """Base exception for structured vinput provider/adapter errors."""
+
+    exit_code = EXIT_RUNTIME_ERROR
+
+    def __init__(self, key: str, **kwargs: object) -> None:
+        super().__init__(key)
+        self.key = key
+        self.kwargs = kwargs
+
+
+class ConfigError(VInputError):
+    """Configuration error resulting in usage exit code."""
+
+    exit_code = EXIT_USAGE_ERROR
 
 
 def detect_locale() -> str:
@@ -63,8 +82,9 @@ def get_message(key: str, **kwargs: object) -> str:
 
 def notify_error(key: str, **kwargs: object) -> None:
     """Emit JSONL user desktop notification to stderr."""
+    title = get_message("title")
     msg = get_message(key, **kwargs)
-    payload = json.dumps({"title": "MTranServer Adapter", "body": msg}, ensure_ascii=False)
+    payload = json.dumps({"title": title, "body": msg}, ensure_ascii=False)
     sys.stderr.write(f"{payload}\n")
     sys.stderr.flush()
 
@@ -111,7 +131,9 @@ def call_mtran(text: str, to_lang: str, config: AdapterConfig) -> str:
             data = json.loads(resp.read().decode("utf-8"))
         return str(data.get("result", ""))
     except URLError as exc:
-        raise ConnectionError(f"Failed to connect to MTranServer at {config.url}: {exc.reason}") from exc
+        raise VInputError(
+            "err_network", detail=f"Failed to connect to MTranServer at {config.url}: {exc.reason}"
+        ) from exc
 
 
 def rewrite_text(text: str, config: AdapterConfig) -> str | list[str]:
@@ -136,11 +158,7 @@ def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | li
 
 def run() -> int:
     """Main filter loop reading stdin and writing candidates to stdout."""
-    try:
-        config = load_config()
-    except Exception as exc:
-        notify_error("err_translate_failed", detail=str(exc))
-        return EXIT_USAGE_ERROR
+    config = load_config()
 
     raw_input = sys.stdin.read()
     if not raw_input:
@@ -159,26 +177,29 @@ def run() -> int:
     except Exception:
         is_json = False
 
-    try:
-        if is_json and selected:
-            output = rewrite_command(text, selected, config)
-        else:
-            output = rewrite_text(text, config)
+    if is_json and selected:
+        output = rewrite_command(text, selected, config)
+    else:
+        output = rewrite_text(text, config)
 
-        if isinstance(output, list):
-            sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
-        else:
-            sys.stdout.write(f"{output}\n")
-        sys.stdout.flush()
-        return EXIT_SUCCESS
-    except Exception as exc:
-        notify_error("err_translate_failed", detail=str(exc))
-        return EXIT_RUNTIME_ERROR
+    if isinstance(output, list):
+        sys.stdout.write(json.dumps({"candidates": output}, ensure_ascii=False) + "\n")
+    else:
+        sys.stdout.write(f"{output}\n")
+    sys.stdout.flush()
+    return EXIT_SUCCESS
 
 
 def main() -> int:
     """CLI wrapper returning standard exit code."""
-    return run()
+    try:
+        return run()
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
+    except Exception as exc:
+        notify_error("err_translate_failed", detail=str(exc))
+        return EXIT_RUNTIME_ERROR
 
 
 if __name__ == "__main__":
