@@ -44,12 +44,12 @@ IDENTITY_FIELDS = ("device_id", "install_id", "cdid", "openudid", "clientudid")
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
-        "title": "Doubao IME Adapter",
+        "title": "Doubao Text Organize Adapter",
         "err_organize_failed": "Doubao IME text organization failed: {detail}",
         "err_identity_failed": "Failed to initialize Doubao IME identity: {detail}",
     },
     "zh_CN": {
-        "title": "豆包输入法整理适配器",
+        "title": "豆包文本整理适配器",
         "err_organize_failed": "豆包输入法文本整理失败：{detail}",
         "err_identity_failed": "初始化豆包输入法凭据失败：{detail}",
     },
