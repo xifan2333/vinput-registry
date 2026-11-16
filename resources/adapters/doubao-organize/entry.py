@@ -489,6 +489,7 @@ def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
         decoder = codecs.getincrementaldecoder("utf-8")()
         offset = 0
         pending = ""
+        event = ""
         while True:
             chunk = response.read(4096)
             if not chunk:
@@ -502,18 +503,24 @@ def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
             while "\n" in pending:
                 line, pending = pending.split("\n", 1)
                 line = line.removesuffix("\r").strip()
+                if not line:
+                    event = ""
+                    continue
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                    continue
                 if not line.startswith("data:"):
                     continue
                 data_str = line[5:].strip()
-                if data_str == "[DONE]":
+                if data_str == "[DONE]" or event == "done":
                     return text
                 try:
                     payload = json.loads(data_str)
                     if isinstance(payload, dict):
-                        if payload.get("no_rewrite") is True:
+                        if event == "scene.error" or payload.get("no_rewrite") is True:
                             return text
                         content = payload.get("content")
-                        if isinstance(content, str) and content.strip():
+                        if event == "scene.completed" and isinstance(content, str) and content.strip():
                             return content.strip()
                 except Exception:
                     continue
