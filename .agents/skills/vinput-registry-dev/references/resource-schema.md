@@ -8,12 +8,12 @@ This document defines schema standards for local ASR models, cloud ASR providers
 
 Every catalog item in `registry/*.json` requires:
 
-1. **`id`**: Stable machine identifier following `<kind>.<folder>.<name>`:
-   - Providers: `provider.<folder>.<name>` (must end with `.streaming` if stream=true)
+1. **`id`**: Stable machine identifier. First segment is kind, subsequent segments map to relative directory hierarchy:
+   - Adapters: `adapter.<name>` $\to$ `resources/adapters/<name>/`
+   - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/` (must end with `.streaming` or `-streaming` if stream=true)
    - Models: `model.<source>.<model_name>` (e.g., `model.sherpa-onnx.<name>`)
-   - Adapters: `adapter.<folder>.<name>`
-   - Triggers: `trigger.<folder>.<name>`
-   - Receivers: `receiver.<folder>.<name>`
+   - Triggers: `trigger.<vendor>.<name>` $\to$ `resources/triggers/<vendor>/<name>/`
+   - Receivers: `receiver.<name>` $\to$ `resources/receivers/<name>/`
 2. **`short_id`**: Concise identifier for CLI/GUI display. Never used for internal file lookup.
 3. **`script_urls` / `urls`**: Array with at least 3 fallback sources in order:
    - Primary GitHub raw URL: `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
@@ -160,7 +160,7 @@ void FlushAdapterBuffer(ManagedAdapter& adapter, bool flush_partial) {
 - **Errors Only**: Use `notify_error()` to write JSONL desktop notifications (`{"title": "...", "body": "..."}`) to `stderr` on genuine failures.
 
 ### 5. Adapter `README.md` Documentation Template
-Each `resources/adapters/<group>/<name>/README.md` must clearly document runtime requirements:
+Each `resources/adapters/<name>/README.md` must clearly document runtime requirements:
 
 ```markdown
 # adapters.<group>.<name>
