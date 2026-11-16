@@ -8,9 +8,8 @@ This document details the communication protocol between `vinput-daemon` and Clo
 
 Streaming providers are long-running child processes spawned by `vinput-daemon` when recording starts. They maintain a bidirectional stream over standard pipes: `stdin` carries input, `stdout` carries results, and `stderr` carries notifications to the user (see section 4).
 
-### Trigger / Identifier
-- Resource ID **must** end with `.streaming` (e.g. `provider.bailian.streaming`, `provider.openai-compatible.streaming`).
-- In `registry/providers.json`, `"stream": true`.
+### Trigger / Configuration
+- In `registry/providers.json`, declared with `"stream": true`.
 
 ### Standard Input (`stdin`): Daemon -> Provider
 Daemon writes **one JSON object per line (JSONL)** terminated by `\n`:
@@ -81,9 +80,8 @@ When bridging audio from `vinput-daemon` to upstream WebSocket servers (e.g. Ope
 
 Batch providers are short-lived child processes spawned by `vinput-daemon` after user stops recording.
 
-### Trigger / Identifier
-- Resource ID does **not** end with `.streaming` (e.g. `provider.bailian.batch`).
-- In `registry/providers.json`, `"stream": false`.
+### Trigger / Configuration
+- In `registry/providers.json`, declared with `"stream": false`.
 
 ### Standard Input (`stdin`)
 - Daemon pipes the **raw, uncompressed binary PCM bytes** (`S16_LE`, 16000Hz, mono) directly into `stdin`.

@@ -96,11 +96,6 @@ def validate_providers() -> tuple[list[str], set[str]]:
             errors.append(f"[{item_id}] Invalid provider id format, expected 'provider.<path>'")
             continue
 
-        # Streaming ID rule
-        stream = item.get("stream", False)
-        if stream and not (item_id.endswith(".streaming") or item_id.endswith("-streaming")):
-            errors.append(f"[{item_id}] Streaming provider id must end with '.streaming' or '-streaming'")
-
         short_id = item.get("short_id", "")
         if not short_id:
             errors.append(f"[{item_id}] Missing 'short_id'")

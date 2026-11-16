@@ -10,7 +10,7 @@ Every catalog item in `registry/*.json` requires:
 
 1. **`id`**: Stable machine identifier. First segment is kind, subsequent segments map to relative directory hierarchy:
    - Adapters: `adapter.<name>` $\to$ `resources/adapters/<name>/`
-   - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/` (must end with `.streaming` or `-streaming` if stream=true)
+   - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/`
    - Models: `model.<source>.<model_name>` (e.g., `model.sherpa-onnx.<name>`)
    - Triggers: `trigger.<vendor>.<name>` $\to$ `resources/triggers/<vendor>/<name>/`
    - Receivers: `receiver.<name>` $\to$ `resources/receivers/<name>/`
@@ -112,7 +112,7 @@ When a model archive is downloaded and extracted, `fcitx5-vinput` flattens the d
 
 ### Rules
 1. **`stream` property**:
-   - `true`: Streaming duplex protocol. `id` must end with `.streaming`.
+   - `true`: Streaming duplex protocol.
    - `false`: One-shot batch protocol.
 2. **Environment Variable Namespace**:
    - All provider environment variables **must** begin with `VINPUT_ASR_`.

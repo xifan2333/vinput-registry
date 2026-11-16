@@ -46,7 +46,7 @@ Verify repository roles before making changes:
    - The first dot segment is the resource kind (`provider`, `adapter`, `trigger`, `receiver`, `model`).
    - Subsequent dot-separated segments dynamically map to directory hierarchy (`Path(*tokens[1:])`):
      - Adapters: `adapter.<name>` $\to$ `resources/adapters/<name>/`
-     - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/` (streaming providers end with `.streaming` or `-streaming`).
+     - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/`
      - Triggers: `trigger.<vendor>.<name>` $\to$ `resources/triggers/<vendor>/<name>/`
      - Receivers: `receiver.<name>` $\to$ `resources/receivers/<name>/`
      - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
