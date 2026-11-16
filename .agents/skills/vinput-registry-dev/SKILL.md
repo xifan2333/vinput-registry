@@ -30,10 +30,10 @@ Verify repository roles before making changes:
   - `adapters.json`: Managed local LLM scene adapter bridge scripts.
   - `triggers.json`: Managed Trigger peripheral scripts (session control).
   - `receivers.json`: Managed Receiver scripts (result consumers).
-- `resources/providers/<group>/<name>/`: Standalone Python 3 scripts (`entry.py` + `README.md`).
-- `resources/adapters/<group>/<name>/`: Standalone Python 3 adapter scripts (`entry.py` + `README.md`).
-- `resources/triggers/<group>/<name>/`: Standalone Python 3 trigger scripts (`entry.py` + `README.md`).
-- `resources/receivers/<group>/<name>/`: Standalone Python 3 receiver scripts (`entry.py` + `README.md`).
+- `resources/providers/<vendor>/<name>/`: Standalone Python 3 scripts (`entry.py` + `README.md`).
+- `resources/adapters/<name>/`: Standalone Python 3 adapter scripts (`entry.py` + `README.md`).
+- `resources/triggers/<vendor>/<name>/`: Standalone Python 3 trigger scripts (`entry.py` + `README.md`).
+- `resources/receivers/<name>/`: Standalone Python 3 receiver scripts (`entry.py` + `README.md`).
 - `i18n/`: Multilingual display text (`en_US.json`, `zh_CN.json`).
 - `scripts/`: Maintenance and validation utilities (`validate_registry.py`, `check_upstream_models.py`).
 
@@ -42,12 +42,14 @@ Verify repository roles before making changes:
 ## 3. Hard Engineering Rules
 
 1. **Zero External Dependencies & No Binaries**: All provider and adapter scripts (`entry.py`) must use the **Python 3 standard library only** (e.g. `urllib.request`, `socket`, `ssl`, `json`, `hashlib`, `struct`). Never import third-party packages (no `requests`, `websockets`, `aiohttp`) and strictly **never distribute precompiled binary executables** (to guarantee auditability, portability across `x86_64`/`aarch64`, and zero-dependency distribution).
-2. **Resource ID Structure**: Stable machine IDs follow `<kind>.<folder>.<name>`:
-   - Providers: `provider.<folder>.<name>` (streaming providers **must** end with `.streaming`).
-   - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
-   - Adapters: `adapter.<folder>.<name>`.
-   - Triggers: `trigger.<folder>.<name>`.
-   - Receivers: `receiver.<folder>.<name>`.
+2. **Resource ID & Path Structure**:
+   - The first dot segment is the resource kind (`provider`, `adapter`, `trigger`, `receiver`, `model`).
+   - Subsequent dot-separated segments dynamically map to directory hierarchy (`Path(*tokens[1:])`):
+     - Adapters: `adapter.<name>` $\to$ `resources/adapters/<name>/`
+     - Providers: `provider.<vendor>.<name>` $\to$ `resources/providers/<vendor>/<name>/`
+     - Triggers: `trigger.<vendor>.<name>` $\to$ `resources/triggers/<vendor>/<name>/`
+     - Receivers: `receiver.<name>` $\to$ `resources/receivers/<name>/`
+     - Models: `model.<backend>.<name>` (e.g., `model.sherpa-onnx.<name>`).
    - `short_id` is required for CLI/GUI display, but never used for internal resolution.
 3. **Environment Variable Rules**:
    - Cloud ASR Providers must use the `VINPUT_ASR_*` namespace.

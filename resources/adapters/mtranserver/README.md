@@ -1,4 +1,4 @@
-# adapters.mtranserver.proxy
+# adapter.mtranserver
 
 Managed local LLM adapter that exposes MTranServer translation bridge for `vinput-daemon`.
 

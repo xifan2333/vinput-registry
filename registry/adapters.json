@@ -2,15 +2,15 @@
   "version": 1,
   "items": [
     {
-      "id": "adapter.doubaoime.organize",
-      "short_id": "doubaoime-organize",
+      "id": "adapter.doubao-organize",
+      "short_id": "doubao-organize",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubaoime/organize/entry.py"
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubao-organize/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubao-organize/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/doubao-organize/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/doubaoime/organize/README.md",
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/doubao-organize/README.md",
       "envs": [
         {
           "name": "DOUBAOIME_IDENTITY_PATH",
@@ -22,19 +22,19 @@
         }
       ],
       "version": "2.0.1",
-      "sha256": "9c522bfb4ce466e70f0ffa03ee579552b0bee0f48b76d876cfa914b7bf4442d4",
+      "sha256": "423ba4cdffb88474c450c74cc1c232be68be53664d4c3b424c829f3f7fa02b7f",
       "vinput_version": ">= 2.0.0"
     },
     {
-      "id": "adapter.mtranserver.proxy",
-      "short_id": "mtran-proxy",
+      "id": "adapter.mtranserver",
+      "short_id": "mtranserver",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/proxy/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/proxy/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/proxy/entry.py"
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/mtranserver/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/mtranserver/proxy/README.md",
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/mtranserver/README.md",
       "envs": [
         {
           "name": "MTRAN_URL",
@@ -50,15 +50,15 @@
       "vinput_version": ">= 2.0.0"
     },
     {
-      "id": "adapter.cjk-trim.proxy",
+      "id": "adapter.cjk-trim",
       "short_id": "cjk-trim",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/proxy/entry.py"
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/cjk-trim/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/cjk-trim/proxy/README.md",
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/cjk-trim/README.md",
       "envs": [],
       "version": "2.0.1",
       "sha256": "d6632049b0ed1b1bb62c31391b8da4c98718064d1c384565fc844ea00bcca9df",

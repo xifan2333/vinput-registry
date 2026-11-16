@@ -1,4 +1,4 @@
-# adapters.doubaoime.organize
+# adapter.doubao-organize
 
 Managed local LLM adapter that connects to Doubao IME AI text organization service to polish and structure ASR transcripts for `vinput-daemon`.
 

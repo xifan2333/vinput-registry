@@ -1,4 +1,4 @@
-# adapters.cjk-trim.proxy
+# adapter.cjk-trim
 
 Managed local LLM adapter that removes redundant spaces around CJK punctuation and between CJK ideographs in ASR transcripts.
 

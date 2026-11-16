@@ -91,31 +91,24 @@ def validate_providers() -> tuple[list[str], set[str]]:
             errors.append(f"Duplicate provider id: {item_id}")
         ids.add(item_id)
 
-        # Provider ID format: provider.<folder>.<name>
-        if not re.match(r"^provider\.[a-zA-Z0-9_\-.]+$", item_id):
-            errors.append(f"[{item_id}] Invalid provider id format, expected 'provider.<folder>.<name>'")
-
-        # Streaming ID rule
-        stream = item.get("stream", False)
-        if stream and not item_id.endswith(".streaming"):
-            errors.append(f"[{item_id}] Streaming provider id must end with '.streaming'")
+        tokens = item_id.split(".")
+        if len(tokens) < 2 or tokens[0] != "provider":
+            errors.append(f"[{item_id}] Invalid provider id format, expected 'provider.<path>'")
+            continue
 
         short_id = item.get("short_id", "")
         if not short_id:
             errors.append(f"[{item_id}] Missing 'short_id'")
 
-        # Local files check
-        # id: provider.<folder>.<name> -> resources/providers/<folder>/<name>/
-        parts = item_id.split(".", 1)[1]  # <folder>.<name>
-        folder, name = parts.split(".", 1) if "." in parts else (parts, "")
-        if name:
-            script_path = RESOURCES_DIR / "providers" / folder / name / "entry.py"
-            readme_path = RESOURCES_DIR / "providers" / folder / name / "README.md"
-            if not script_path.is_file():
-                errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
-            if not readme_path.is_file():
-                errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
-            errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
+        # Local files check: tokens[1..N]
+        rel_path = Path(*tokens[1:])
+        script_path = RESOURCES_DIR / "providers" / rel_path / "entry.py"
+        readme_path = RESOURCES_DIR / "providers" / rel_path / "README.md"
+        if not script_path.is_file():
+            errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
+        if not readme_path.is_file():
+            errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
+        errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
 
         script_urls = item.get("script_urls", [])
         errors.extend(validate_mirrors(script_urls, item_id))
@@ -132,11 +125,10 @@ def validate_providers() -> tuple[list[str], set[str]]:
 
 
 def validate_scripted_resource(kind: str, env_prefix: str | None) -> tuple[list[str], set[str]]:
-    """Validate a script-based resource catalog sharing the <kind>.<folder>.<name> layout.
+    """Validate a script-based resource catalog.
 
-    Covers local entry/README existence, version/sha256/vinput_version fields, mirror
-    URLs, and environment variable declarations. When env_prefix is provided, every
-    declared variable must live inside that namespace.
+    Resolves relative path dynamically from ID tokens after the kind prefix:
+    <kind>.<segment1>[.<segment2>...] -> resources/<kind>s/<segment1>/[<segment2>/...]
     """
     errors = []
     ids = set()
@@ -152,25 +144,24 @@ def validate_scripted_resource(kind: str, env_prefix: str | None) -> tuple[list[
             errors.append(f"Duplicate {kind} id: {item_id}")
         ids.add(item_id)
 
-        if not re.match(rf"^{kind}\.[a-zA-Z0-9_\-.]+$", item_id):
-            errors.append(f"[{item_id}] Invalid {kind} id format, expected '{kind}.<folder>.<name>'")
+        tokens = item_id.split(".")
+        if len(tokens) < 2 or tokens[0] != kind:
+            errors.append(f"[{item_id}] Invalid {kind} id format, expected '{kind}.<path>'")
+            continue
 
         short_id = item.get("short_id", "")
         if not short_id:
             errors.append(f"[{item_id}] Missing 'short_id'")
 
-        # Local files check
-        # id: <kind>.<folder>.<name> -> resources/<kind>s/<folder>/<name>/
-        parts = item_id.split(".", 1)[1]  # <folder>.<name>
-        folder, name = parts.split(".", 1) if "." in parts else (parts, "")
-        if name:
-            script_path = RESOURCES_DIR / f"{kind}s" / folder / name / "entry.py"
-            readme_path = RESOURCES_DIR / f"{kind}s" / folder / name / "README.md"
-            if not script_path.is_file():
-                errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
-            if not readme_path.is_file():
-                errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
-            errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
+        # Local files check: tokens[1:] -> resources/<kind>s/<segment1>/...
+        rel_path = Path(*tokens[1:])
+        script_path = RESOURCES_DIR / f"{kind}s" / rel_path / "entry.py"
+        readme_path = RESOURCES_DIR / f"{kind}s" / rel_path / "README.md"
+        if not script_path.is_file():
+            errors.append(f"[{item_id}] Missing local entry file: {script_path.relative_to(ROOT)}")
+        if not readme_path.is_file():
+            errors.append(f"[{item_id}] Missing local README file: {readme_path.relative_to(ROOT)}")
+        errors.extend(validate_resource_version_and_sha(item, script_path, item_id))
 
         script_urls = item.get("script_urls", [])
         errors.extend(validate_mirrors(script_urls, item_id))

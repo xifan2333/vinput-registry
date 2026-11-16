@@ -1,4 +1,4 @@
-# providers.bailian.qwen-audio3.streaming
+# providers.bailian.qwen-audio3-streaming
 
 Cloud ASR provider script for Bailian `qwen-audio-3.1-asr-flash-streaming`
 over the DashScope duplex realtime speech recognition WebSocket protocol
