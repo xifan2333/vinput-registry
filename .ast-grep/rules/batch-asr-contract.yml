@@ -4,6 +4,7 @@ severity: error
 language: Python
 files:
   - "resources/providers/**/batch/entry.py"
+  - "resources/providers/**/*batch*/entry.py"
 rule:
   kind: module
   not:

@@ -249,6 +249,51 @@
       "vinput_version": ">= 2.0.0"
     },
     {
+      "id": "provider.bailian.qwen-audio3-batch",
+      "short_id": "bailian-qwen-audio3-batch",
+      "stream": false,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3-batch/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_MODEL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_PROMPT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_WORKSPACE_ID",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        }
+      ],
+      "version": "2.0.1",
+      "sha256": "90167e247fe2d91d4df7d7ed892165322fad3a9a32e6cc955dd0cd618028bd50",
+      "vinput_version": ">= 2.0.0"
+    },
+    {
       "id": "provider.doubao.streaming",
       "short_id": "doubao-stream",
       "stream": true,
