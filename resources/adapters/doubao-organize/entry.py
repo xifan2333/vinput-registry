@@ -437,6 +437,24 @@ class CryptoCache:
             self.expires = 0.0
 
 
+def _handle_sse_frame(event: str, data_str: str, text: str) -> str | None:
+    """Return the final organized text for a terminating SSE frame, else None."""
+    if data_str == "[DONE]" or event == "done":
+        return text
+    try:
+        payload = json.loads(data_str)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if event == "scene.error" or payload.get("no_rewrite") is True:
+        return text
+    content = payload.get("content")
+    if event == "scene.completed" and isinstance(content, str) and content.strip():
+        return content.strip()
+    return None
+
+
 def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
     params = {
         "aid": "401734",
@@ -490,6 +508,7 @@ def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
         offset = 0
         pending = ""
         event = ""
+        data_parts: list[str] = []
         while True:
             chunk = response.read(4096)
             if not chunk:
@@ -504,26 +523,18 @@ def _organize(text: str, state: dict[str, Any], cache: CryptoCache) -> str:
                 line, pending = pending.split("\n", 1)
                 line = line.removesuffix("\r").strip()
                 if not line:
+                    if data_parts:
+                        result = _handle_sse_frame(event, "\n".join(data_parts), text)
+                        data_parts = []
+                        if result is not None:
+                            return result
                     event = ""
                     continue
                 if line.startswith("event:"):
                     event = line[6:].strip()
                     continue
-                if not line.startswith("data:"):
-                    continue
-                data_str = line[5:].strip()
-                if data_str == "[DONE]" or event == "done":
-                    return text
-                try:
-                    payload = json.loads(data_str)
-                    if isinstance(payload, dict):
-                        if event == "scene.error" or payload.get("no_rewrite") is True:
-                            return text
-                        content = payload.get("content")
-                        if event == "scene.completed" and isinstance(content, str) and content.strip():
-                            return content.strip()
-                except Exception:
-                    continue
+                if line.startswith("data:"):
+                    data_parts.append(line[5:].strip())
     return text
 
 
