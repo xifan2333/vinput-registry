@@ -144,7 +144,9 @@ def resolve_endpoint() -> str:
 
     workspace_id = optional_env("VINPUT_ASR_WORKSPACE_ID")
     if workspace_id:
-        return f"https://{workspace_id}.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        return (
+            f"https://{workspace_id}.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        )
 
     base_url = optional_env("VINPUT_ASR_BASE_URL")
     if base_url:
