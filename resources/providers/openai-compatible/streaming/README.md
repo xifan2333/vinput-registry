@@ -28,9 +28,10 @@ explicitly sets `sample_rate`.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"..."}`
-- `{"type":"error","message":"..."}`
+- `{"type":"final","text":"...","segment_final":true,"utterance_final":true}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 ## Environment Variables
 
@@ -39,10 +40,11 @@ explicitly sets `sample_rate`.
 - `VINPUT_ASR_URL` optional
   Full realtime websocket URL. Overrides the default endpoint.
 - `VINPUT_ASR_MODEL` optional
-  Transcription model id forwarded as `audio.input.transcription.model`.
+  Transcription model ID. The live session uses `audio.input.transcription.model`.
+  Other models use `input_audio_transcription.model`.
 - `VINPUT_ASR_SESSION_MODEL` optional
-  Realtime websocket `model`. Defaults to `VINPUT_ASR_MODEL`. When both are
-  `gpt-live-transcribe`, the connection uses `?intent=transcription` without a
+  Realtime websocket `model`. Defaults to `VINPUT_ASR_MODEL`. When the session
+  model is `gpt-live-transcribe`, the connection uses `?intent=transcription` without a
   `model` query parameter.
 - `VINPUT_ASR_BINARY_MODE` optional
   Set to `true` to stream raw PCM audio via WebSocket binary frames instead of
