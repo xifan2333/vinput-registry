@@ -416,8 +416,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "60a6d6e57a79e98c417873122c248c9c58a45eb6352b5dc9549ddee399537cb3",
+      "version": "2.0.2",
+      "sha256": "837eded28f671b1ffd09fdaa7fbd6f16345a08e5fa2b71b6f1840161a2d86511",
       "vinput_version": ">= 2.0.0"
     },
     {

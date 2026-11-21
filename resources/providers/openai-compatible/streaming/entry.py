@@ -259,8 +259,8 @@ class WebSocketClient:
         self.scheme = parsed.scheme
         self.timeout = timeout
         self.headers = headers
-        self.socket = self._connect()
         self._recv_buffer = b""
+        self.socket = self._connect()
         self._closed = False
 
     def _connect(self) -> socket.socket:
@@ -287,7 +287,7 @@ class WebSocketClient:
         request = "\r\n".join(lines) + "\r\n\r\n"
         sock.sendall(request.encode("utf-8"))
 
-        response = self._read_http_response(sock)
+        response, _, buffered = self._read_http_response(sock).partition(b"\r\n\r\n")
         status_line = response.split(b"\r\n", 1)[0].decode("latin1", errors="replace")
         if not (status_line.startswith("HTTP/1.1 101") or status_line.startswith("HTTP/1.0 101")):
             sock.close()
@@ -299,6 +299,7 @@ class WebSocketClient:
         if actual_accept != expected_accept:
             sock.close()
             raise RuntimeError("Sec-WebSocket-Accept header mismatch.")
+        self._recv_buffer = buffered
         return sock
 
     def _parse_headers(self, response: bytes) -> dict[str, str]:
@@ -456,30 +457,72 @@ class WebSocketClient:
 
 def build_url(session_model: str) -> str:
     explicit_url = optional_env("VINPUT_ASR_URL")
-    if explicit_url:
-        parsed = urlparse(explicit_url)
-        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-        query.setdefault("model", session_model)
-        return urlunparse(parsed._replace(query=urlencode(query)))
-
-    base_url = optional_env("VINPUT_ASR_BASE_URL")
+    base_url = optional_env("VINPUT_ASR_BASE_URL") if not explicit_url else None
+    parsed = urlparse(explicit_url or base_url or DEFAULT_URL)
     if base_url:
-        parsed = urlparse(base_url)
         scheme = "wss" if parsed.scheme in {"https", "wss"} else "ws"
         path = parsed.path.rstrip("/")
         if not path.endswith("/realtime"):
             path += "/realtime"
-        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-        query.setdefault("model", session_model)
-        return urlunparse((scheme, parsed.netloc, path, "", urlencode(query), ""))
+        parsed = parsed._replace(scheme=scheme, path=path)
 
-    parsed = urlparse(DEFAULT_URL)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.setdefault("model", session_model)
+    if session_model == "gpt-live-transcribe":
+        query.pop("model", None)
+        query["intent"] = "transcription"
+    else:
+        query.setdefault("model", session_model)
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def build_live_transcription_session(target_sample_rate: int, session_type: str) -> dict[str, Any]:
+    transcription: dict[str, Any] = {"model": "gpt-live-transcribe"}
+    prompt = optional_env("VINPUT_ASR_PROMPT")
+    if prompt:
+        transcription["prompt"] = prompt
+
+    languages = optional_env("VINPUT_ASR_LANGUAGES")
+    if languages:
+        detail = "VINPUT_ASR_LANGUAGES must be a non-empty JSON array of language codes."
+        try:
+            hints = json.loads(languages)
+        except json.JSONDecodeError as exc:
+            raise ConfigError("err_runtime", detail=detail) from exc
+        if (
+            not isinstance(hints, list)
+            or not hints
+            or not all(isinstance(hint, str) and hint.strip() for hint in hints)
+        ):
+            raise ConfigError("err_runtime", detail=detail)
+        transcription["languages"] = hints
+
+    delay = optional_env("VINPUT_ASR_DELAY", "medium")
+    if delay not in {"minimal", "low", "medium", "high", "xhigh"}:
+        raise ConfigError("err_runtime", detail="VINPUT_ASR_DELAY must be minimal, low, medium, high, or xhigh.")
+    transcription["delay"] = delay
+    if optional_bool_env("VINPUT_ASR_ENABLE_VAD", False):
+        raise ConfigError("err_runtime", detail="gpt-live-transcribe does not support server-side VAD.")
+
+    return {
+        "type": session_type,
+        "audio": {
+            "input": {
+                "format": {"type": "audio/pcm", "rate": target_sample_rate},
+                "transcription": transcription,
+                "turn_detection": None,
+            },
+        },
+    }
+
+
 def build_session_update_event(transcription_model: str, target_sample_rate: int, session_type: str) -> dict[str, Any]:
+    if transcription_model == "gpt-live-transcribe":
+        return {
+            "event_id": new_event_id(),
+            "type": "session.update",
+            "session": build_live_transcription_session(target_sample_rate, session_type),
+        }
+
     session: dict[str, Any] = {
         "modalities": ["text"],
         "input_audio_format": "pcm16",
@@ -538,14 +581,25 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
                 state["last_item_id"] = item_id
         return
 
+    if message_type == "input_audio_buffer.committed":
+        item_id = str(message.get("item_id", "")).strip()
+        if item_id:
+            state["last_item_id"] = item_id
+            state["partials"].setdefault(item_id, "")
+        return
+
     if message_type in {
+        "conversation.item.input_audio_transcription.delta",
         "conversation.item.input_audio_transcription.text",
         "response.audio_transcript.delta",
     }:
         item_id = str(message.get("item_id", "")).strip() or str(state.get("last_item_id", "")).strip()
         text = str(message.get("text", "") or message.get("delta", ""))
+        if message_type.endswith(".delta"):
+            text = state["partials"].get(item_id, "") + text
         if item_id:
-            state["partials"][item_id] = text
+            state["last_item_id"] = item_id
+        state["partials"][item_id] = text
         visible_text = combine_transcript(
             str(state.get("confirmed_text", "")),
             text,
@@ -561,10 +615,12 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         transcript = str(message.get("transcript", "") or message.get("text", "")).strip()
         full_text = combine_transcript(str(state.get("confirmed_text", "")), transcript)
         state["confirmed_text"] = full_text
-        if item_id:
-            state["completed_items"].add(item_id)
-            state["partials"].pop(item_id, None)
-        emit_final(full_text)
+        # Compatible servers may send completion events without an item ID.
+        state["completed_items"].add(item_id or object())
+        state["partials"].pop(item_id or state.get("last_item_id", ""), None)
+        # Vinput ends the utterance on its first final event.
+        if full_text:
+            emit_partial(full_text)
         if state.get("finishing") and len(state.get("completed_items", set())) >= state.get("commits_sent", 0):
             state["finished"].set()
         return
@@ -649,13 +705,13 @@ def connect(config: StreamingConfig) -> None:
     }
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes, is_commit: bool, source_rate: int) -> None:
     global _HAS_AUDIO
     if not _CLIENT or not _CONFIG:
         return
     payload_audio = resample_pcm16_mono(
         pcm_audio=pcm_bytes,
-        source_rate=16000,
+        source_rate=source_rate,
         target_rate=_CONFIG.target_sample_rate,
     )
     _HAS_AUDIO = True
@@ -683,9 +739,12 @@ def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
 def on_finish() -> None:
     global _HAS_AUDIO
     if _CLIENT and _STATE:
-        _STATE["finishing"] = True
         if _HAS_AUDIO:
             _STATE["commits_sent"] += 1
+        # Publish the finish flag only after counting the last commit.
+        _STATE["finishing"] = True
+        if _HAS_AUDIO:
+            _HAS_AUDIO = False
             _CLIENT.send_json(
                 {
                     "event_id": new_event_id(),
@@ -725,12 +784,18 @@ def run() -> int:
     global _STATE
     try:
         config = load_config()
+    except ConfigError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except ValueError as exc:
         notify_error("err_missing_api_key" if "API_KEY" in str(exc) else "err_runtime", detail=str(exc))
         return EXIT_USAGE_ERROR
 
     try:
         connect(config)
+    except ConfigError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return exc.exit_code
     except Exception as exc:
         notify_error("err_network", detail=str(exc))
         return EXIT_RUNTIME_ERROR
@@ -785,7 +850,10 @@ def run() -> int:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
                     raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                sample_rate = event.get("sample_rate", 16000)
+                if type(sample_rate) is not int or sample_rate <= 0:
+                    raise VInputError("err_invalid_event", detail="sample_rate must be a positive integer.")
+                on_audio_chunk(pcm_audio, bool(event.get("commit", False)), sample_rate)
                 continue
 
             if event_type == "finish":
