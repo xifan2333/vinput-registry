@@ -334,8 +334,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
       "envs": [],
-      "version": "2.0.1",
-      "sha256": "f9c757016ab8776ee74bbeed47d619c3b445ebed25ffe1098c9668eb1400357a",
+      "version": "2.0.2",
+      "sha256": "3a58ea0496f28a9b24df2f9e2cd6750ad396f101890adea7e366f2c572fcb83e",
       "vinput_version": ">= 2.0.0"
     },
     {

@@ -408,10 +408,31 @@ def ensure_identity(path: Path = DEFAULT_IDENTITY) -> dict[str, Any]:
 
 class OpusEncoder:
     def __init__(self, bitrate: int, custom_path: str = "") -> None:
-        library = custom_path or os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip() or ctypes.util.find_library("opus")
-        if library is None:
+        self.handle: ctypes.c_void_p | None = None
+        loaded_lib: ctypes.CDLL | None = None
+        resolved_custom = custom_path or os.getenv("VINPUT_ASR_LIBOPUS_PATH", "").strip()
+        if resolved_custom:
+            try:
+                loaded_lib = ctypes.CDLL(resolved_custom)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH={resolved_custom}: {exc}"
+                ) from exc
+        else:
+            candidates: list[str] = []
+            discovered = ctypes.util.find_library("opus")
+            if discovered:
+                candidates.append(discovered)
+            candidates.extend(["libopus.so.0", "libopus.so"])
+            for candidate in candidates:
+                try:
+                    loaded_lib = ctypes.CDLL(candidate)
+                    break
+                except OSError:
+                    continue
+        if loaded_lib is None:
             raise RuntimeError("libopus is required for speech_opus")
-        self.lib = ctypes.CDLL(library)
+        self.lib: ctypes.CDLL = loaded_lib
         self.lib.opus_encoder_create.argtypes = [
             ctypes.c_int,
             ctypes.c_int,
@@ -456,8 +477,10 @@ class OpusEncoder:
         return bytes(output[:length])
 
     def close(self) -> None:
-        if self.handle:
-            self.lib.opus_encoder_destroy(self.handle)
+        handle = getattr(self, "handle", None)
+        lib = getattr(self, "lib", None)
+        if handle and lib:
+            lib.opus_encoder_destroy(handle)
             self.handle = None
 
     def __del__(self) -> None:
