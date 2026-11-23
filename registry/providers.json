@@ -579,6 +579,71 @@
       "version": "2.0.1",
       "sha256": "c0fb967eb21c8355eef8f5fab6035f58cb2d31997a6dfcdb99bb40952d7eab73",
       "vinput_version": ">= 2.0.0"
+    },
+    {
+      "id": "provider.xfyun.iat.streaming",
+      "short_id": "xfyun-iat-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/xfyun/iat/streaming/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_ASR_APP_ID",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_API_KEY",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_API_SECRET",
+          "required": true
+        },
+        {
+          "name": "VINPUT_ASR_URL",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_LANGUAGE",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_DOMAIN",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ACCENT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_PTT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_EOS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_ENABLE_WPGS",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_TIMEOUT",
+          "required": false
+        },
+        {
+          "name": "VINPUT_ASR_FINISH_GRACE_SECS",
+          "required": false
+        }
+      ],
+      "version": "2.0.1",
+      "sha256": "39e8479b15ff716ad9233e883ba19caf654317716cd068f80c30d5540c635d9f",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }

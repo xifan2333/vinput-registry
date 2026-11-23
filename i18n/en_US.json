@@ -56,5 +56,7 @@
   "provider.iflyime.streaming.title": "iFlytek IME (Streaming)",
   "provider.iflyime.streaming.description": "Streaming cloud ASR via the unofficial iFlytek IME client protocol.",
   "provider.assemblyai.batch.title": "AssemblyAI (Batch)",
-  "provider.assemblyai.batch.description": "Use the AssemblyAI Dictation API for cloud ASR that returns cleaned-up text."
+  "provider.assemblyai.batch.description": "Use the AssemblyAI Dictation API for cloud ASR that returns cleaned-up text.",
+  "provider.xfyun.iat.streaming.title": "iFlytek Voicedictation (Streaming)",
+  "provider.xfyun.iat.streaming.description": "Use the iFlytek voicedictation v2 WebSocket API (iat-api.xfyun.cn/v2/iat) for streaming cloud ASR."
 }
