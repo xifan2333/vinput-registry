@@ -29,6 +29,46 @@ class FakeEncoder:
         pass
 
 
+class TestOpusEncoder(unittest.TestCase):
+    def test_opus_encoder_candidates_fallback(self):
+        # 1. Custom path failure
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("ctypes.CDLL", side_effect=OSError("not found")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    provider.OpusEncoder(32000, custom_path="/nonexistent/libopus.so")
+                self.assertIn(
+                    "Failed to load libopus from VINPUT_ASR_LIBOPUS_PATH=/nonexistent/libopus.so",
+                    str(ctx.exception),
+                )
+
+        # 2. Unset custom path and all candidates fail
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("ctypes.util.find_library", return_value=None):
+                with patch("ctypes.CDLL", side_effect=OSError("not found")):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        provider.OpusEncoder(32000)
+                    self.assertIn("libopus is required for speech_opus", str(ctx.exception))
+
+        # 3. find_library returns None, but libopus.so.0 candidate succeeds
+        loaded_candidates: list[str] = []
+        mock_lib = MagicMock()
+        mock_lib.opus_encoder_create.return_value = 12345
+        mock_lib.opus_encoder_ctl.return_value = 0
+
+        def fake_cdll(name: str):
+            loaded_candidates.append(name)
+            if name == "libopus.so.0":
+                return mock_lib
+            raise OSError("candidate not found")
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("ctypes.util.find_library", return_value=None):
+                with patch("ctypes.CDLL", side_effect=fake_cdll):
+                    encoder = provider.OpusEncoder(32000)
+                    self.assertIs(encoder.lib, mock_lib)
+                    self.assertIn("libopus.so.0", loaded_candidates)
+
+
 class TestCryptoAndEncoding(unittest.TestCase):
     def test_tt_encrypt_header_and_structure(self):
         payload = b"hello doubao"
