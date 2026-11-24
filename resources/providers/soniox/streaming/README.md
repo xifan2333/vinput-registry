@@ -16,8 +16,7 @@ Cloud ASR provider script for Soniox Real-time Speech-to-Text.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -28,9 +27,10 @@ Other input sample rates are resampled to `VINPUT_ASR_TARGET_SAMPLE_RATE`.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"...","segment_final":true,"utterance_final":false}`
-- `{"type":"error","message":"..."}`
+- `{"type":"final","text":"..."}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 ## Environment Variables
 
@@ -81,11 +81,7 @@ Other input sample rates are resampled to `VINPUT_ASR_TARGET_SAMPLE_RATE`.
   to close the stream, following the Soniox realtime protocol.
 - Soniox returns a token stream instead of text deltas. Final tokens are
   accumulated, non-final tokens are replaced on every response, and the visible
-  text is emitted as `partial`.
-- `commit` sends a `{"type":"finalize"}` control message, and the resulting
-  `<fin>` token is emitted as `final`.
-- With `VINPUT_ASR_ENABLE_ENDPOINT_DETECTION`, the `<end>` token is emitted as
-  `final` with `utterance_final`. Local VAD commits and server endpoint detection
-  both close segments, so enabling both splits speech twice.
+  text is emitted as `partial`. Control tokens (`<fin>`, `<end>`) are filtered
+  out, and one `final` event is emitted after `finish`.
 - `keepalive` control messages are sent while no audio is streamed, because the
   Soniox connection is closed after 20 seconds of inactivity.

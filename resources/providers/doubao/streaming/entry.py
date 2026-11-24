@@ -150,14 +150,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -857,13 +850,10 @@ def connect(config: StreamingConfig) -> None:
     _CLIENT.send_binary(build_full_client_request(config.request_payload))
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
-    global _SENT_FINAL
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _CLIENT or _STATE.cancelled:
         return
-    _CLIENT.send_binary(build_audio_request(pcm_bytes, final=is_commit))
-    if is_commit:
-        _SENT_FINAL = True
+    _CLIENT.send_binary(build_audio_request(pcm_bytes, final=False))
 
 
 def on_finish() -> None:
@@ -1001,7 +991,7 @@ def run() -> int:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
                     raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                on_audio_chunk(pcm_audio)
                 continue
 
             if event_type == "finish":
@@ -1018,12 +1008,19 @@ def run() -> int:
         if saw_finish and not _STATE.cancelled:
             _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
 
-        if not _STATE.cancelled and _STATE.latest_partial_text and not _STATE.final_emitted:
-            emit_final(_STATE.latest_partial_text)
-            _STATE.final_emitted = True
-
         cleanup()
         reader_thread.join(timeout=1.0)
+
+        if (
+            saw_finish
+            and not _STATE.cancelled
+            and not _STATE.error
+            and not _STATE.upstream_error
+            and _STATE.latest_partial_text
+            and not _STATE.final_emitted
+        ):
+            emit_final(_STATE.latest_partial_text)
+            _STATE.final_emitted = True
 
         if not _STATE.closed:
             emit_closed()

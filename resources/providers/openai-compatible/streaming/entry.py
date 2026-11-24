@@ -123,14 +123,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -701,11 +694,12 @@ def connect(config: StreamingConfig) -> None:
         "completed_items": set(),
         "commits_sent": 0,
         "finishing": False,
+        "cancelled": False,
         "finished": threading.Event(),
     }
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool, source_rate: int) -> None:
+def on_audio_chunk(pcm_bytes: bytes, source_rate: int = 16000) -> None:
     global _HAS_AUDIO
     if not _CLIENT or not _CONFIG:
         return
@@ -723,15 +717,6 @@ def on_audio_chunk(pcm_bytes: bytes, is_commit: bool, source_rate: int) -> None:
                 "event_id": new_event_id(),
                 "type": "input_audio_buffer.append",
                 "audio": base64.b64encode(payload_audio).decode("ascii"),
-            }
-        )
-    if is_commit:
-        _STATE["commits_sent"] += 1
-        _HAS_AUDIO = False
-        _CLIENT.send_json(
-            {
-                "event_id": new_event_id(),
-                "type": "input_audio_buffer.commit",
             }
         )
 
@@ -754,6 +739,8 @@ def on_finish() -> None:
 
 
 def on_cancel() -> None:
+    if _STATE:
+        _STATE["cancelled"] = True
     _STOP_EVENT.set()
     if _CLIENT:
         _CLIENT.close()
@@ -853,7 +840,7 @@ def run() -> int:
                 sample_rate = event.get("sample_rate", 16000)
                 if type(sample_rate) is not int or sample_rate <= 0:
                     raise VInputError("err_invalid_event", detail="sample_rate must be a positive integer.")
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)), sample_rate)
+                on_audio_chunk(pcm_audio, sample_rate)
                 continue
 
             if event_type == "finish":
@@ -876,7 +863,7 @@ def run() -> int:
         cleanup()
         thread.join(timeout=1.0)
         confirmed = str(state.get("confirmed_text", "")).strip()
-        if confirmed and saw_finish and not state.get("error"):
+        if confirmed and saw_finish and not state.get("cancelled") and not state.get("error"):
             emit_final(confirmed)
         if not state.get("closed"):
             emit_closed()

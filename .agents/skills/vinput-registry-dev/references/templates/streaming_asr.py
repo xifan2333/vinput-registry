@@ -148,14 +148,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit single final committed transcript at session completion."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -171,7 +164,7 @@ def connect(config: StreamingConfig) -> None:
     pass
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     """Forward an incoming audio chunk to the upstream endpoint."""
     pass
 

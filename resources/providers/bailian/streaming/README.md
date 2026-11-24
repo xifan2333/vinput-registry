@@ -16,8 +16,7 @@ Cloud ASR provider script for Alibaba Bailian Qwen-ASR-Realtime.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -28,8 +27,9 @@ Cloud ASR provider script for Alibaba Bailian Qwen-ASR-Realtime.
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
 - `{"type":"final","text":"..."}`
-- `{"type":"error","message":"..."}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 ## Environment Variables
 

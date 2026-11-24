@@ -277,8 +277,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertRegex(error, r"^\[wetype\] frames=\d+ uploads=\d+ polls=\d+ final=\d+ms\n$")
         self.assertEqual([e["type"] for e in events], ["session_started", "partial", "partial", "final", "closed"])
-        self.assertEqual(events[-2]["text"], "完整口述。")
-        self.assertTrue(events[-2]["utterance_final"])
+        self.assertEqual(events[-2], {"type": "final", "text": "完整口述。"})
         self.assertTrue(client.calls[0][0].startswith(b"#!OPUS_RAW_V1\x02\x01\x00"))
         self.assertEqual([call[3] for call in client.calls], [False, True])
 
@@ -336,8 +335,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(error, "")  # quiet stderr so the daemon shows its no-speech notice
         self.assertEqual([e["type"] for e in events], ["session_started", "final", "closed"])
-        self.assertEqual(events[-2]["text"], "")
-        self.assertTrue(events[-2]["utterance_final"])
+        self.assertEqual(events[-2], {"type": "final", "text": ""})
         self.assertFalse(any(call[3] for call in client.calls))  # no finalize round trips
 
     def test_finish_polls_until_final_text(self):
