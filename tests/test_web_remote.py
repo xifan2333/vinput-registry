@@ -329,6 +329,8 @@ class WebSocketVirtualKeyFlowTests(unittest.TestCase):
         self.assertIn('"left down right"', html)
         self.assertIn('"menu esc"', html)
         self.assertIn('"backspace enter"', html)
+        self.assertNotIn('.vk-btn[data-key-id="menu"]', html)
+        self.assertIn(".vk-btn:not(:disabled).is-active", html)
         self.assertLess(html.index('<textarea id="editor"'), html.index('<section id="vkeys"'))
 
 
