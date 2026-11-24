@@ -123,14 +123,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -238,62 +231,16 @@ class SessionState:
     session_started: bool = False
     error: str | None = None
     closed: bool = False
+    cancelled: bool = False
     confirmed_text: str = ""
     latest_partial_text: str = ""
-    last_final_text: str = ""
     last_item_id: str = ""
     partials: dict[str, str] = field(default_factory=dict)
-    pending_audio_since_commit: bool = False
     server_finished: bool = False
+    final_emitted: bool = False
 
-    def get_last_final_text(self) -> str:
-        return normalize_transcript_text(self.last_final_text)
-
-    def has_usable_final(self) -> bool:
-        return bool(self.get_last_final_text())
-
-    def clear_partial_state(self) -> None:
-        self.latest_partial_text = ""
-        self.partials.clear()
-
-    def record_final_text(self, text: str) -> str:
-        final_text = normalize_transcript_text(text)
-        self.last_final_text = final_text
-        self.confirmed_text = final_text
-        self.clear_partial_state()
-        return final_text
-
-
-def emit_final_text(
-    state: SessionState,
-    text: str,
-    *,
-    utterance_final: bool = False,
-    extra_fields: dict[str, Any] | None = None,
-) -> bool:
-    final_text = normalize_transcript_text(text)
-    if not final_text or final_text == state.get_last_final_text():
-        return False
-
-    event: dict[str, Any] = {
-        "type": "final",
-        "text": state.record_final_text(final_text),
-        "segment_final": True,
-    }
-    if utterance_final:
-        event["utterance_final"] = True
-    if extra_fields:
-        event.update(extra_fields)
-    emit_event(event)
-    return True
-
-
-def emit_fallback_final(state: SessionState, utterance_final: bool = True) -> bool:
-    return emit_final_text(
-        state,
-        state.latest_partial_text,
-        utterance_final=utterance_final,
-    )
+    def current_transcript(self) -> str:
+        return normalize_transcript_text(self.latest_partial_text or self.confirmed_text)
 
 
 class WebSocketClient:
@@ -564,31 +511,24 @@ def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
             state.confirmed_text,
             preview_text,
         )
-        state.latest_partial_text = visible_text
-        emit_partial(visible_text)
+        if visible_text and visible_text != state.latest_partial_text:
+            state.latest_partial_text = visible_text
+            emit_partial(visible_text)
         return
 
     if message_type == "conversation.item.input_audio_transcription.completed":
         item_id = str(message.get("item_id", "")).strip()
         transcript = str(message.get("transcript", "")).strip()
         full_text = combine_transcript(state.confirmed_text, transcript)
+        state.confirmed_text = full_text
         if item_id:
             state.partials.pop(item_id, None)
-        event: dict[str, Any] = {}
-        language = message.get("language")
-        if language is not None:
-            event["language"] = language
-        emotion = message.get("emotion")
-        if emotion is not None:
-            event["emotion"] = emotion
-        emit_final_text(state, full_text, extra_fields=event)
+        if full_text and full_text != state.latest_partial_text:
+            state.latest_partial_text = full_text
+            emit_partial(full_text)
         return
 
     if message_type == "conversation.item.input_audio_transcription.failed":
-        if state.has_usable_final():
-            return
-        if emit_fallback_final(state):
-            return
         error = message.get("error")
         error_message = "Input audio transcription failed."
         if isinstance(error, dict):
@@ -604,10 +544,6 @@ def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
         return
 
     if message_type == "error":
-        if state.has_usable_final():
-            return
-        if emit_fallback_final(state):
-            return
         error = message.get("error")
         error_message = "Unknown Bailian error."
         if isinstance(error, dict):
@@ -630,7 +566,7 @@ def connect(config: StreamingConfig) -> None:
     _CLIENT.send_json(build_session_update_event())
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _CLIENT or not _STATE:
         return
     audio_b64 = base64.b64encode(pcm_bytes).decode("ascii")
@@ -641,15 +577,6 @@ def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
             "audio": audio_b64,
         }
     )
-    _STATE.pending_audio_since_commit = True
-    if is_commit and _STATE.pending_audio_since_commit:
-        _CLIENT.send_json(
-            {
-                "event_id": new_event_id(),
-                "type": "input_audio_buffer.commit",
-            }
-        )
-        _STATE.pending_audio_since_commit = False
 
 
 def on_finish() -> None:
@@ -658,6 +585,8 @@ def on_finish() -> None:
 
 
 def on_cancel() -> None:
+    if _STATE:
+        _STATE.cancelled = True
     _STOP_EVENT.set()
     if _CLIENT:
         _CLIENT.close()
@@ -747,7 +676,7 @@ def run() -> int:
                 if not isinstance(audio_base64, str) or not audio_base64:
                     raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 pcm = base64.b64decode(audio_base64)
-                on_audio_chunk(pcm, bool(event.get("commit", False)))
+                on_audio_chunk(pcm)
                 continue
 
             if event_type == "finish":
@@ -763,9 +692,13 @@ def run() -> int:
     finally:
         if saw_finish and not stop_event.is_set():
             thread.join(timeout=config.finish_grace_secs)
-        emit_fallback_final(state)
         cleanup()
         thread.join(timeout=1.0)
+        if saw_finish and not state.cancelled and not state.error and not state.final_emitted:
+            final_text = state.current_transcript()
+            if final_text:
+                emit_final(final_text)
+                state.final_emitted = True
         if not state.closed:
             emit_closed()
             state.closed = True

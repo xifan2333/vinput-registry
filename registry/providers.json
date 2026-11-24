@@ -92,8 +92,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "dee53a61507bd78ce248d757bf61348c6fe3f4e86d47be12b8d1c176c9c365d2",
+      "version": "2.0.2",
+      "sha256": "60d6470a37d876b9c90f6010171cf5f7974a837d76cf6a5824a6d1fe3525e588",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -179,8 +179,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "0c5bd6621287e140cdaaad8495c2d152c56179544e22667967450ab6864c6601",
+      "version": "2.0.2",
+      "sha256": "d8ae4549cbbaaaf8bf61e73c456e792506eedfbf16a829542c3bb05d9f92f954",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -244,8 +244,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "58a541d61e6bdd561cc5daeca3ef659a560398f52f1d3dd28ef6426371d09dfa",
+      "version": "2.0.2",
+      "sha256": "1d4e903cb1aa95709d70a74b9538ff882f8f1ca8c7867bfb00a25b188bd18886",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -535,8 +535,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "4b1dc1346a288f49be83b724d28a1c72174c285f24c215bb9dd2c250908da5bb",
+      "version": "2.0.2",
+      "sha256": "1f4a7e81d2de9bac4dfb3178a370b7febd89fe7fabb1acdcd30676ed0a29c98e",
       "vinput_version": ">= 2.0.0"
     },
     {

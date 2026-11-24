@@ -134,14 +134,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -254,39 +247,25 @@ class SessionState:
     session_started: bool = False
     error: str | None = None
     closed: bool = False
+    cancelled: bool = False
     committed_text: str = ""
     latest_sentence_text: str = ""
+    latest_partial_text: str = ""
     server_finished: bool = False
+    final_emitted: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
     pending_audio: bytearray = field(default_factory=bytearray)
 
     def current_transcript(self) -> str:
         return combine_transcript(self.committed_text, self.latest_sentence_text)
 
-    def has_usable_final(self) -> bool:
-        return bool(normalize_transcript_text(self.committed_text))
-
 
 def emit_partial_state(state: SessionState) -> bool:
     visible = state.current_transcript()
-    if not visible:
+    if not visible or visible == state.latest_partial_text:
         return False
+    state.latest_partial_text = visible
     emit_partial(visible)
-    return True
-
-
-def emit_final_state(state: SessionState, text: str) -> bool:
-    final_text = normalize_transcript_text(text)
-    if not final_text:
-        return False
-    emit_event(
-        {
-            "type": "final",
-            "text": final_text,
-            "segment_final": True,
-            "utterance_final": False,
-        }
-    )
     return True
 
 
@@ -297,14 +276,7 @@ def commit_sentence(state: SessionState, sentence_text: str) -> bool:
         return False
     state.committed_text = combine_transcript(state.committed_text, cleaned)
     state.latest_sentence_text = ""
-    return emit_final_state(state, state.committed_text)
-
-
-def emit_fallback_final(state: SessionState) -> bool:
-    if state.latest_sentence_text:
-        commit_sentence(state, state.latest_sentence_text)
-        return True
-    return False
+    return emit_partial_state(state)
 
 
 class WebSocketClient:
@@ -654,7 +626,7 @@ def connect(config: StreamingConfig) -> None:
     _CLIENT.send_text(build_run_task(_STATE.task_id, config.model, build_parameters(), prompt=config.prompt))
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _CLIENT or not _STATE:
         return
     with _STATE.lock:
@@ -670,6 +642,8 @@ def on_finish() -> None:
 
 
 def on_cancel() -> None:
+    if _STATE:
+        _STATE.cancelled = True
     _STOP_EVENT.set()
     if _CLIENT:
         _CLIENT.close()
@@ -779,7 +753,7 @@ def run() -> int:
                     raise VInputError("err_invalid_event", detail=f"audio event has invalid base64: {exc}") from exc
                 if not audio:
                     raise VInputError("err_invalid_event", detail="audio event decoded to empty audio.")
-                on_audio_chunk(audio, bool(event.get("commit", False)))
+                on_audio_chunk(audio)
                 continue
 
             if event_type == "finish":
@@ -795,9 +769,13 @@ def run() -> int:
     finally:
         if saw_finish and not stop_event.is_set():
             thread.join(timeout=config.finish_grace_secs)
-        emit_fallback_final(state)
         cleanup()
         thread.join(timeout=1.0)
+        if saw_finish and not state.cancelled and not state.error and not state.final_emitted:
+            final_text = normalize_transcript_text(state.current_transcript())
+            if final_text:
+                emit_final(final_text)
+                state.final_emitted = True
         if not state.closed:
             emit_closed()
             state.closed = True

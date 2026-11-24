@@ -125,14 +125,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -240,30 +233,16 @@ def resample_pcm16_mono(pcm_audio: bytes, source_rate: int, target_rate: int) ->
 
 
 @dataclass
-class TokenWord:
-    text: str
-    start_ms: int | None = None
-    duration_ms: int | None = None
-
-
-@dataclass
 class SessionState:
     session_started: bool = False
     error: str | None = None
     closed: bool = False
+    cancelled: bool = False
+    final_emitted: bool = False
     committed_text: str = ""
     latest_partial_text: str = ""
-    last_final_text: str = ""
     pending_tokens: list[str] = field(default_factory=list)
-    final_tokens: list[TokenWord] = field(default_factory=list)
-    pending_audio_since_finalize: bool = False
     server_finished: bool = False
-
-    def get_last_final_text(self) -> str:
-        return normalize_transcript_text(self.last_final_text)
-
-    def has_usable_final(self) -> bool:
-        return bool(self.get_last_final_text() or self.committed_text)
 
     def current_transcript(self) -> str:
         combined = (self.committed_text + " " + " ".join(self.pending_tokens)).strip()
@@ -276,38 +255,6 @@ def emit_partial_state(state: SessionState) -> None:
         return
     state.latest_partial_text = visible
     emit_partial(visible)
-
-
-def emit_final_text(
-    state: SessionState,
-    text: str,
-    *,
-    event_type: str = "final",
-    utterance_final: bool = False,
-    extra_fields: dict[str, Any] | None = None,
-) -> bool:
-    final_text = normalize_transcript_text(text)
-    if not final_text or final_text == state.get_last_final_text():
-        return False
-
-    state.last_final_text = final_text
-    state.latest_partial_text = ""
-    event: dict[str, Any] = {
-        "type": event_type,
-        "text": final_text,
-        "segment_final": True,
-    }
-    if utterance_final:
-        event["utterance_final"] = True
-    if extra_fields:
-        event.update(extra_fields)
-    emit_event(event)
-    return True
-
-
-def emit_fallback_final(state: SessionState) -> bool:
-    fallback_text = state.current_transcript() or state.latest_partial_text
-    return emit_final_text(state, fallback_text, utterance_final=True)
 
 
 class WebSocketClient:
@@ -576,18 +523,10 @@ def apply_tokens(tokens: list[Any], state: SessionState) -> None:
         if not isinstance(item, dict):
             continue
         text = str(item.get("text", "")).strip()
-        if not text:
+        if not text or text in {"<end>", "<fin>"}:
             continue
-        is_final = bool(item.get("is_final", False))
-        if is_final:
+        if bool(item.get("is_final", False)):
             committed_words.append(text)
-            state.final_tokens.append(
-                TokenWord(
-                    text=text,
-                    start_ms=item.get("start_ms"),
-                    duration_ms=item.get("duration_ms"),
-                )
-            )
         else:
             pending_words.append(text)
 
@@ -597,10 +536,7 @@ def apply_tokens(tokens: list[Any], state: SessionState) -> None:
             state.committed_text += " " + new_committed
         else:
             state.committed_text = new_committed
-        state.pending_tokens = pending_words
-        emit_final_text(state, state.committed_text)
-    else:
-        state.pending_tokens = pending_words
+    state.pending_tokens = pending_words
 
     emit_partial_state(state)
 
@@ -611,10 +547,6 @@ def handle_server_message(message: dict[str, Any], state: SessionState) -> None:
 
     if error_code is not None or error_message:
         state.server_finished = True
-        if state.has_usable_final():
-            return
-        if emit_fallback_final(state):
-            return
         if not error_message:
             error_message = f"Soniox error (code {error_code})."
         notify_error("err_upstream", message=error_message)
@@ -669,7 +601,7 @@ def connect(config: StreamingConfig) -> None:
     emit_session_started()
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _CLIENT or not _CONFIG or not _STATE:
         return
     payload_audio = resample_pcm16_mono(
@@ -680,12 +612,6 @@ def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
     if payload_audio:
         _CLIENT.send_binary(payload_audio)
         _LAST_SEND_TIME[0] = time.monotonic()
-        _STATE.pending_audio_since_finalize = True
-
-    if is_commit and _STATE.pending_audio_since_finalize:
-        _CLIENT.send_json({"type": "finalize"})
-        _LAST_SEND_TIME[0] = time.monotonic()
-        _STATE.pending_audio_since_finalize = False
 
 
 def on_finish() -> None:
@@ -694,6 +620,8 @@ def on_finish() -> None:
 
 
 def on_cancel() -> None:
+    if _STATE:
+        _STATE.cancelled = True
     _STOP_EVENT.set()
     if _CLIENT:
         _CLIENT.close()
@@ -753,9 +681,8 @@ def run() -> int:
                     break
         except Exception as exc:
             if not stop_event.is_set():
-                if not state.has_usable_final():
-                    state.error = str(exc)
-                    notify_error("err_network", detail=str(exc))
+                state.error = str(exc)
+                notify_error("err_network", detail=str(exc))
         finally:
             stop_event.set()
 
@@ -789,7 +716,7 @@ def run() -> int:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"Invalid JSON input: {exc}") from exc
+                raise VInputError("err_invalid_event", detail=f"Invalid JSON input: {exc}") from exc
 
             event_type = str(event.get("type", "")).strip()
             if event_type == "audio":
@@ -800,7 +727,7 @@ def run() -> int:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
                     raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                on_audio_chunk(pcm_audio)
                 continue
 
             if event_type == "finish":
@@ -819,7 +746,11 @@ def run() -> int:
         cleanup()
         thread.join(timeout=1.0)
         keepalive_thread.join(timeout=1.0)
-        emit_fallback_final(state)
+        if saw_finish and not state.cancelled and not state.error and not state.final_emitted:
+            final_text = state.current_transcript() or state.latest_partial_text
+            if final_text:
+                emit_final(final_text)
+                state.final_emitted = True
         if not state.closed:
             emit_closed()
             state.closed = True
