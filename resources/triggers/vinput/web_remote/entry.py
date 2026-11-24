@@ -180,138 +180,171 @@ INDEX_HTML = """<!doctype html>
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     main {
-      width: min(760px, calc(100vw - 32px));
+      width: min(680px, calc(100vw - 24px));
       margin: 0 auto;
-      padding: 40px 0;
+      padding: 14px 0 18px;
     }
-    h1 {
-      margin: 0 0 6px;
-      font-size: 28px;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-    .sub {
-      color: var(--muted);
-      font-size: 14px;
-      margin-bottom: 24px;
-    }
-    .status {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    .tile {
-      border: 1px solid var(--border);
-      background: var(--panel);
-      border-radius: 8px;
-      padding: 14px;
-      min-height: 76px;
-    }
-    .label {
-      color: var(--muted);
-      font-size: 13px;
-      margin-bottom: 8px;
-    }
-    .value {
+    .topbar {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
+      margin-bottom: 10px;
+    }
+    .brand {
       font-size: 16px;
-      font-weight: 600;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 999px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .pill-name { color: var(--muted); }
+    .pill-state {
+      color: var(--text);
+      font-weight: 500;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .dot {
-      width: 9px;
-      height: 9px;
+      width: 7px;
+      height: 7px;
       border-radius: 999px;
       background: var(--danger);
       flex: 0 0 auto;
     }
     .dot.on { background: var(--accent); }
+    .editor-wrap {
+      position: relative;
+      margin-bottom: 12px;
+    }
     textarea {
+      display: block;
       width: 100%;
-      min-height: 45vh;
+      min-height: 150px;
+      height: clamp(150px, 34vh, 320px);
       resize: vertical;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--panel-2);
       color: var(--text);
-      padding: 16px;
-      font: 18px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 14px 14px 28px;
+      font: 17px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       outline: none;
     }
     textarea:focus { border-color: var(--accent); }
     textarea:disabled { opacity: 0.58; cursor: not-allowed; }
-    .bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-top: 12px;
+    .count-badge {
+      position: absolute;
+      right: 12px;
+      bottom: 8px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+      pointer-events: none;
     }
     button {
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--panel);
       color: var(--text);
-      padding: 9px 13px;
+      padding: 8px 10px;
       font: inherit;
       cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .vkeys {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 12px;
+      align-items: stretch;
+      gap: 12px;
     }
     .vkeys[hidden] { display: none; }
+    .vk-group {
+      display: grid;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    .vk-dpad {
+      flex: 3 1 0;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(2, 44px);
+      grid-template-areas:
+        ". up ."
+        "left down right";
+    }
+    .vk-actions {
+      flex: 2.2 1 0;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: repeat(2, 44px);
+      grid-template-areas:
+        "menu esc"
+        "backspace enter";
+    }
     .vk-btn {
-      flex: 1 1 auto;
-      min-width: 56px;
-      min-height: 42px;
-      padding: 8px 10px;
+      width: 100%;
+      height: 100%;
+      padding: 0 6px;
       font-size: 14px;
       font-weight: 600;
+      background: var(--panel-2);
       touch-action: manipulation;
       user-select: none;
       -webkit-user-select: none;
       transition: background 0.1s ease, border-color 0.1s ease, transform 0.08s ease;
     }
+    .vk-btn[data-key-id="menu"] {
+      border-color: rgba(31, 157, 135, 0.55);
+      color: #4bd4bb;
+    }
     .vk-btn:not(:disabled):active {
-      background: var(--panel-2);
+      background: var(--bg);
       border-color: var(--accent);
-      transform: scale(0.97);
+      transform: scale(0.96);
     }
     @media (max-width: 560px) {
-      main { width: min(100vw - 24px, 760px); padding: 20px 0; }
-      .status { grid-template-columns: 1fr; }
-      .vk-btn { min-width: calc(25% - 6px); }
-      textarea { min-height: 36vh; font-size: 17px; }
+      main { width: calc(100vw - 20px); padding: 10px 0 12px; }
+      textarea { min-height: 120px; height: 27vh; font-size: 16px; padding: 12px 12px 26px; }
+      .vkeys { gap: 8px; }
+      .vk-group { gap: 5px; padding: 5px; }
+      .vk-dpad, .vk-actions { grid-template-rows: repeat(2, 42px); }
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>VInput Remote</h1>
-    <div class="sub">Local network text input</div>
-    <section class="status" role="button" tabindex="0" title="Click to reconnect if disconnected">
-      <div class="tile">
-        <div class="label">Phone input</div>
-        <div class="value"><span id="input-dot" class="dot"></span><span id="input-status">connecting</span></div>
+    <header class="topbar">
+      <div class="brand">VInput</div>
+      <div class="status" role="button" tabindex="0" title="Click to reconnect if disconnected">
+        <span class="pill"><span id="input-dot" class="dot"></span><span class="pill-name">Phone</span><span id="input-status" class="pill-state">connecting</span></span>
+        <span class="pill"><span id="output-dot" class="dot"></span><span class="pill-name">Session</span><span id="output-status" class="pill-state">ready</span></span>
       </div>
-      <div class="tile">
-        <div class="label">VInput session</div>
-        <div class="value"><span id="output-dot" class="dot"></span><span id="output-status">ready</span></div>
-      </div>
-    </section>
-    <section id="vkeys" class="vkeys" aria-label="Virtual keys" hidden></section>
-    <textarea id="editor" spellcheck="false" enterkeyhint="send" disabled placeholder="Type or use mobile voice input here..."></textarea>
-    <div class="bar">
-      <span><span id="count">0</span> chars</span>
+    </header>
+    <div class="editor-wrap">
+      <textarea id="editor" spellcheck="false" enterkeyhint="send" disabled placeholder="Type or use mobile voice input here..."></textarea>
+      <span class="count-badge"><span id="count">0</span> chars</span>
     </div>
+    <section id="vkeys" class="vkeys" aria-label="Virtual keys" hidden></section>
   </main>
   <script>
     const editor = document.getElementById('editor')
@@ -380,47 +413,74 @@ INDEX_HTML = """<!doctype html>
       }
       send({ type: 'virtual_key', id: id })
     }
+    function createVirtualButton(item, enabled) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'vk-btn'
+      btn.textContent = item.label
+      btn.dataset.keyId = item.id
+      btn.style.gridArea = item.id
+      btn.disabled = !enabled
+      let activePointerId = null
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault()
+        if (!btn.disabled && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0)) {
+          activePointerId = e.pointerId
+        }
+      })
+      btn.addEventListener('mousedown', e => e.preventDefault())
+      btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false })
+      btn.addEventListener('pointerup', e => {
+        if (activePointerId !== e.pointerId) return
+        activePointerId = null
+        if (!btn.disabled) {
+          triggerVirtualKey(item.id)
+        }
+      })
+      btn.addEventListener('pointercancel', () => { activePointerId = null })
+      btn.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          if (!btn.disabled) {
+            triggerVirtualKey(item.id)
+          }
+        }
+      })
+      return btn
+    }
     function renderVirtualKeys(items) {
       vkeys.innerHTML = ''
       if (!Array.isArray(items) || items.length === 0) {
         vkeys.hidden = true
         return
       }
-      const enabled = ws && ws.readyState === WebSocket.OPEN && authenticated
+      const dpadIds = new Set(['up', 'down', 'left', 'right'])
+      const dpadItems = []
+      const actionItems = []
       for (const item of items) {
         if (!item || !item.id || !item.label) continue
-        const btn = document.createElement('button')
-        btn.type = 'button'
-        btn.className = 'vk-btn'
-        btn.textContent = item.label
-        btn.dataset.keyId = item.id
-        btn.disabled = !enabled
-        let activePointerId = null
-        btn.addEventListener('pointerdown', e => {
-          e.preventDefault()
-          if (!btn.disabled && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0)) {
-            activePointerId = e.pointerId
-          }
-        })
-        btn.addEventListener('mousedown', e => e.preventDefault())
-        btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false })
-        btn.addEventListener('pointerup', e => {
-          if (activePointerId !== e.pointerId) return
-          activePointerId = null
-          if (!btn.disabled) {
-            triggerVirtualKey(item.id)
-          }
-        })
-        btn.addEventListener('pointercancel', () => { activePointerId = null })
-        btn.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            if (!btn.disabled) {
-              triggerVirtualKey(item.id)
-            }
-          }
-        })
-        vkeys.appendChild(btn)
+        if (dpadIds.has(item.id)) {
+          dpadItems.push(item)
+        } else {
+          actionItems.push(item)
+        }
+      }
+      const enabled = ws && ws.readyState === WebSocket.OPEN && authenticated
+      if (dpadItems.length > 0) {
+        const dpad = document.createElement('div')
+        dpad.className = 'vk-group vk-dpad'
+        for (const item of dpadItems) {
+          dpad.appendChild(createVirtualButton(item, enabled))
+        }
+        vkeys.appendChild(dpad)
+      }
+      if (actionItems.length > 0) {
+        const actions = document.createElement('div')
+        actions.className = 'vk-group vk-actions'
+        for (const item of actionItems) {
+          actions.appendChild(createVirtualButton(item, enabled))
+        }
+        vkeys.appendChild(actions)
       }
       vkeys.hidden = vkeys.children.length === 0
     }
