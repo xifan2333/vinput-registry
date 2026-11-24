@@ -311,15 +311,13 @@ INDEX_HTML = """<!doctype html>
       touch-action: manipulation;
       user-select: none;
       -webkit-user-select: none;
-      transition: background 0.1s ease, border-color 0.1s ease, transform 0.08s ease;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
     }
-    .vk-btn[data-key-id="menu"] {
-      border-color: rgba(31, 157, 135, 0.55);
-      color: #4bd4bb;
-    }
-    .vk-btn:not(:disabled):active {
-      background: var(--bg);
+    .vk-btn:not(:disabled):active,
+    .vk-btn:not(:disabled).is-active {
+      background: rgba(31, 157, 135, 0.22);
       border-color: var(--accent);
+      color: #5ee6cc;
       transform: scale(0.96);
     }
     @media (max-width: 560px) {
@@ -422,10 +420,26 @@ INDEX_HTML = """<!doctype html>
       btn.style.gridArea = item.id
       btn.disabled = !enabled
       let activePointerId = null
+      let releaseTimer = null
+      function flashActive() {
+        if (releaseTimer !== null) {
+          clearTimeout(releaseTimer)
+        }
+        btn.classList.add('is-active')
+        releaseTimer = setTimeout(() => {
+          btn.classList.remove('is-active')
+          releaseTimer = null
+        }, 140)
+      }
       btn.addEventListener('pointerdown', e => {
         e.preventDefault()
         if (!btn.disabled && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0)) {
           activePointerId = e.pointerId
+          if (releaseTimer !== null) {
+            clearTimeout(releaseTimer)
+            releaseTimer = null
+          }
+          btn.classList.add('is-active')
         }
       })
       btn.addEventListener('mousedown', e => e.preventDefault())
@@ -434,14 +448,25 @@ INDEX_HTML = """<!doctype html>
         if (activePointerId !== e.pointerId) return
         activePointerId = null
         if (!btn.disabled) {
+          flashActive()
           triggerVirtualKey(item.id)
+        } else {
+          btn.classList.remove('is-active')
         }
       })
-      btn.addEventListener('pointercancel', () => { activePointerId = null })
+      btn.addEventListener('pointercancel', () => {
+        activePointerId = null
+        if (releaseTimer !== null) {
+          clearTimeout(releaseTimer)
+          releaseTimer = null
+        }
+        btn.classList.remove('is-active')
+      })
       btn.addEventListener('keydown', e => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           if (!btn.disabled) {
+            flashActive()
             triggerVirtualKey(item.id)
           }
         }
