@@ -13,7 +13,6 @@ import ctypes.util
 import fcntl
 import hashlib
 import http.server
-import ipaddress
 import json
 import os
 import secrets
@@ -40,8 +39,6 @@ UI_SET_EVBIT = 0x40045564
 UI_SET_KEYBIT = 0x40045565
 STANDARD_KEY_MAX = 248
 KEY_CODE_MAX = 0x2FF
-SIOCGIFADDR = 0x8915
-_VIRTUAL_IFACE_PREFIXES = ("docker", "br-", "veth", "virbr", "podman", "cni")
 
 INPUT_EVENT_STRUCT = struct.Struct("llHHi")
 UINPUT_SETUP_STRUCT = struct.Struct("=HHHH80sI")
@@ -64,7 +61,7 @@ EXIT_USAGE_ERROR = 2
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
         "title": "Web Remote Trigger",
-        "started_urls": "Listening at {urls}",
+        "started_url": "Listening at {url}",
         "started_port": "Listening on port {port} (no LAN IP detected).",
         "connected": "Mobile phone connected.",
         "err_missing_api_key": "Missing required VINPUT_TRIGGER_API_KEY environment variable.",
@@ -80,7 +77,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     },
     "zh_CN": {
         "title": "网页远控触发器",
-        "started_urls": "已启动，局域网访问地址：{urls}",
+        "started_url": "已启动，局域网访问地址：{url}",
         "started_port": "已启动，监听端口 {port}（未检测到局域网 IP）。",
         "connected": "手机端已成功连接。",
         "err_missing_api_key": "缺少必需的 VINPUT_TRIGGER_API_KEY 环境变量。",
@@ -160,70 +157,22 @@ def notify_info(key: str, **kwargs: object) -> None:
     sys.stderr.flush()
 
 
-def _is_usable_lan_ipv4(raw_ip: str) -> bool:
-    try:
-        addr = ipaddress.IPv4Address(raw_ip)
-    except ipaddress.AddressValueError:
-        return False
-    return not (addr.is_loopback or addr.is_link_local or addr.is_unspecified or addr.is_multicast)
-
-
-def _probe_primary_lan_ip() -> str | None:
-    for target in (("10.255.255.255", 1), ("192.0.2.1", 80)):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.connect(target)
-                ip = sock.getsockname()[0]
-        except OSError:
-            continue
-        if _is_usable_lan_ipv4(ip):
-            return ip
-    return None
-
-
-def _list_interface_lan_ips() -> list[str]:
-    ips: list[str] = []
-    try:
-        ifaces = socket.if_nameindex()
-    except (OSError, AttributeError):
-        return ips
-
+def discover_lan_ip() -> str | None:
+    """Resolve the active default-route IPv4 address via kernel route lookup."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            for _idx, name in ifaces:
-                if name.startswith(_VIRTUAL_IFACE_PREFIXES):
-                    continue
-                try:
-                    ifreq = struct.pack("256s", name.encode("ascii", errors="ignore")[:15])
-                    res = fcntl.ioctl(sock.fileno(), SIOCGIFADDR, ifreq)
-                    ip = socket.inet_ntoa(res[20:24])
-                except OSError:
-                    continue
-                if _is_usable_lan_ipv4(ip) and ip not in ips:
-                    ips.append(ip)
+            sock.connect(("192.0.2.1", 80))
+            ip = sock.getsockname()[0]
     except OSError:
-        return ips
-    return ips
-
-
-def discover_lan_ips(max_ips: int = 3) -> list[str]:
-    """Discover usable local-network IPv4 addresses, primary route first."""
-    ips: list[str] = []
-    primary = _probe_primary_lan_ip()
-    if primary is not None:
-        ips.append(primary)
-    for ip in _list_interface_lan_ips():
-        if ip not in ips:
-            ips.append(ip)
-    return ips[:max_ips]
+        return None
+    return None if not ip or ip.startswith("127.") or ip == "0.0.0.0" else ip
 
 
 def notify_startup(port: int) -> None:
-    """Emit desktop notification with LAN access URL(s) after HTTP bind succeeds."""
-    ips = discover_lan_ips()
-    if ips:
-        urls = ", ".join(f"http://{ip}:{port}/" for ip in ips)
-        notify_info("started_urls", urls=urls)
+    """Emit desktop notification with the LAN access URL after HTTP bind succeeds."""
+    ip = discover_lan_ip()
+    if ip:
+        notify_info("started_url", url=f"http://{ip}:{port}/")
     else:
         notify_info("started_port", port=port)
 
