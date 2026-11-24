@@ -7,11 +7,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubao/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/doubao/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_APP_ID",
@@ -36,11 +36,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/elevenlabs/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/elevenlabs/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -69,11 +69,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/elevenlabs/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/elevenlabs/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/elevenlabs/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -102,11 +102,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/assemblyai/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/assemblyai/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/assemblyai/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/assemblyai/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/assemblyai/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -131,11 +131,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/bailian/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -160,11 +160,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/bailian/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -189,11 +189,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3-streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3-streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -254,11 +254,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/bailian/qwen-audio3-batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3-batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/bailian/qwen-audio3-batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -299,11 +299,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubao/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubao/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubao/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/doubao/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_APP_ID",
@@ -328,11 +328,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/doubaoime/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
       "envs": [],
       "version": "2.0.3",
       "sha256": "15b710f51c01c427fc9664370b76672d281595bcf181dad78c90201ce9dde882",
@@ -344,11 +344,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/wetype/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/wetype/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/wetype/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
       "envs": [],
       "version": "2.0.2",
       "sha256": "55bc8e882ac2b9053cc428573f1576c3e1108d4ab76d6bf6e80036dc69f43d5c",
@@ -360,11 +360,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/openai-compatible/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/openai-compatible/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -389,11 +389,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/openai-compatible/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/openai-compatible/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/openai-compatible/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -426,11 +426,11 @@
       "stream": false,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/mimo/batch/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/mimo/batch/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/mimo/batch/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/mimo/batch/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/mimo/batch/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/mimo/batch/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -455,11 +455,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/xfyun/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/xfyun/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_APP_ID",
@@ -508,11 +508,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/soniox/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/soniox/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/soniox/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/soniox/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/soniox/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_API_KEY",
@@ -545,11 +545,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vllm/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vllm/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/vllm/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/vllm/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/vllm/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/vllm/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/vllm/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/vllm/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_URL",
@@ -570,11 +570,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/iflyime/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/iflyime/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/iflyime/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
       "envs": [],
       "version": "2.0.2",
       "sha256": "212f1d4ea73257466a75dc02211e00225ad5ad7d7325bf7e1f9dcd04ec570343",
@@ -586,11 +586,11 @@
       "stream": true,
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py"
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/providers/xfyun/iat/streaming/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/xfyun/iat/streaming/README.md",
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/providers/xfyun/iat/streaming/README.md",
       "envs": [
         {
           "name": "VINPUT_ASR_APP_ID",

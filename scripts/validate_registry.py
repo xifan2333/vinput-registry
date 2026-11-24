@@ -22,9 +22,9 @@ I18N_DIR = ROOT / "i18n"
 RESOURCES_DIR = ROOT / "resources"
 
 EXPECTED_MIRRORS = [
-    "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/",
-    "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/",
-    "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/",
+    "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/",
+    "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/",
 ]
 
 
