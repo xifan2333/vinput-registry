@@ -318,8 +318,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "eb3e464f6742d43bcbd99311a08c65bc0a1b82ec67f70cdfcd4791d63da2ac73",
+      "version": "2.0.2",
+      "sha256": "47329bd51f216fb3fb3a554a33dc787d82d44c91917c3873458fe1eefe326fe0",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -334,8 +334,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/doubaoime/streaming/README.md",
       "envs": [],
-      "version": "2.0.2",
-      "sha256": "3a58ea0496f28a9b24df2f9e2cd6750ad396f101890adea7e366f2c572fcb83e",
+      "version": "2.0.3",
+      "sha256": "15b710f51c01c427fc9664370b76672d281595bcf181dad78c90201ce9dde882",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -350,8 +350,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/wetype/streaming/README.md",
       "envs": [],
-      "version": "2.0.1",
-      "sha256": "05e920479e09a96e274dec615f79d30e4911921bbf5971235edf4b94b517dd4e",
+      "version": "2.0.2",
+      "sha256": "55bc8e882ac2b9053cc428573f1576c3e1108d4ab76d6bf6e80036dc69f43d5c",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -416,8 +416,8 @@
           "required": false
         }
       ],
-      "version": "2.0.2",
-      "sha256": "837eded28f671b1ffd09fdaa7fbd6f16345a08e5fa2b71b6f1840161a2d86511",
+      "version": "2.0.3",
+      "sha256": "f57215e9d9104c79663fafeff0189a11a8accd71ae2cffc3a10ed8ad8fb85896",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -498,8 +498,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "d2cf6f4c681407eb168f9323e7e21bade9906de0829b46be8998f858bed51bf3",
+      "version": "2.0.2",
+      "sha256": "10863242166cdeec530fa41e93bf3aeb262d0d22ba7a72d7c2a29dac17df9ac3",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -560,8 +560,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "83a192209909ce714e4c220677df0b61066400c958c39aff64f2cb833c6a904e",
+      "version": "2.0.2",
+      "sha256": "ef9fcd3c57c334ea0167dd5711ca73a2671dacb0f029357ecb45830c0f1f75d2",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -576,8 +576,8 @@
       ],
       "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/providers/iflyime/streaming/README.md",
       "envs": [],
-      "version": "2.0.1",
-      "sha256": "c0fb967eb21c8355eef8f5fab6035f58cb2d31997a6dfcdb99bb40952d7eab73",
+      "version": "2.0.2",
+      "sha256": "212f1d4ea73257466a75dc02211e00225ad5ad7d7325bf7e1f9dcd04ec570343",
       "vinput_version": ">= 2.0.0"
     },
     {
@@ -641,8 +641,8 @@
           "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "39e8479b15ff716ad9233e883ba19caf654317716cd068f80c30d5540c635d9f",
+      "version": "2.0.2",
+      "sha256": "e9824fa8de6abc0bec4f3cb5c47a16b8d7722957de56ff0445666492e37da768",
       "vinput_version": ">= 2.0.0"
     }
   ]

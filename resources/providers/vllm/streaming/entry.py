@@ -123,14 +123,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -437,15 +430,18 @@ def handle_server_message(message: dict[str, Any], state: dict[str, Any]) -> Non
         delta = str(message.get("delta", ""))
         state["raw"] += delta
         cleaned = strip_prefix(state["raw"])
-        if cleaned:
+        if cleaned and cleaned != state.get("latest_partial"):
+            state["latest_partial"] = cleaned
             emit_partial(cleaned)
         return
     if mtype == "transcription.done":
         text = str(message.get("text", ""))
         final = strip_prefix(text) if text else strip_prefix(state["raw"])
-        if final and not state.get("final_sent"):
-            state["final_sent"] = True
-            emit_final(final)
+        if final:
+            state["final_text"] = final
+            if final != state.get("latest_partial"):
+                state["latest_partial"] = final
+                emit_partial(final)
         state["done"] = True
         return
     if mtype == "error":
@@ -483,12 +479,15 @@ def connect(config: StreamingConfig) -> None:
         "error": None,
         "done": False,
         "raw": "",
+        "latest_partial": "",
+        "final_text": "",
         "closed": False,
+        "cancelled": False,
         "final_sent": False,
     }
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _CLIENT or not _CONFIG:
         return
     wait_for_session_ready(_STATE, _CONFIG.timeout)
@@ -496,8 +495,6 @@ def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
     for i in range(0, len(pcm_bytes), step):
         chunk = pcm_bytes[i : i + step]
         _CLIENT.send_json(build_append(base64.b64encode(chunk).decode("ascii")))
-    if is_commit:
-        _CLIENT.send_json(build_commit(final=True))
 
 
 def on_finish() -> None:
@@ -506,6 +503,8 @@ def on_finish() -> None:
 
 
 def on_cancel() -> None:
+    if _STATE:
+        _STATE["cancelled"] = True
     _STOP_EVENT.set()
     if _CLIENT:
         _CLIENT.close()
@@ -572,7 +571,7 @@ def run() -> int:
     thread.start()
 
     saw_finish = False
-    pending_commit = False
+    has_audio = False
     try:
         for raw_line in sys.stdin:
             if stop_event.is_set():
@@ -590,14 +589,12 @@ def run() -> int:
                 if not isinstance(b64, str) or not b64:
                     raise VInputError("err_invalid_event", detail="audio event requires non-empty audio_base64.")
                 pcm_audio = base64.b64decode(b64)
-                pending_commit = True
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
-                if bool(event.get("commit", False)):
-                    pending_commit = False
+                has_audio = True
+                on_audio_chunk(pcm_audio)
                 continue
             if etype == "finish":
                 saw_finish = True
-                if pending_commit:
+                if has_audio:
                     on_finish()
                 break
             if etype == "cancel":
@@ -609,8 +606,8 @@ def run() -> int:
             thread.join(timeout=config.finish_grace_secs)
         cleanup()
         thread.join(timeout=1.0)
-        if state.get("raw") and not state.get("final_sent") and not state.get("error") and state.get("done"):
-            final = strip_prefix(state["raw"])
+        if saw_finish and not state.get("cancelled") and not state.get("error") and not state.get("final_sent"):
+            final = str(state.get("final_text") or "").strip() or strip_prefix(str(state.get("raw") or ""))
             if final:
                 state["final_sent"] = True
                 emit_final(final)

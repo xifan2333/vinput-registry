@@ -127,14 +127,7 @@ def emit_partial(text: str) -> None:
 
 def emit_final(text: str) -> None:
     """Emit committed final transcript event to stdout."""
-    emit_event(
-        {
-            "type": "final",
-            "text": text,
-            "segment_final": True,
-            "utterance_final": True,
-        }
-    )
+    emit_event({"type": "final", "text": text})
 
 
 def emit_closed() -> None:
@@ -964,8 +957,7 @@ def _send_voice(end: bool = False, poll: bool = False) -> None:
     on_upstream_message(json.dumps({"raw": raw, "final": final}))
 
 
-def on_audio_chunk(pcm_bytes: bytes, is_commit: bool) -> None:
-    del is_commit
+def on_audio_chunk(pcm_bytes: bytes) -> None:
     if not _ENCODER or not _CLIENT or _STATE.cancelled:
         return
     _PCM_BUFFER.extend(pcm_bytes)
@@ -1076,7 +1068,7 @@ def run() -> int:
                     pcm_audio = base64.b64decode(audio_base64)
                 except Exception as exc:
                     raise VInputError("err_invalid_event", detail=f"Invalid audio_base64 payload: {exc}") from exc
-                on_audio_chunk(pcm_audio, bool(event.get("commit", False)))
+                on_audio_chunk(pcm_audio)
                 continue
 
             if event_type == "finish":
@@ -1093,11 +1085,18 @@ def run() -> int:
         if saw_finish and not _STATE.cancelled:
             _FINAL_EVENT.wait(timeout=config.finish_grace_secs)
 
-        if not _STATE.cancelled and _STATE.latest_text and not _STATE.final_emitted:
+        cleanup()
+
+        if (
+            saw_finish
+            and not _STATE.cancelled
+            and not _STATE.error
+            and not _STATE.upstream_error
+            and _STATE.latest_text
+            and not _STATE.final_emitted
+        ):
             emit_final(_STATE.polished_text or _STATE.latest_text)
             _STATE.final_emitted = True
-
-        cleanup()
 
         if not _STATE.closed:
             emit_closed()
