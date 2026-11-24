@@ -322,6 +322,15 @@ class WebSocketVirtualKeyFlowTests(unittest.TestCase):
             ],
         )
 
+    def test_html_uses_compact_topbar_and_scheme_b_layout(self) -> None:
+        html = web_remote.INDEX_HTML
+        self.assertIn('<header class="topbar">', html)
+        self.assertIn('". up ."', html)
+        self.assertIn('"left down right"', html)
+        self.assertIn('"menu esc"', html)
+        self.assertIn('"backspace enter"', html)
+        self.assertLess(html.index('<textarea id="editor"'), html.index('<section id="vkeys"'))
+
 
 if __name__ == "__main__":
     unittest.main()
