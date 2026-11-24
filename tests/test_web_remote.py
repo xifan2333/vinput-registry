@@ -334,5 +334,90 @@ class WebSocketVirtualKeyFlowTests(unittest.TestCase):
         self.assertLess(html.index('<textarea id="editor"'), html.index('<section id="vkeys"'))
 
 
+class StartupNotificationTests(unittest.TestCase):
+    def test_discover_lan_ips_filters_loopback_link_local_and_virtual(self) -> None:
+        with (
+            patch.object(web_remote, "_probe_primary_lan_ip", return_value="10.0.0.238"),
+            patch.object(web_remote, "_list_interface_lan_ips", return_value=["192.168.1.50", "10.0.0.238"]),
+        ):
+            self.assertEqual(web_remote.discover_lan_ips(), ["10.0.0.238", "192.168.1.50"])
+
+        self.assertFalse(web_remote._is_usable_lan_ipv4("127.0.0.1"))
+        self.assertFalse(web_remote._is_usable_lan_ipv4("169.254.12.34"))
+        self.assertFalse(web_remote._is_usable_lan_ipv4("0.0.0.0"))
+        self.assertTrue(web_remote._is_usable_lan_ipv4("192.168.1.50"))
+
+    def test_list_interface_lan_ips_skips_virtual_prefixes(self) -> None:
+        fake_ifaces = [(1, "lo"), (2, "docker0"), (3, "br-abc123"), (4, "wlan0")]
+        ip_by_iface = {
+            "lo": "127.0.0.1",
+            "docker0": "172.17.0.1",
+            "br-abc123": "172.18.0.1",
+            "wlan0": "192.168.31.88",
+        }
+
+        def fake_ioctl(_fd: int, _req: int, buf: bytes) -> bytes:
+            name = buf[:15].split(b"\x00", 1)[0].decode("ascii")
+            packed_ip = socket.inet_aton(ip_by_iface[name])
+            return buf[:20] + packed_ip + buf[24:]
+
+        with (
+            patch("socket.if_nameindex", return_value=fake_ifaces),
+            patch("fcntl.ioctl", side_effect=fake_ioctl),
+        ):
+            self.assertEqual(web_remote._list_interface_lan_ips(), ["192.168.31.88"])
+
+    def test_notify_startup_emits_urls_or_port_fallback(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.object(web_remote, "discover_lan_ips", return_value=["192.168.1.10"]),
+            patch.dict(os.environ, {"LANG": "zh_CN.UTF-8"}, clear=True),
+            patch.object(sys, "stderr", stderr),
+        ):
+            web_remote.notify_startup(8765)
+
+        payload = json.loads(stderr.getvalue().strip())
+        self.assertEqual(payload["title"], "网页远控触发器")
+        self.assertIn("http://192.168.1.10:8765/", payload["body"])
+
+        stderr_empty = StringIO()
+        with (
+            patch.object(web_remote, "discover_lan_ips", return_value=[]),
+            patch.dict(os.environ, {"LANG": "en_US.UTF-8"}, clear=True),
+            patch.object(sys, "stderr", stderr_empty),
+        ):
+            web_remote.notify_startup(8765)
+
+        fallback_payload = json.loads(stderr_empty.getvalue().strip())
+        self.assertIn("8765", fallback_payload["body"])
+
+    def test_run_emits_startup_notification_after_bind(self) -> None:
+        env = {"VINPUT_TRIGGER_API_KEY": "secret-key-should-not-leak", "VINPUT_TRIGGER_PORT": "18765"}
+        stderr = StringIO()
+
+        class FakeServer:
+            server_port = 18765
+
+            def serve_forever(self) -> None:
+                return None
+
+            def server_close(self) -> None:
+                return None
+
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(web_remote, "ThreadedHttpServer", return_value=FakeServer()),
+            patch.object(web_remote, "discover_lan_ips", return_value=["10.0.0.5"]),
+            patch.object(sys, "stdin", StringIO("")),
+            patch.object(sys, "stderr", stderr),
+        ):
+            rc = web_remote.run()
+
+        self.assertEqual(rc, web_remote.EXIT_SUCCESS)
+        payload = json.loads(stderr.getvalue().strip())
+        self.assertIn("http://10.0.0.5:18765/", payload["body"])
+        self.assertNotIn("secret-key-should-not-leak", payload["body"])
+
+
 if __name__ == "__main__":
     unittest.main()
