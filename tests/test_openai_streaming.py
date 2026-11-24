@@ -132,21 +132,38 @@ class StreamingTests(unittest.TestCase):
                 provider.handle_server_message({"type": "response.audio_transcript.delta", "delta": delta}, state)
         emit_partial.assert_called_with("Hello world")
 
-    def run_adapter(self, failure=False, commit_audio=False, multiple_chunks=False, omit_item_id=False):
+    def run_adapter(
+        self,
+        failure=False,
+        legacy_commit_flag=False,
+        multiple_chunks=False,
+        omit_item_id=False,
+        extra_server_completions=0,
+    ):
         audio = {
             "type": "audio",
             "sample_rate": 24000,
             "audio_base64": base64.b64encode(b"\0\0" * 2400).decode(),
-            "commit": commit_audio,
         }
+        if legacy_commit_flag:
+            audio["commit"] = True
         events = [audio]
         if multiple_chunks:
-            events.append({**audio, "commit": False})
+            events.append({"type": "audio", "sample_rate": 24000, "audio_base64": audio["audio_base64"]})
         events.append({"type": "finish"})
         input_text = "\n".join(map(json.dumps, events)) + "\n"
         output = io.StringIO()
         notifications = io.StringIO()
         websocket = FakeWebSocket(failure=failure, omit_item_id=omit_item_id)
+        for idx in range(extra_server_completions):
+            item = {} if omit_item_id else {"item_id": f"vad_{idx}"}
+            websocket.messages.put(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    **item,
+                    "transcript": "The complete final sentence." if idx == 0 else f"Extra segment {idx}.",
+                }
+            )
         with (
             patch.dict(
                 os.environ,
@@ -174,22 +191,64 @@ class StreamingTests(unittest.TestCase):
         status, events, _, websocket = self.run_adapter()
         self.assertEqual(status, 0)
         self.assertEqual(websocket.audio, [b"\0\0" * 2400])
-        self.assertEqual([e["text"] for e in events if e["type"] == "final"], ["The complete final sentence."])
+        finals = [e for e in events if e["type"] == "final"]
+        self.assertEqual(finals, [{"type": "final", "text": "The complete final sentence."}])
         self.assertEqual(events[-1]["type"], "closed")
 
-    def test_finish_does_not_commit_an_already_committed_empty_buffer(self):
-        status, events, _, websocket = self.run_adapter(commit_audio=True)
+    def test_legacy_commit_flag_on_audio_is_ignored_and_finish_commits_once(self):
+        status, events, _, websocket = self.run_adapter(legacy_commit_flag=True, multiple_chunks=True)
         self.assertEqual(status, 0)
         self.assertEqual(websocket.commits, 1)
         self.assertEqual(sum(e["type"] == "final" for e in events), 1)
 
-    def test_multiple_commits_produce_one_final_even_without_item_ids(self):
-        status, events, _, websocket = self.run_adapter(commit_audio=True, multiple_chunks=True, omit_item_id=True)
-        self.assertEqual(status, 0)
-        self.assertEqual(websocket.commits, 2)
+    def test_multiple_server_completions_produce_one_final_even_without_item_ids(self):
+        state = {
+            "last_item_id": "",
+            "partials": {},
+            "confirmed_text": "",
+            "completed_items": set(),
+            "commits_sent": 0,
+            "finishing": False,
+            "finished": threading.Event(),
+        }
+        emitted: list[dict[str, object]] = []
+        with (
+            patch.object(
+                provider, "emit_partial", side_effect=lambda text: emitted.append({"type": "partial", "text": text})
+            ),
+            patch.object(
+                provider, "emit_final", side_effect=lambda text: emitted.append({"type": "final", "text": text})
+            ),
+        ):
+            provider.handle_server_message(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "The complete final sentence.",
+                },
+                state,
+            )
+            provider.handle_server_message(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "The second sentence.",
+                },
+                state,
+            )
         self.assertEqual(
-            [event["text"] for event in events if event["type"] == "final"],
-            ["The complete final sentence. The second sentence."],
+            emitted,
+            [
+                {"type": "partial", "text": "The complete final sentence."},
+                {"type": "partial", "text": "The complete final sentence. The second sentence."},
+            ],
+        )
+        self.assertEqual(len(state["completed_items"]), 2)
+
+        status, events, _, websocket = self.run_adapter(multiple_chunks=True, omit_item_id=True)
+        self.assertEqual(status, 0)
+        self.assertEqual(websocket.commits, 1)
+        self.assertEqual(
+            [event for event in events if event["type"] == "final"],
+            [{"type": "final", "text": "The complete final sentence."}],
         )
 
     def test_api_failure_is_reported_without_a_final_transcript(self):
