@@ -37,7 +37,7 @@ Each `VINPUT_TRIGGER_*_KEY` variable accepts:
 
 ## Usage
 
-1. Enable and start this trigger via `vinput trigger start trigger.vinput.web_remote` or set `"auto_start": true`.
+1. Enable and start this trigger via `vinput trigger start trigger.vinput.web_remote` or set `"auto_start": true`. Upon startup, a desktop notification displays the detected local network URL(s) (e.g. `http://192.168.1.100:8765/`).
 2. Ensure your user has write permission on `/dev/uinput` (typically via `input` / `uinput` group and a udev rule) if you plan to use the virtual key bar.
 3. Open `http://<desktop-ip>:<port>/` in the browser on your phone.
 4. Enter the API key configured in `VINPUT_TRIGGER_API_KEY`, or open `http://<desktop-ip>:<port>/#key=<api-key>`.
