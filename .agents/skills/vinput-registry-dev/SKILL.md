@@ -15,8 +15,8 @@ Verify repository roles before making changes:
 
 | Repository | GitHub URL | Local Path | Role & Purpose |
 | :--- | :--- | :--- | :--- |
-| **`vinput-registry`** (Here) | [xifan2333/vinput-registry](https://github.com/xifan2333/vinput-registry) | `.` (`~/Code/vinput-registry`) | Resource catalog: index for local ASR models (`models.json`), cloud ASR provider scripts (`providers.json` + `resources/providers/`), and LLM scene adapters (`adapters.json` + `resources/adapters/`). |
-| **`fcitx5-vinput`** (Core) | [xifan2333/fcitx5-vinput](https://github.com/xifan2333/fcitx5-vinput) | `~/Code/fcitx5-vinput` | Main C++20 repository: Fcitx5 addon, background daemon, CLI, PipeWire capture, local sherpa-onnx runtime, D-Bus service. |
+| **`vinput-registry`** (Here) | [fcitx5-vinput/vinput-registry](https://github.com/fcitx5-vinput/vinput-registry) | `.` (`~/Code/vinput-registry`) | Resource catalog: index for local ASR models (`models.json`), cloud ASR provider scripts (`providers.json` + `resources/providers/`), and LLM scene adapters (`adapters.json` + `resources/adapters/`). |
+| **`fcitx5-vinput`** (Core) | [fcitx5-vinput/fcitx5-vinput](https://github.com/fcitx5-vinput/fcitx5-vinput) | `~/Code/fcitx5-vinput` | Main C++20 repository: Fcitx5 addon, background daemon, CLI, PipeWire capture, local sherpa-onnx runtime, D-Bus service. |
 | **`aur-auto`** | [xifan2333/aur-auto](https://github.com/xifan2333/aur-auto) | `~/Code/aur-auto` | Arch Linux AUR packaging automation (`fcitx5-vinput-bin`). |
 | **`flatpak-auto`** | [xifan2333/flatpak-auto](https://github.com/xifan2333/flatpak-auto) | `~/Code/flatpak-auto` | Flatpak OSTree repository & flatpakref publishing. |
 
@@ -57,9 +57,9 @@ Verify repository roles before making changes:
    - Receivers must use the `VINPUT_RECEIVER_*` namespace.
    - LLM Adapters have naming freedom (can use target-specific names like `MTRAN_URL`, `OLLAMA_HOST`), but must follow the **Minimally Viable Env Set** rule.
 4. **Mirror Fallback URLs**: `script_urls` must provide 3 fallback mirrors in order:
-   - `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
-   - `https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
-   - `https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
+   - `https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
+   - `https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
+   - `https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
 5. **i18n Parity**: Any new or updated resource must contain both `<id>.title` and `<id>.description` in both `i18n/en_US.json` and `i18n/zh_CN.json`.
 6. **Desktop Notification Coupling (Stderr Silence)**: `vinput-daemon` translates every non-empty line of a resource's `stderr` directly into a D-Bus desktop notification (`EmitNotification`). Normal operation must be 100% silent; only fatal startup failures or localized errors may be emitted to `stderr` as JSONL (`{"title": "...", "body": "..."}`).
 7. **Command Pipe Filter Architecture**: Adapters transform text or selection commands as stateless Unix pipe filters (`stdin -> stdout` JSON). Adapters do not run as persistent HTTP servers and do not expose or require port environment variables.

@@ -16,9 +16,9 @@ Every catalog item in `registry/*.json` requires:
    - Receivers: `receiver.<name>` $\to$ `resources/receivers/<name>/`
 2. **`short_id`**: Concise identifier for CLI/GUI display. Never used for internal file lookup.
 3. **`script_urls` / `urls`**: Array with at least 3 fallback sources in order:
-   - Primary GitHub raw URL: `https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
-   - Accelerator 1: `https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
-   - Accelerator 2: `https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/...`
+   - Primary GitHub raw URL: `https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
+   - Accelerator 1: `https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
+   - Accelerator 2: `https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/...`
 
 ---
 
