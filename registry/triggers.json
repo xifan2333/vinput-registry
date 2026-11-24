@@ -23,10 +23,14 @@
         {
           "name": "VINPUT_TRIGGER_DEBOUNCE_MS",
           "required": false
+        },
+        {
+          "name": "VINPUT_TRIGGER_MENU_KEY",
+          "required": false
         }
       ],
-      "version": "2.0.1",
-      "sha256": "df0a926ab946489bedbab77eb718d2e88e9ff449534c022e586d32ba697c6b1e",
+      "version": "2.1.0",
+      "sha256": "eeb3bc3975bf2af99878ec2d1891dde374cf0e8c02cef11fd52604c970a68acf",
       "vinput_version": ">= 2.0.0"
     }
   ]
