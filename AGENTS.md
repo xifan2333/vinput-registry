@@ -28,8 +28,8 @@ Guidelines, dual-planning model, and hard constraints for AI coding agents worki
 
 | Repository | GitHub URL | Local Path | Role & Purpose |
 | :--- | :--- | :--- | :--- |
-| **`vinput-registry`** (Here) | [xifan2333/vinput-registry](https://github.com/xifan2333/vinput-registry) | `.` (`~/Code/vinput-registry`) | Resource catalog: index for local ASR models, cloud ASR providers, and LLM scene adapters. |
-| **`fcitx5-vinput`** (Core) | [xifan2333/fcitx5-vinput](https://github.com/xifan2333/fcitx5-vinput) | `~/Code/fcitx5-vinput` | Main C++20 repository: Fcitx5 addon, background daemon, CLI, PipeWire capture, local sherpa-onnx runtime, D-Bus service. |
+| **`vinput-registry`** (Here) | [fcitx5-vinput/vinput-registry](https://github.com/fcitx5-vinput/vinput-registry) | `.` (`~/Code/vinput-registry`) | Resource catalog: index for local ASR models, cloud ASR providers, and LLM scene adapters. |
+| **`fcitx5-vinput`** (Core) | [fcitx5-vinput/fcitx5-vinput](https://github.com/fcitx5-vinput/fcitx5-vinput) | `~/Code/fcitx5-vinput` | Main C++20 repository: Fcitx5 addon, background daemon, CLI, PipeWire capture, local sherpa-onnx runtime, D-Bus service. |
 | **`aur-auto`** | [xifan2333/aur-auto](https://github.com/xifan2333/aur-auto) | `~/Code/aur-auto` | Arch User Repository (AUR) automation (`fcitx5-vinput-bin`). |
 | **`flatpak-auto`** | [xifan2333/flatpak-auto](https://github.com/xifan2333/flatpak-auto) | `~/Code/flatpak-auto` | Flatpak OSTree repository & flatpakref publishing. |
 
