@@ -16,8 +16,7 @@ Cloud ASR provider script for the ElevenLabs realtime speech-to-text API.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -28,16 +27,15 @@ Cloud ASR provider script for the ElevenLabs realtime speech-to-text API.
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
 - `{"type":"final","text":"..."}`
-- `{"type":"final_timestamps","text":"...","words":[...]}`
-- `{"type":"error","message":"..."}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 Normalized transcript semantics used by this script:
 
 - `partial.text` is the full user-visible transcript at the current moment.
-- `final.text` is the full confirmed transcript at the current moment.
-- The script accumulates committed segments locally before emitting output.
-- `segment_final: true` is included on committed transcript events.
+- Committed segments from upstream are accumulated into `partial` updates during recording.
+- One `final` event is emitted after `finish`.
 
 ## Environment Variables
 
@@ -65,4 +63,4 @@ Normalized transcript semantics used by this script:
 
 - This resource is intended to be materialized into local config and executed locally.
 - Configuration guidance for users should be derived from the env list above.
-- `finish` does not synthesize a commit; callers should mark the final audio chunk with `commit: true` when they need a final transcript.
+- `finish` sends an upstream commit frame when audio was streamed and emits one `final` transcript.

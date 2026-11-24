@@ -24,4 +24,4 @@ On first use, an anonymous device is registered transparently and cached locally
 
 ## JSONL Protocol
 
-stdin accepts `{"type":"audio","audio_base64":"...","commit":false}`, `{"type":"finish"}`, and `{"type":"cancel"}`. Audio is mono signed 16-bit little-endian PCM at 16000 Hz, without a WAV header. `commit:true`, finish, and EOF terminate audio once. Audio received after finish is an error.
+stdin accepts `{"type":"audio","audio_base64":"..."}`, `{"type":"finish"}`, and `{"type":"cancel"}`. Audio is mono signed 16-bit little-endian PCM at 16000 Hz, without a WAV header. `finish` and EOF terminate audio once. Audio received after finish is an error.

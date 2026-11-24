@@ -17,8 +17,7 @@ V2.0 WebSocket API.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -28,9 +27,10 @@ V2.0 WebSocket API.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"...","segment_final":true,"utterance_final":true}`
-- `{"type":"error","message":"..."}`
+- `{"type":"final","text":"..."}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 The provider keeps iFlytek's incremental results as `partial` events and emits
 one final result after the local `finish` event. This prevents upstream clause

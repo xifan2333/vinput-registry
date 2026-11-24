@@ -41,7 +41,7 @@ vinput scene use __raw__
 - `session_started` 后输出累计 `partial`；`wpgs` 的 `pgs=rpl` 区间替换按 `sn` 有序合并后再输出。
 - `finish` 后发送 `status=2` 结束帧并等待定稿（上限 finish grace），整个录音仅输出一次 `final`，随后 `closed`。
 - `cancel` 或未发送 `finish` 的 EOF 均立即中止，不输出最终文本。
-- 网络或协议错误通过 `error` 和 stderr 报告，不静默重传整段音频。
+- 网络或协议错误通过 stderr 通知报告，不静默重传整段音频。
 - stderr 输出单行诊断：`[iflyime] connected to ...` / `[iflyime] 上传完成: N帧 N字节 N秒` / `[iflyime] 识别定稿: ...`。
 
 ## 验证与协议来源

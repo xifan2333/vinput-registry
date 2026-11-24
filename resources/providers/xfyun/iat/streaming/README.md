@@ -19,8 +19,7 @@ not interchangeable and the wire protocol is different.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -30,7 +29,7 @@ not interchangeable and the wire protocol is different.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"...","segment_final":true,"utterance_final":true}`
+- `{"type":"final","text":"..."}`
 - `{"type":"closed"}`
 
 Incremental upstream results are emitted as `partial`; one `final` is emitted

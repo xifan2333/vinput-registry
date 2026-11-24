@@ -16,8 +16,7 @@ Cloud ASR provider script for OpenAI-compatible realtime transcription APIs.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -28,7 +27,7 @@ explicitly sets `sample_rate`.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"...","segment_final":true,"utterance_final":true}`
+- `{"type":"final","text":"..."}`
 - `{"type":"closed"}`
 
 Errors are written to stderr as JSONL desktop notifications.
@@ -96,5 +95,4 @@ Errors are written to stderr as JSONL desktop notifications.
   waits for completion before emitting one final transcript.
 - Other models retain their model-based WebSocket URL and singular language hint.
 - Partial text is retained when a commit acknowledgement arrives after transcript
-  deltas. Audio already committed by an `audio` event is not committed again on
-  `finish` unless more audio was appended.
+  deltas.

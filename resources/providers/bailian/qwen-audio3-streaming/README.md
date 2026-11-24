@@ -22,8 +22,7 @@ with `VINPUT_ASR_MODEL` as well.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -34,13 +33,13 @@ raw PCM as binary WebSocket frames and re-encodes nothing.
 
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
-- `{"type":"final","text":"...","segment_final":true}`
-- `{"type":"error","message":"..."}`
+- `{"type":"final","text":"..."}`
 - `{"type":"closed"}`
 
-`partial` events carry the full text visible so far. `final` events are emitted
-for each server-side sentence end (`sentence_end: true`) and carry the
-cumulative confirmed text.
+Errors are written to stderr as JSONL desktop notifications.
+
+`partial` events carry the cumulative visible text so far (including completed
+server-side sentences). One `final` event is emitted after `finish`.
 
 ## Environment Variables
 
@@ -98,8 +97,8 @@ region API key.
 
 ## Notes
 
-- The `commit` flag from the input protocol is ignored: sentence boundaries are
-  decided server-side (VAD or semantic punctuation).
+- Sentence boundaries are decided server-side (VAD or semantic punctuation) and
+  accumulated into `partial` updates until `finish`.
 - The script buffers audio until the `task-started` event arrives, as required
   by the upstream API.
 - Only standard-library modules are used; the WebSocket client, frame masking,

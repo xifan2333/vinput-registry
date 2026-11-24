@@ -16,23 +16,22 @@ Daemon writes **one JSON object per line (JSONL)** terminated by `\n`:
 
 1. **`audio` chunk event**:
    ```json
-   {"type": "audio", "audio_base64": "<base64_encoded_pcm>", "commit": false}
+   {"type": "audio", "audio_base64": "<base64_encoded_pcm>"}
    ```
    - **Audio Specs**: Raw PCM, `16000 Hz`, `1 channel` (mono), `S16_LE` (16-bit signed integer, little-endian).
    - `audio_base64`: Base64 string of the raw PCM chunk (~32 KB/s audio throughput).
-   - `commit`: Boolean flag from daemon. Provider scripts may use or ignore this depending on server-side VAD capabilities.
 2. **`finish` event**:
    ```json
    {"type": "finish"}
    ```
    - Sent when user releases the recording key.
    - Daemon closes the provider's `stdin` immediately after sending `finish`.
-   - Provider script must notify upstream server of completion (e.g. commit audio buffer or send finish packet), await final transcription within a grace period, emit final events, and exit with code 0.
+   - Provider script must notify upstream server of completion (e.g. commit audio buffer or send finish packet), await final transcription within a grace period, emit at most one `final` event (if non-empty text exists), emit `closed`, and exit with code 0.
 3. **`cancel` event**:
    ```json
    {"type": "cancel"}
    ```
-   - Sent when recording is aborted. Provider must immediately abort the upstream connection and exit cleanly.
+   - Sent when recording is aborted. Provider must immediately abort the upstream connection, emit `closed` without emitting `final`, and exit cleanly.
 
 ### Standard Output (`stdout`): Provider -> Daemon
 Provider writes **strictly clean JSONL** to `stdout`. Every line must be a valid JSON object followed by `\n`. Every line must be flushed immediately (`sys.stdout.flush()`). **Never print debug text or operational logs to stdout.**
@@ -47,13 +46,13 @@ Provider writes **strictly clean JSONL** to `stdout`. Every line must be a valid
    {"type": "partial", "text": "cumulative visible text"}
    ```
    - Emitted when unconfirmed text updates. Triggers real-time input method candidate display.
-   - **Critical Rule**: Mid-stream segment completions from upstream must be surfaced as cumulative `partial` text rather than premature `final` events to prevent early cutoff.
-3. **`final`** (confirmed sentence/segment):
+   - **Critical Rule**: Mid-stream segment completions from upstream must be accumulated and surfaced as cumulative `partial` text rather than premature `final` events to prevent early cutoff.
+3. **`final`** (confirmed utterance):
    ```json
-   {"type": "final", "text": "cumulative confirmed text", "segment_final": true, "utterance_final": true}
+   {"type": "final", "text": "cumulative confirmed text"}
    ```
-   - Emitted when user finishes speaking and the entire utterance is committed.
-   - **Single Final per Utterance**: `vinput-daemon` commits and ends the current utterance upon receiving the first non-empty `final`. Providers must emit exactly **one** single final at the conclusion of recording (after `finish`), rather than multiple fragmented finals during recording.
+   - Emitted once after `finish` when the entire utterance is committed and non-empty.
+   - **Single Final per Utterance**: Providers must emit at most **one** `final` event at the conclusion of recording (after `finish`), rather than multiple fragmented finals during recording. Never emit `final` on `cancel`, EOF without `finish`, fatal errors, or empty transcripts.
 4. **`closed`**:
    ```json
    {"type": "closed"}
@@ -138,15 +137,15 @@ Adapters (`resources/adapters/`) use the same `stderr` notification contract and
 - **Lightweight RFC 6455 WebSocket Implementation**: The Python standard library can implement a full RFC 6455 client in under 80 lines using `socket`, `struct` (for frame headers and lengths), and `secrets` (for mask keys). Refer to `resources/providers/openai-compatible/streaming/entry.py` for a battle-tested template.
 
 ### 2. Single Final per Utterance (Preventing Premature Cutoff)
-- `vinput-daemon` concludes candidate collection when a non-empty `final` is emitted.
+- Providers must emit at most one `final` event per session, and only after receiving `finish`.
 - If an upstream engine reports mid-utterance completions (e.g. per-sentence VAD or incremental `transcription.completed`), accumulate the confirmed text in memory and emit it as an updated `partial`.
 - Emit the sole `final` event only during teardown after user `finish`.
 
 ### 3. Audio Start Buffering
 - If upstream requires an initial handshake acknowledgment (e.g. `task-started` in Bailian or `session.created` in OpenAI Realtime) before accepting audio, buffer incoming `audio` chunks in memory (`pending_audio`) and flush them immediately once the handshake succeeds.
 
-### 4. Fallback Final on Termination
-- In `finally` cleanup blocks, if the connection terminates or errors out while uncommitted text exists in memory (`confirmed_text` or non-empty `partial`), emit a fallback `final` to ensure spoken text is never lost.
+### 4. Fallback Final on Finish Timeout
+- In `finally` cleanup blocks, if `finish` was received without `cancel` or fatal error and non-empty text exists in memory (`confirmed_text` or `latest_partial_text`), emit a fallback `final` so spoken text is preserved even if the upstream final packet timed out. Never emit a fallback `final` on `cancel`, EOF without `finish`, or fatal upstream errors.
 
 ### 5. Finish Grace Period
 - After sending finish notification to upstream, do not close the socket immediately. Wait for upstream's final packet (typically bounded by a grace timeout of 0.4s – 1.2s, configurable via `VINPUT_ASR_FINISH_GRACE_SECS`).

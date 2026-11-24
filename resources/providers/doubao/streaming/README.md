@@ -17,8 +17,7 @@ streaming ASR API.
 
 ## Input Protocol
 
-- `{"type":"audio","audio_base64":"...","commit":false}`
-- `{"type":"audio","audio_base64":"...","commit":true}`
+- `{"type":"audio","audio_base64":"..."}`
 - `{"type":"finish"}`
 - `{"type":"cancel"}`
 
@@ -29,9 +28,9 @@ streaming ASR API.
 - `{"type":"session_started","session_id":"..."}`
 - `{"type":"partial","text":"..."}`
 - `{"type":"final","text":"..."}`
-- `{"type":"final_timestamps","text":"...","utterances":[...],"words":[...]}`
-- `{"type":"error","message":"..."}`
 - `{"type":"closed"}`
+
+Errors are written to stderr as JSONL desktop notifications.
 
 ## Environment Variables
 
@@ -84,7 +83,7 @@ streaming ASR API.
 - `VINPUT_ASR_TIMEOUT` optional
   Network timeout in seconds.
 - `VINPUT_ASR_FINISH_GRACE_SECS` optional
-  Extra wait time after a local commit or finish before closing the websocket.
+  Extra wait time after `finish` before closing the websocket.
 
 ## Notes
 
