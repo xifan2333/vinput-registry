@@ -8,6 +8,9 @@ translating mobile typing and speech into vinput `inject` commands on stdout.
 from __future__ import annotations
 
 import base64
+import ctypes
+import ctypes.util
+import fcntl
 import hashlib
 import http.server
 import json
@@ -18,10 +21,38 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+EV_SYN = 0x00
+EV_KEY = 0x01
+SYN_REPORT = 0
+BUS_VIRTUAL = 0x06
+UINPUT_PATH = "/dev/uinput"
+UI_DEV_CREATE = 0x5501
+UI_DEV_DESTROY = 0x5502
+UI_DEV_SETUP = 0x405C5503
+UI_SET_EVBIT = 0x40045564
+UI_SET_KEYBIT = 0x40045565
+STANDARD_KEY_MAX = 248
+KEY_CODE_MAX = 0x2FF
+
+INPUT_EVENT_STRUCT = struct.Struct("llHHi")
+UINPUT_SETUP_STRUCT = struct.Struct("=HHHH80sI")
+
+VIRTUAL_KEY_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    ("menu", "Menu", "VINPUT_TRIGGER_MENU_KEY", "KEY_RIGHTSHIFT"),
+    ("esc", "Esc", "VINPUT_TRIGGER_ESC_KEY", "KEY_ESC"),
+    ("up", "↑", "VINPUT_TRIGGER_UP_KEY", "KEY_UP"),
+    ("down", "↓", "VINPUT_TRIGGER_DOWN_KEY", "KEY_DOWN"),
+    ("left", "←", "VINPUT_TRIGGER_LEFT_KEY", "KEY_LEFT"),
+    ("right", "→", "VINPUT_TRIGGER_RIGHT_KEY", "KEY_RIGHT"),
+    ("backspace", "⌫", "VINPUT_TRIGGER_BACKSPACE_KEY", "KEY_BACKSPACE"),
+    ("enter", "⏎", "VINPUT_TRIGGER_ENTER_KEY", "KEY_ENTER"),
+)
 
 EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
@@ -33,6 +64,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "connected": "Mobile phone connected.",
         "err_missing_api_key": "Missing required VINPUT_TRIGGER_API_KEY environment variable.",
         "err_invalid_port": "VINPUT_TRIGGER_PORT must be an integer between 1 and 65535.",
+        "err_invalid_key_spec": "Invalid key binding in {env}: {spec!r}.",
+        "err_unknown_key": "Unknown Linux key name {key_name!r} in {env}.",
+        "err_libevdev_missing": "Cannot load libevdev ({detail}); set VINPUT_TRIGGER_LIBEVDEV_PATH or use numeric keycodes.",
+        "err_uinput_permission": "Permission denied opening {path}. Add user to the 'input' or 'uinput' group.",
+        "err_uinput_missing": "Virtual keyboard device {path} does not exist (ensure the uinput kernel module is loaded).",
+        "err_uinput_init": "Failed to initialize virtual keyboard: {detail}",
         "err_bind": "Failed to bind port {port}: {detail}",
         "err_runtime": "Web Remote runtime error: {detail}",
     },
@@ -41,6 +78,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "connected": "手机端已成功连接。",
         "err_missing_api_key": "缺少必需的 VINPUT_TRIGGER_API_KEY 环境变量。",
         "err_invalid_port": "VINPUT_TRIGGER_PORT 必须是 1 到 65535 之间的整数。",
+        "err_invalid_key_spec": "环境变量 {env} 的按键绑定格式无效：{spec!r}。",
+        "err_unknown_key": "环境变量 {env} 中存在未知的 Linux 按键名 {key_name!r}。",
+        "err_libevdev_missing": "无法加载 libevdev（{detail}）；请设置 VINPUT_TRIGGER_LIBEVDEV_PATH 或改用数字键码。",
+        "err_uinput_permission": "打开 {path} 权限不足，请将当前用户加入 'input' 或 'uinput' 用户组。",
+        "err_uinput_missing": "虚拟键盘设备 {path} 不存在（请确认已加载 uinput 内核模块）。",
+        "err_uinput_init": "初始化虚拟键盘失败：{detail}",
         "err_bind": "绑定端口 {port} 失败：{detail}",
         "err_runtime": "网页远控触发器运行异常：{detail}",
     },
@@ -218,10 +261,35 @@ INDEX_HTML = """<!doctype html>
       cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .vkeys {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .vkeys[hidden] { display: none; }
+    .vk-btn {
+      flex: 1 1 auto;
+      min-width: 56px;
+      min-height: 42px;
+      padding: 8px 10px;
+      font-size: 14px;
+      font-weight: 600;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.1s ease, border-color 0.1s ease, transform 0.08s ease;
+    }
+    .vk-btn:not(:disabled):active {
+      background: var(--panel-2);
+      border-color: var(--accent);
+      transform: scale(0.97);
+    }
     @media (max-width: 560px) {
-      main { width: min(100vw - 24px, 760px); padding: 24px 0; }
+      main { width: min(100vw - 24px, 760px); padding: 20px 0; }
       .status { grid-template-columns: 1fr; }
-      textarea { min-height: 52vh; font-size: 17px; }
+      .vk-btn { min-width: calc(25% - 6px); }
+      textarea { min-height: 36vh; font-size: 17px; }
     }
   </style>
 </head>
@@ -239,6 +307,7 @@ INDEX_HTML = """<!doctype html>
         <div class="value"><span id="output-dot" class="dot"></span><span id="output-status">ready</span></div>
       </div>
     </section>
+    <section id="vkeys" class="vkeys" aria-label="Virtual keys" hidden></section>
     <textarea id="editor" spellcheck="false" enterkeyhint="send" disabled placeholder="Type or use mobile voice input here..."></textarea>
     <div class="bar">
       <span><span id="count">0</span> chars</span>
@@ -247,6 +316,7 @@ INDEX_HTML = """<!doctype html>
   <script>
     const editor = document.getElementById('editor')
     const count = document.getElementById('count')
+    const vkeys = document.getElementById('vkeys')
     const inputStatus = document.getElementById('input-status')
     const outputStatus = document.getElementById('output-status')
     const inputDot = document.getElementById('input-dot')
@@ -289,6 +359,9 @@ INDEX_HTML = """<!doctype html>
     function updateEnabled() {
       const enabled = ws && ws.readyState === WebSocket.OPEN && authenticated
       editor.disabled = !enabled
+      for (const btn of vkeys.querySelectorAll('.vk-btn')) {
+        btn.disabled = !enabled
+      }
       if (enabled && document.activeElement !== editor) {
         editor.focus()
       }
@@ -297,6 +370,59 @@ INDEX_HTML = """<!doctype html>
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(payload))
       }
+    }
+    function triggerVirtualKey(id) {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !authenticated) {
+        return
+      }
+      if (editor.value.length > 0 && !composing) {
+        send({ type: 'text_update', text: editor.value })
+      }
+      send({ type: 'virtual_key', id: id })
+    }
+    function renderVirtualKeys(items) {
+      vkeys.innerHTML = ''
+      if (!Array.isArray(items) || items.length === 0) {
+        vkeys.hidden = true
+        return
+      }
+      const enabled = ws && ws.readyState === WebSocket.OPEN && authenticated
+      for (const item of items) {
+        if (!item || !item.id || !item.label) continue
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'vk-btn'
+        btn.textContent = item.label
+        btn.dataset.keyId = item.id
+        btn.disabled = !enabled
+        let activePointerId = null
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault()
+          if (!btn.disabled && e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0)) {
+            activePointerId = e.pointerId
+          }
+        })
+        btn.addEventListener('mousedown', e => e.preventDefault())
+        btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false })
+        btn.addEventListener('pointerup', e => {
+          if (activePointerId !== e.pointerId) return
+          activePointerId = null
+          if (!btn.disabled) {
+            triggerVirtualKey(item.id)
+          }
+        })
+        btn.addEventListener('pointercancel', () => { activePointerId = null })
+        btn.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            if (!btn.disabled) {
+              triggerVirtualKey(item.id)
+            }
+          }
+        })
+        vkeys.appendChild(btn)
+      }
+      vkeys.hidden = vkeys.children.length === 0
     }
     function commitAndClear() {
       const text = editor.value
@@ -316,7 +442,12 @@ INDEX_HTML = """<!doctype html>
         setInputStatus('connected')
         updateEnabled()
       },
-      init: msg => setOutputStatus(msg.output_status || 'ready'),
+      init: msg => {
+        setOutputStatus(msg.output_status || 'ready')
+        if (Array.isArray(msg.virtual_keys)) {
+          renderVirtualKeys(msg.virtual_keys)
+        }
+      },
       output_connected: () => setOutputStatus('connected'),
       output_disconnected: () => setOutputStatus('ready'),
       committed: () => {
@@ -556,6 +687,217 @@ _PENDING_TEXT = ""
 _DEBOUNCE_TIMER: threading.Timer | None = None
 _DEBOUNCE_SEC = 1.5
 _API_KEY = ""
+_VIRTUAL_KEY_LIST: tuple[VirtualKeyBinding, ...] = ()
+_VIRTUAL_KEY_MAP: dict[str, VirtualKeyBinding] = {}
+_UINPUT_LOCK = threading.Lock()
+_KEY_RESOLVER: LibEvdevResolver | None = None
+_UINPUT_KEYBOARD: UInputKeyboard | None = None
+_RESOLVED_CHORDS: dict[str, tuple[int, ...]] = {}
+
+
+@dataclass(frozen=True)
+class VirtualKeyBinding:
+    action_id: str
+    label: str
+    env_name: str
+    tokens: tuple[str, ...]
+
+
+def _parse_numeric_keycode(token: str) -> int | None:
+    stripped = token.strip()
+    if not stripped:
+        return None
+    if stripped.isdigit() or stripped.lower().startswith("0x"):
+        try:
+            code = int(stripped, 0)
+        except ValueError:
+            return None
+        if 0 <= code <= KEY_CODE_MAX:
+            return code
+    return None
+
+
+def _parse_key_tokens(spec: str, env_name: str) -> tuple[str, ...]:
+    parts = [part.strip() for part in spec.split("+")]
+    if not parts or any(not part for part in parts):
+        raise ConfigError("err_invalid_key_spec", env=env_name, spec=spec)
+    return tuple(parts)
+
+
+class LibEvdevResolver:
+    """Resolve Linux UAPI EV_KEY names using system libevdev via ctypes."""
+
+    def __init__(self, custom_path: str = "") -> None:
+        resolved_custom = custom_path.strip() or os.environ.get("VINPUT_TRIGGER_LIBEVDEV_PATH", "").strip()
+        loaded_lib = self._load_library(resolved_custom)
+        loaded_lib.libevdev_event_code_from_name.argtypes = [ctypes.c_uint, ctypes.c_char_p]
+        loaded_lib.libevdev_event_code_from_name.restype = ctypes.c_int
+        self._lib = loaded_lib
+
+    def _load_library(self, custom_path: str) -> ctypes.CDLL:
+        if custom_path:
+            try:
+                return ctypes.CDLL(custom_path)
+            except OSError as exc:
+                raise VInputError("err_libevdev_missing", detail=str(exc)) from exc
+
+        candidates: list[str] = []
+        discovered = ctypes.util.find_library("evdev")
+        if discovered:
+            candidates.append(discovered)
+        candidates.append("libevdev.so.2")
+
+        last_err: OSError | None = None
+        for candidate in candidates:
+            try:
+                return ctypes.CDLL(candidate)
+            except OSError as exc:
+                last_err = exc
+        raise VInputError("err_libevdev_missing", detail=str(last_err or "libevdev.so.2 not found"))
+
+    def resolve_token(self, token: str, env_name: str) -> int:
+        numeric = _parse_numeric_keycode(token)
+        if numeric is not None:
+            return numeric
+        try:
+            raw_name = token.strip().upper().encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ConfigError("err_unknown_key", env=env_name, key_name=token) from exc
+        code = int(self._lib.libevdev_event_code_from_name(EV_KEY, raw_name))
+        if code < 0:
+            raise ConfigError("err_unknown_key", env=env_name, key_name=token)
+        return code
+
+
+class UInputKeyboard:
+    """Minimal Linux /dev/uinput virtual keyboard emitter."""
+
+    def __init__(self, extra_codes: set[int] | None = None) -> None:
+        self.fd = self._open_device()
+        try:
+            self._configure_device(extra_codes or set())
+        except VInputError:
+            self.close()
+            raise
+        except OSError as exc:
+            self.close()
+            raise VInputError("err_uinput_init", detail=str(exc)) from exc
+
+    def _open_device(self) -> int:
+        try:
+            return os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
+        except PermissionError as exc:
+            raise VInputError("err_uinput_permission", path=UINPUT_PATH) from exc
+        except FileNotFoundError as exc:
+            raise VInputError("err_uinput_missing", path=UINPUT_PATH) from exc
+        except OSError as exc:
+            raise VInputError("err_uinput_init", detail=str(exc)) from exc
+
+    def _configure_device(self, extra_codes: set[int]) -> None:
+        fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
+        for code in range(1, STANDARD_KEY_MAX + 1):
+            fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
+        for code in sorted(extra_codes):
+            if STANDARD_KEY_MAX < code <= KEY_CODE_MAX:
+                fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
+
+        setup_bytes = UINPUT_SETUP_STRUCT.pack(
+            BUS_VIRTUAL,
+            0x1234,
+            0x5678,
+            1,
+            b"vinput-web-remote",
+            0,
+        )
+        fcntl.ioctl(self.fd, UI_DEV_SETUP, setup_bytes)
+        fcntl.ioctl(self.fd, UI_DEV_CREATE)
+        time.sleep(0.05)
+
+    def emit_chord(self, codes: tuple[int, ...]) -> None:
+        if self.fd < 0 or not codes:
+            return
+        events = bytearray()
+        for code in codes:
+            events.extend(INPUT_EVENT_STRUCT.pack(0, 0, EV_KEY, code, 1))
+            events.extend(INPUT_EVENT_STRUCT.pack(0, 0, EV_SYN, SYN_REPORT, 0))
+        for code in reversed(codes):
+            events.extend(INPUT_EVENT_STRUCT.pack(0, 0, EV_KEY, code, 0))
+            events.extend(INPUT_EVENT_STRUCT.pack(0, 0, EV_SYN, SYN_REPORT, 0))
+        try:
+            os.write(self.fd, bytes(events))
+        except OSError as exc:
+            raise VInputError("err_uinput_init", detail=str(exc)) from exc
+
+    def close(self) -> None:
+        if self.fd < 0:
+            return
+        fd = self.fd
+        self.fd = -1
+        try:
+            fcntl.ioctl(fd, UI_DEV_DESTROY)
+        except OSError as exc:
+            notify_error("err_uinput_init", detail=str(exc))
+        try:
+            os.close(fd)
+        except OSError as exc:
+            notify_error("err_uinput_init", detail=str(exc))
+
+
+def _resolve_binding_codes(binding: VirtualKeyBinding) -> tuple[int, ...]:
+    global _KEY_RESOLVER
+    numeric_only = [_parse_numeric_keycode(tok) for tok in binding.tokens]
+    if all(code is not None for code in numeric_only):
+        return tuple(code for code in numeric_only if code is not None)
+    if _KEY_RESOLVER is None:
+        _KEY_RESOLVER = LibEvdevResolver()
+    return tuple(_KEY_RESOLVER.resolve_token(tok, binding.env_name) for tok in binding.tokens)
+
+
+def _collect_extra_key_codes() -> set[int]:
+    extra: set[int] = set()
+    for binding in _VIRTUAL_KEY_LIST:
+        if binding.action_id in _RESOLVED_CHORDS:
+            extra.update(_RESOLVED_CHORDS[binding.action_id])
+            continue
+        try:
+            codes = _resolve_binding_codes(binding)
+        except VInputError:
+            continue
+        _RESOLVED_CHORDS[binding.action_id] = codes
+        extra.update(codes)
+    return extra
+
+
+def trigger_virtual_key(action_id: str) -> bool:
+    """Resolve and emit the configured Linux key chord for a virtual button."""
+    global _UINPUT_KEYBOARD
+    binding = _VIRTUAL_KEY_MAP.get(action_id)
+    if binding is None:
+        return False
+    try:
+        with _UINPUT_LOCK:
+            codes = _RESOLVED_CHORDS.get(action_id)
+            if codes is None:
+                codes = _resolve_binding_codes(binding)
+                _RESOLVED_CHORDS[action_id] = codes
+            if _UINPUT_KEYBOARD is None:
+                extra_codes = _collect_extra_key_codes()
+                extra_codes.update(codes)
+                _UINPUT_KEYBOARD = UInputKeyboard(extra_codes)
+            _UINPUT_KEYBOARD.emit_chord(codes)
+    except VInputError as exc:
+        notify_error(exc.key, **exc.kwargs)
+        return False
+    return True
+
+
+def close_virtual_keyboard() -> None:
+    """Close and destroy the lazy uinput device if initialized."""
+    global _UINPUT_KEYBOARD
+    with _UINPUT_LOCK:
+        if _UINPUT_KEYBOARD is not None:
+            _UINPUT_KEYBOARD.close()
+            _UINPUT_KEYBOARD = None
 
 
 def send_command(cmd: dict[str, Any]) -> None:
@@ -694,7 +1036,13 @@ class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
                                 _ACTIVE_WS.close()
                             _ACTIVE_WS = ws
                         ws.send_json({"type": "auth_ok"})
-                        ws.send_json({"type": "init", "output_status": "ready"})
+                        ws.send_json(
+                            {
+                                "type": "init",
+                                "output_status": "ready",
+                                "virtual_keys": [{"id": k.action_id, "label": k.label} for k in _VIRTUAL_KEY_LIST],
+                            }
+                        )
                         notify_info("connected")
                     else:
                         ws.send_json({"type": "error", "message": "Unauthorized."})
@@ -707,6 +1055,9 @@ class RemoteHttpHandler(http.server.BaseHTTPRequestHandler):
                     handle_text_update(str(data.get("text", "")))
                 elif mtype == "finalize":
                     finalize_pending_text()
+                elif mtype == "virtual_key":
+                    finalize_pending_text()
+                    trigger_virtual_key(str(data.get("id", "")))
 
         finally:
             with _ACTIVE_WS_LOCK:
@@ -725,6 +1076,19 @@ class RemoteConfig:
     api_key: str
     port: int
     debounce_ms: int
+    virtual_keys: tuple[VirtualKeyBinding, ...]
+
+
+def load_virtual_keys() -> tuple[VirtualKeyBinding, ...]:
+    bindings: list[VirtualKeyBinding] = []
+    for action_id, label, env_name, default_spec in VIRTUAL_KEY_SPECS:
+        raw = os.environ.get(env_name, "").strip()
+        if raw.lower() == "none":
+            continue
+        spec = raw or default_spec
+        tokens = _parse_key_tokens(spec, env_name)
+        bindings.append(VirtualKeyBinding(action_id=action_id, label=label, env_name=env_name, tokens=tokens))
+    return tuple(bindings)
 
 
 def load_config() -> RemoteConfig:
@@ -740,15 +1104,20 @@ def load_config() -> RemoteConfig:
     debounce_raw = os.environ.get("VINPUT_TRIGGER_DEBOUNCE_MS", "1500").strip()
     debounce_ms = int(debounce_raw) if debounce_raw.isdigit() else 1500
 
-    return RemoteConfig(api_key=api_key, port=port, debounce_ms=debounce_ms)
+    virtual_keys = load_virtual_keys()
+
+    return RemoteConfig(api_key=api_key, port=port, debounce_ms=debounce_ms, virtual_keys=virtual_keys)
 
 
 def run() -> int:
-    global _API_KEY, _DEBOUNCE_SEC
+    global _API_KEY, _DEBOUNCE_SEC, _VIRTUAL_KEY_LIST, _VIRTUAL_KEY_MAP
     config = load_config()
 
     _API_KEY = config.api_key
     _DEBOUNCE_SEC = config.debounce_ms / 1000.0
+    _VIRTUAL_KEY_LIST = config.virtual_keys
+    _VIRTUAL_KEY_MAP = {binding.action_id: binding for binding in config.virtual_keys}
+    _RESOLVED_CHORDS.clear()
 
     stdin_thread = threading.Thread(target=listen_daemon_broadcasts, daemon=True)
     stdin_thread.start()
@@ -764,6 +1133,7 @@ def run() -> int:
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        close_virtual_keyboard()
         httpd.server_close()
 
     return EXIT_SUCCESS
