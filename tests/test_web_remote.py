@@ -335,42 +335,60 @@ class WebSocketVirtualKeyFlowTests(unittest.TestCase):
 
 
 class StartupNotificationTests(unittest.TestCase):
-    def test_discover_lan_ips_filters_loopback_link_local_and_virtual(self) -> None:
-        with (
-            patch.object(web_remote, "_probe_primary_lan_ip", return_value="10.0.0.238"),
-            patch.object(web_remote, "_list_interface_lan_ips", return_value=["192.168.1.50", "10.0.0.238"]),
-        ):
-            self.assertEqual(web_remote.discover_lan_ips(), ["10.0.0.238", "192.168.1.50"])
+    def test_discover_lan_ip_uses_rfc5737_udp_route_lookup(self) -> None:
+        observed: dict[str, object] = {}
 
-        self.assertFalse(web_remote._is_usable_lan_ipv4("127.0.0.1"))
-        self.assertFalse(web_remote._is_usable_lan_ipv4("169.254.12.34"))
-        self.assertFalse(web_remote._is_usable_lan_ipv4("0.0.0.0"))
-        self.assertTrue(web_remote._is_usable_lan_ipv4("192.168.1.50"))
+        class FakeUdpSocket:
+            def __enter__(self) -> FakeUdpSocket:
+                return self
 
-    def test_list_interface_lan_ips_skips_virtual_prefixes(self) -> None:
-        fake_ifaces = [(1, "lo"), (2, "docker0"), (3, "br-abc123"), (4, "wlan0")]
-        ip_by_iface = {
-            "lo": "127.0.0.1",
-            "docker0": "172.17.0.1",
-            "br-abc123": "172.18.0.1",
-            "wlan0": "192.168.31.88",
-        }
+            def __exit__(self, *_args: object) -> None:
+                return None
 
-        def fake_ioctl(_fd: int, _req: int, buf: bytes) -> bytes:
-            name = buf[:15].split(b"\x00", 1)[0].decode("ascii")
-            packed_ip = socket.inet_aton(ip_by_iface[name])
-            return buf[:20] + packed_ip + buf[24:]
+            def connect(self, addr: tuple[str, int]) -> None:
+                observed["target"] = addr
 
-        with (
-            patch("socket.if_nameindex", return_value=fake_ifaces),
-            patch("fcntl.ioctl", side_effect=fake_ioctl),
-        ):
-            self.assertEqual(web_remote._list_interface_lan_ips(), ["192.168.31.88"])
+            def getsockname(self) -> tuple[str, int]:
+                return ("192.168.1.50", 54321)
 
-    def test_notify_startup_emits_urls_or_port_fallback(self) -> None:
+        with patch("socket.socket", return_value=FakeUdpSocket()):
+            self.assertEqual(web_remote.discover_lan_ip(), "192.168.1.50")
+        self.assertEqual(observed["target"], ("192.0.2.1", 80))
+
+    def test_discover_lan_ip_handles_loopback_and_oserror(self) -> None:
+        class LoopbackUdpSocket:
+            def __enter__(self) -> LoopbackUdpSocket:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def connect(self, _addr: tuple[str, int]) -> None:
+                return None
+
+            def getsockname(self) -> tuple[str, int]:
+                return ("127.0.0.1", 54321)
+
+        with patch("socket.socket", return_value=LoopbackUdpSocket()):
+            self.assertIsNone(web_remote.discover_lan_ip())
+
+        class UnreachableUdpSocket:
+            def __enter__(self) -> UnreachableUdpSocket:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def connect(self, _addr: tuple[str, int]) -> None:
+                raise OSError("Network is unreachable")
+
+        with patch("socket.socket", return_value=UnreachableUdpSocket()):
+            self.assertIsNone(web_remote.discover_lan_ip())
+
+    def test_notify_startup_emits_url_or_port_fallback(self) -> None:
         stderr = StringIO()
         with (
-            patch.object(web_remote, "discover_lan_ips", return_value=["192.168.1.10"]),
+            patch.object(web_remote, "discover_lan_ip", return_value="192.168.1.10"),
             patch.dict(os.environ, {"LANG": "zh_CN.UTF-8"}, clear=True),
             patch.object(sys, "stderr", stderr),
         ):
@@ -382,7 +400,7 @@ class StartupNotificationTests(unittest.TestCase):
 
         stderr_empty = StringIO()
         with (
-            patch.object(web_remote, "discover_lan_ips", return_value=[]),
+            patch.object(web_remote, "discover_lan_ip", return_value=None),
             patch.dict(os.environ, {"LANG": "en_US.UTF-8"}, clear=True),
             patch.object(sys, "stderr", stderr_empty),
         ):
@@ -407,7 +425,7 @@ class StartupNotificationTests(unittest.TestCase):
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(web_remote, "ThreadedHttpServer", return_value=FakeServer()),
-            patch.object(web_remote, "discover_lan_ips", return_value=["10.0.0.5"]),
+            patch.object(web_remote, "discover_lan_ip", return_value="10.0.0.5"),
             patch.object(sys, "stdin", StringIO("")),
             patch.object(sys, "stderr", stderr),
         ):
