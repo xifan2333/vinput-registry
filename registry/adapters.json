@@ -65,15 +65,15 @@
       "vinput_version": ">= 2.0.0"
     },
     {
-      "id": "adapter.siliconflow-polish",
+      "id": "adapter.siliconflow.polish",
       "short_id": "siliconflow-polish",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py"
+        "https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py"
       ],
-      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/siliconflow-polish/README.md",
+      "readme_url": "https://github.com/XXNN-code/vinput-registry/blob/main/resources/adapters/siliconflow/polish/README.md",
       "envs": [
         {
           "name": "SILICONFLOW_API_KEY",

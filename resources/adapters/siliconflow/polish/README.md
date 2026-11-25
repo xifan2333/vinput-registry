@@ -1,4 +1,4 @@
-# adapter.siliconflow-polish
+# adapter.siliconflow.polish
 
 Managed local LLM adapter that polishes ASR transcripts via the SiliconFlow
 OpenAI-compatible chat completions API
@@ -10,7 +10,7 @@ and fluent version suitable for direct insertion at the input cursor.
 
 ## Entry
 
-- `entry.py`
+- `resources/adapters/siliconflow/polish/entry.py`
 
 ## Runtime
 
