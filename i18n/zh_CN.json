@@ -33,6 +33,8 @@
   "adapter.mtranserver.description": "为 MTranServer 提供本地翻译适配。",
   "adapter.cjk-trim.title": "CJK 空格清洗",
   "adapter.cjk-trim.description": "移除语音识别文本中 CJK 标点前后及汉字之间的多余空格。",
+  "adapter.siliconflow-polish.title": "硅基流动润色",
+  "adapter.siliconflow-polish.description": "通过硅基流动 OpenAI 兼容 chat completions 接口润色语音识别文本。",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.title": "SenseVoice 五语",
   "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "非流/中英日韩粤/不支持标点/不支持热词",
   "model.sherpa-onnx.moonshine-tiny-en-int8.title": "Moonshine Tiny 英文",

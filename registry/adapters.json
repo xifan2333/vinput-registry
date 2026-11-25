@@ -63,6 +63,34 @@
       "version": "2.0.1",
       "sha256": "d6632049b0ed1b1bb62c31391b8da4c98718064d1c384565fc844ea00bcca9df",
       "vinput_version": ">= 2.0.0"
+    },
+    {
+      "id": "adapter.siliconflow-polish",
+      "short_id": "siliconflow-polish",
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow-polish/entry.py"
+      ],
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/siliconflow-polish/README.md",
+      "envs": [
+        {
+          "name": "SILICONFLOW_API_KEY",
+          "required": true
+        },
+        {
+          "name": "SILICONFLOW_URL",
+          "required": false
+        },
+        {
+          "name": "SILICONFLOW_MODEL",
+          "required": false
+        }
+      ],
+      "version": "2.0.1",
+      "sha256": "0dcbb084e6d67820faf4856425996ad2c4a68677c0d9e459e8833e0395515bab",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }
