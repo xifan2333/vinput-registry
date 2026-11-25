@@ -82,6 +82,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "invalid_mode": "VINPUT_TRIGGER_MODE must be one of: both, hold, tap (got {mode!r}).",
         "invalid_button": "Invalid VINPUT_TRIGGER_BUTTON value {value!r}.",
         "unknown_button": "Unknown Linux button/key name {name!r} in VINPUT_TRIGGER_BUTTON.",
+        "library_load_failed": "Failed to load {env}={path!r}: {detail}",
         "permission_denied": "Permission denied opening {path}. Install 70-fcitx5-vinput.rules or add user to the 'input' group.",
         "unexpected_error": "Mouse button trigger error: {error}",
     },
@@ -91,6 +92,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "invalid_mode": "VINPUT_TRIGGER_MODE 必须是 both、hold 或 tap（当前为 {mode!r}）。",
         "invalid_button": "VINPUT_TRIGGER_BUTTON 配置无效：{value!r}。",
         "unknown_button": "VINPUT_TRIGGER_BUTTON 中存在未知的 Linux 按键名：{name!r}。",
+        "library_load_failed": "加载 {env}={path!r} 失败：{detail}",
         "permission_denied": "无法读取鼠标设备 {path}（权限不足）。请安装 70-fcitx5-vinput.rules 或将用户加入 'input' 组。",
         "unexpected_error": "鼠标按键触发器异常：{error}",
     },
@@ -158,12 +160,41 @@ class ClientConfig:
     capture_device: str
 
 
+def _load_shared_library(
+    env_var: str,
+    lib_name: str,
+    sonames: tuple[str, ...],
+    *,
+    use_errno: bool = False,
+) -> ctypes.CDLL:
+    """Load a shared library honoring an explicit override env var before system lookup."""
+    custom_path = os.getenv(env_var, "").strip() if env_var else ""
+    if custom_path:
+        try:
+            return ctypes.CDLL(custom_path, use_errno=use_errno)
+        except OSError as exc:
+            raise ConfigError("library_load_failed", env=env_var, path=custom_path, detail=str(exc)) from exc
+
+    candidates: list[str] = []
+    discovered = ctypes.util.find_library(lib_name)
+    if discovered:
+        candidates.append(discovered)
+    for soname in sonames:
+        if soname not in candidates:
+            candidates.append(soname)
+
+    last_err: OSError | None = None
+    for candidate in candidates:
+        try:
+            return ctypes.CDLL(candidate, use_errno=use_errno)
+        except OSError as exc:
+            last_err = exc
+    raise last_err or OSError(f"Cannot load {lib_name}")
+
+
 def _load_libevdev() -> Any | None:
-    path = ctypes.util.find_library("evdev")
-    if not path:
-        return None
     try:
-        lib = ctypes.CDLL(path)
+        lib = _load_shared_library("VINPUT_TRIGGER_LIBEVDEV_PATH", "evdev", ("libevdev.so.2", "libevdev.so"))
         lib.libevdev_event_code_from_name.argtypes = [ctypes.c_uint, ctypes.c_char_p]
         lib.libevdev_event_code_from_name.restype = ctypes.c_int
     except OSError:
@@ -344,8 +375,7 @@ class UdevDeviceWatcher:
 
     @staticmethod
     def _load_libudev() -> Any:
-        lib_name = ctypes.util.find_library("udev") or "libudev.so.1"
-        lib = ctypes.CDLL(lib_name)
+        lib = _load_shared_library("VINPUT_TRIGGER_LIBUDEV_PATH", "udev", ("libudev.so.1", "libudev.so"))
 
         lib.udev_new.restype = ctypes.c_void_p
         lib.udev_unref.argtypes = [ctypes.c_void_p]
@@ -487,11 +517,20 @@ class UdevDeviceWatcher:
 class InotifyDeviceWatcher:
     """Fallback hotplug watcher using libc inotify when libudev.so.1 is absent."""
 
+    @staticmethod
+    def _load_libc() -> Any:
+        try:
+            proc_libc = ctypes.CDLL(None, use_errno=True)
+            if hasattr(proc_libc, "inotify_init1") and hasattr(proc_libc, "inotify_add_watch"):
+                return proc_libc
+        except OSError:
+            return _load_shared_library("", "c", ("libc.so.6",), use_errno=True)
+        return _load_shared_library("", "c", ("libc.so.6",), use_errno=True)
+
     def __init__(self, device_path: str, input_dir: str = "/dev/input") -> None:
         self._device_path = device_path
         self._input_dir = input_dir
-        libc_name = ctypes.util.find_library("c") or "libc.so.6"
-        libc = ctypes.CDLL(libc_name, use_errno=True)
+        libc = self._load_libc()
         libc.inotify_init1.argtypes = [ctypes.c_int]
         libc.inotify_init1.restype = ctypes.c_int
         libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]

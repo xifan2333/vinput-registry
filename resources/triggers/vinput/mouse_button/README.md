@@ -20,3 +20,5 @@ Mouse button voice trigger for `fcitx5-vinput` using `libudev` device discovery 
   - `tap`: Toggle recording on each press.
 - `VINPUT_TRIGGER_DEVICE_PATH` (optional, default: `auto`): Use `auto` for automatic `libudev` (`ID_INPUT_MOUSE=1`) discovery and hotplug, or specify an explicit `/dev/input/event*` or `/dev/input/by-id/*` path.
 - `VINPUT_TRIGGER_CAPTURE_DEVICE` (optional, default: `""`): Optional PipeWire audio source node passed as `capture_device` on `start`.
+- `VINPUT_TRIGGER_LIBUDEV_PATH` (optional): Custom path to `libudev.so.1` (useful on NixOS or custom setups).
+- `VINPUT_TRIGGER_LIBEVDEV_PATH` (optional): Custom path to `libevdev.so.2` when resolving non-mouse `KEY_*` button names (useful on NixOS or custom setups).

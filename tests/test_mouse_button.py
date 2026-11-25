@@ -106,6 +106,39 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(mouse_button.ConfigError):
                 mouse_button.load_config()
 
+    def test_shared_library_loader_nixos_fallback_and_custom_override(self) -> None:
+        loaded: list[str] = []
+        sentinel = object()
+
+        def fake_cdll(name: str, use_errno: bool = False) -> object:
+            loaded.append(name)
+            if name == "libudev.so.1":
+                return sentinel
+            raise OSError("not found")
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("ctypes.util.find_library", return_value=None),
+            patch("ctypes.CDLL", side_effect=fake_cdll),
+        ):
+            lib = mouse_button._load_shared_library("VINPUT_TRIGGER_LIBUDEV_PATH", "udev", ("libudev.so.1",))
+        self.assertIs(lib, sentinel)
+        self.assertEqual(loaded, ["libudev.so.1"])
+
+        with (
+            patch.dict(os.environ, {"VINPUT_TRIGGER_LIBUDEV_PATH": "/nonexistent/libudev.so.1"}, clear=True),
+            patch("ctypes.CDLL", side_effect=OSError("missing")),
+        ):
+            with self.assertRaises(mouse_button.ConfigError):
+                mouse_button._load_shared_library("VINPUT_TRIGGER_LIBUDEV_PATH", "udev", ("libudev.so.1",))
+
+        with (
+            patch.dict(os.environ, {"VINPUT_TRIGGER_LIBEVDEV_PATH": "/nonexistent/libevdev.so.2"}, clear=True),
+            patch("ctypes.CDLL", side_effect=OSError("missing")),
+        ):
+            with self.assertRaises(mouse_button.ConfigError):
+                mouse_button._load_libevdev()
+
 
 class StateMachineTests(unittest.TestCase):
     def test_hold_mode(self) -> None:
