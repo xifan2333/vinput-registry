@@ -69,27 +69,27 @@
       "short_id": "siliconflow-polish",
       "command": "python3",
       "script_urls": [
-        "https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
-        "https://ghfast.top/https://raw.githubusercontent.com/XXNN-code/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py"
+        "https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/xifan2333/vinput-registry/main/resources/adapters/siliconflow/polish/entry.py"
       ],
-      "readme_url": "https://github.com/XXNN-code/vinput-registry/blob/main/resources/adapters/siliconflow/polish/README.md",
+      "readme_url": "https://github.com/xifan2333/vinput-registry/blob/main/resources/adapters/siliconflow/polish/README.md",
       "envs": [
         {
-          "name": "SILICONFLOW_API_KEY",
+          "name": "OPENAI_API_KEY",
           "required": true
         },
         {
-          "name": "SILICONFLOW_URL",
+          "name": "OPENAI_API_URL",
           "required": false
         },
         {
-          "name": "SILICONFLOW_MODEL",
+          "name": "OPENAI_MODEL",
           "required": false
         }
       ],
       "version": "2.0.1",
-      "sha256": "0dcbb084e6d67820faf4856425996ad2c4a68677c0d9e459e8833e0395515bab",
+      "sha256": "9b8e2beda0e00d9f30edfc23d3661101fcd4f16eabd45a3031b01fbf61556ccd",
       "vinput_version": ">= 2.0.0"
     }
   ]

@@ -1,8 +1,9 @@
 # adapter.siliconflow.polish
 
-Managed local LLM adapter that polishes ASR transcripts via the SiliconFlow
-OpenAI-compatible chat completions API
-(`https://api.siliconflow.cn/v1/chat/completions`).
+Managed local LLM adapter that polishes ASR transcripts via any
+**OpenAI-compatible** chat completions API. Works with OpenAI, SiliconFlow,
+DeepSeek, Moonshot, vLLM, and any other service exposing the standard
+`/v1/chat/completions` endpoint.
 
 Operates as a command pipe filter (`stdin -> stdout`) for `vinput-daemon`.
 Receives raw speech-recognition text and returns a polished, corrected,
@@ -22,24 +23,24 @@ and fluent version suitable for direct insertion at the input cursor.
 
 ### Required
 
-- `SILICONFLOW_API_KEY` (required): SiliconFlow API key used as `Bearer`
-  credential. Obtain one from the SiliconFlow console
-  (<https://cloud.siliconflow.cn>).
+- `OPENAI_API_KEY` (required): API key sent as the `Authorization: Bearer`
+  credential. Use the key issued by your chosen OpenAI-compatible provider.
 
 ### Optional
 
-- `SILICONFLOW_URL` (optional, default: `https://api.siliconflow.cn/v1/chat/completions`):
-  Custom upstream chat completions endpoint. Override to point at a
-  self-hosted or OpenAI-compatible gateway.
-- `SILICONFLOW_MODEL` (optional, default: `Qwen/Qwen2.5-7B-Instruct`):
-  Model identifier supported by SiliconFlow. Any chat model available on the
-  platform works (e.g. `deepseek-ai/DeepSeek-V3`, `Qwen/Qwen2.5-14B-Instruct`).
-- `SILICONFLOW_SYSTEM_PROMPT` (optional, default: built-in Chinese polishing
+- `OPENAI_API_URL` (optional, default: `https://api.openai.com/v1/chat/completions`):
+  Full chat completions endpoint. Override to target SiliconFlow
+  (`https://api.siliconflow.cn/v1/chat/completions`), DeepSeek, Moonshot,
+  a local vLLM server, or any other OpenAI-compatible gateway.
+- `OPENAI_MODEL` (optional, default: `gpt-4o-mini`): Model identifier accepted
+  by the endpoint. Examples: `gpt-4o-mini`, `deepseek-chat`,
+  `Qwen/Qwen2.5-7B-Instruct`, `THUDM/GLM-4-9B-0414`.
+- `OPENAI_SYSTEM_PROMPT` (optional, default: built-in Chinese polishing
   prompt): Custom system prompt instructing the model how to polish the
   transcript.
-- `SILICONFLOW_TEMPERATURE` (optional, default: `0.3`): Sampling temperature
-  for the completion. Lower values yield more deterministic, conservative
-  edits; higher values allow more creative restructuring.
+- `OPENAI_TEMPERATURE` (optional, default: `0.3`): Sampling temperature.
+  Lower values yield more deterministic, conservative edits; higher values
+  allow more creative restructuring.
 
 ## Protocol
 

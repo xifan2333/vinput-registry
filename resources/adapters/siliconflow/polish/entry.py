@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Managed local LLM adapter: SiliconFlow text polishing bridge.
+"""Managed local LLM adapter: OpenAI-compatible text polishing bridge.
 
-Polishes and refines ASR transcripts using SiliconFlow OpenAI-compatible
-chat completions API (https://api.siliconflow.cn/v1/chat/completions).
+Polishes and refines ASR transcripts using any OpenAI-compatible chat
+completions API (OpenAI, SiliconFlow, DeepSeek, Moonshot, vLLM, etc.).
 Operates as a command pipe filter (stdin -> stdout) for vinput-daemon.
 """
 
@@ -19,8 +19,8 @@ EXIT_SUCCESS = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE_ERROR = 2
 
-DEFAULT_SILICONFLOW_URL = "https://api.siliconflow.cn/v1/chat/completions"
-DEFAULT_SILICONFLOW_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_POLISH_SYSTEM_PROMPT = (
     "你是一名专业的文本润色助手。请对用户提供的语音识别文本进行润色，"
     "修正错别字、去除口语化冗余、优化标点与语句通顺度，"
@@ -29,18 +29,18 @@ DEFAULT_POLISH_SYSTEM_PROMPT = (
 
 MESSAGES: dict[str, dict[str, str]] = {
     "en_US": {
-        "title": "SiliconFlow Polish Adapter",
+        "title": "OpenAI-Compatible Polish Adapter",
         "missing_env": "Missing required environment variable '{name}'.",
-        "err_polish_failed": "SiliconFlow text polishing failed: {detail}",
-        "err_network": "Network error communicating with SiliconFlow: {detail}",
-        "err_empty_response": "SiliconFlow returned an empty response.",
+        "err_polish_failed": "Text polishing failed: {detail}",
+        "err_network": "Network error communicating with the LLM API: {detail}",
+        "err_empty_response": "The LLM API returned an empty response.",
     },
     "zh_CN": {
-        "title": "硅基流动润色适配器",
+        "title": "OpenAI 兼容润色适配器",
         "missing_env": "缺少必需的环境变量 '{name}'。",
-        "err_polish_failed": "硅基流动文本润色失败：{detail}",
-        "err_network": "连接硅基流动发生网络错误：{detail}",
-        "err_empty_response": "硅基流动返回了空响应。",
+        "err_polish_failed": "文本润色失败：{detail}",
+        "err_network": "连接 LLM API 发生网络错误：{detail}",
+        "err_empty_response": "LLM API 返回了空响应。",
     },
 }
 
@@ -126,11 +126,11 @@ class AdapterConfig:
 
 def load_config() -> AdapterConfig:
     """Load and validate all adapter runtime configuration from environment."""
-    url = optional_env("SILICONFLOW_URL", DEFAULT_SILICONFLOW_URL).rstrip("/")
-    api_key = require_env("SILICONFLOW_API_KEY")
-    model = optional_env("SILICONFLOW_MODEL", DEFAULT_SILICONFLOW_MODEL)
-    system_prompt = optional_env("SILICONFLOW_SYSTEM_PROMPT", DEFAULT_POLISH_SYSTEM_PROMPT)
-    temperature_raw = optional_env("SILICONFLOW_TEMPERATURE", "0.3")
+    url = optional_env("OPENAI_API_URL", DEFAULT_OPENAI_URL).rstrip("/")
+    api_key = require_env("OPENAI_API_KEY")
+    model = optional_env("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+    system_prompt = optional_env("OPENAI_SYSTEM_PROMPT", DEFAULT_POLISH_SYSTEM_PROMPT)
+    temperature_raw = optional_env("OPENAI_TEMPERATURE", "0.3")
     try:
         temperature = float(temperature_raw)
     except (TypeError, ValueError):
@@ -144,8 +144,8 @@ def load_config() -> AdapterConfig:
     )
 
 
-def call_siliconflow(text: str, config: AdapterConfig) -> str:
-    """Call SiliconFlow chat completions endpoint for text polishing."""
+def call_llm(text: str, config: AdapterConfig) -> str:
+    """Call an OpenAI-compatible chat completions endpoint for text polishing."""
     payload = {
         "model": config.model,
         "messages": [
@@ -168,7 +168,7 @@ def call_siliconflow(text: str, config: AdapterConfig) -> str:
     except URLError as exc:
         raise VInputError(
             "err_network",
-            detail=f"Failed to connect to SiliconFlow at {config.url}: {exc.reason}",
+            detail=f"Failed to connect to LLM API at {config.url}: {exc.reason}",
         ) from exc
 
     try:
@@ -184,11 +184,11 @@ def call_siliconflow(text: str, config: AdapterConfig) -> str:
 
 
 def rewrite_text(text: str, config: AdapterConfig) -> str | list[str]:
-    """Rewrite raw dictation transcript by polishing it via SiliconFlow."""
+    """Rewrite raw dictation transcript by polishing it via the LLM API."""
     clean = text.strip()
     if not clean:
         return ""
-    result = call_siliconflow(clean, config)
+    result = call_llm(clean, config)
     return [result] if result else []
 
 
@@ -197,7 +197,7 @@ def rewrite_command(text: str, selected: str, config: AdapterConfig) -> str | li
     target_text = selected.strip() if selected.strip() else text.strip()
     if not target_text:
         return ""
-    result = call_siliconflow(target_text, config)
+    result = call_llm(target_text, config)
     return [result] if result else []
 
 
