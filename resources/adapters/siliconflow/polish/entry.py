@@ -182,7 +182,7 @@ def call_llm(text: str, config: AdapterConfig) -> str:
         raise VInputError(
             "err_network",
             detail=f"Refusing to send API key over plaintext HTTP to {config.url}; "
-                   "use https:// or a loopback (127.0.0.1/localhost) endpoint",
+            "use https:// or a loopback (127.0.0.1/localhost) endpoint",
         )
     headers = {
         "Content-Type": "application/json",
