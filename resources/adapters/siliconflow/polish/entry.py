@@ -13,6 +13,7 @@ import os
 import sys
 from dataclasses import dataclass
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 EXIT_SUCCESS = 0
@@ -34,6 +35,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "err_polish_failed": "Text polishing failed: {detail}",
         "err_network": "Network error communicating with the LLM API: {detail}",
         "err_empty_response": "The LLM API returned an empty response.",
+        "err_invalid_content": "The LLM API returned invalid message content.",
     },
     "zh_CN": {
         "title": "OpenAI 兼容润色适配器",
@@ -41,6 +43,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "err_polish_failed": "文本润色失败：{detail}",
         "err_network": "连接 LLM API 发生网络错误：{detail}",
         "err_empty_response": "LLM API 返回了空响应。",
+        "err_invalid_content": "LLM API 返回的消息内容格式无效。",
     },
 }
 
@@ -144,6 +147,25 @@ def load_config() -> AdapterConfig:
     )
 
 
+def _is_url_safe_for_credentials(url: str) -> bool:
+    """Return True if the URL may carry the API key over the wire.
+
+    Allows https:// endpoints and http:// only for loopback addresses
+    (127.0.0.1 / localhost), so local self-hosted gateways (vLLM, etc.)
+    remain usable while plaintext remote HTTP is rejected.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme == "https":
+        return bool(parsed.netloc)
+    if parsed.scheme == "http":
+        host = (parsed.hostname or "").lower()
+        return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+    return False
+
+
 def call_llm(text: str, config: AdapterConfig) -> str:
     """Call an OpenAI-compatible chat completions endpoint for text polishing."""
     payload = {
@@ -156,6 +178,12 @@ def call_llm(text: str, config: AdapterConfig) -> str:
         "stream": False,
     }
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if not _is_url_safe_for_credentials(config.url):
+        raise VInputError(
+            "err_network",
+            detail=f"Refusing to send API key over plaintext HTTP to {config.url}; "
+                   "use https:// or a loopback (127.0.0.1/localhost) endpoint",
+        )
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {config.api_key}",
@@ -174,9 +202,13 @@ def call_llm(text: str, config: AdapterConfig) -> str:
     try:
         choices = data.get("choices") or []
         message = choices[0].get("message", {}) if choices else {}
-        result = str(message.get("content", "")).strip()
     except (IndexError, AttributeError, TypeError) as exc:
         raise VInputError("err_polish_failed", detail=f"Unexpected response shape: {exc}") from exc
+
+    content = message.get("content")
+    if not isinstance(content, str):
+        raise VInputError("err_invalid_content")
+    result = content.strip()
 
     if not result:
         raise VInputError("err_empty_response")
