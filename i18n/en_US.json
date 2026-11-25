@@ -23,6 +23,8 @@
   "provider.wetype.streaming.description": "Streaming cloud ASR via the unofficial WeType IME protocol. For everyday dictation, try the Original scene first; a separate LLM cleanup step is often unnecessary.",
   "trigger.vinput.web_remote.title": "Web Remote",
   "trigger.vinput.web_remote.description": "Local network mobile web input trigger for typing, speech input, and virtual control keys.",
+  "trigger.vinput.mouse_button.title": "Mouse Button",
+  "trigger.vinput.mouse_button.description": "Trigger voice input from a mouse side, middle, or custom button with automatic udev discovery and hotplug support.",
   "provider.openai-compatible.batch.title": "OpenAI-Compatible (Batch)",
   "provider.openai-compatible.batch.description": "Use an OpenAI-compatible /v1/audio/transcriptions endpoint for cloud ASR.",
   "provider.openai-compatible.streaming.title": "OpenAI-Compatible (Streaming)",

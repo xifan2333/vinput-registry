@@ -23,6 +23,8 @@
   "provider.wetype.streaming.description": "使用微信输入法非官方协议进行流式云端识别。日常口述建议先试原始场景，通常无需额外 LLM 整理。",
   "trigger.vinput.web_remote.title": "Web 手机远程输入",
   "trigger.vinput.web_remote.description": "局域网网页输入触发器，支持在手机端语音或打字实时输入到电脑，并提供虚拟控制按键栏。",
+  "trigger.vinput.mouse_button.title": "鼠标按键触发器",
+  "trigger.vinput.mouse_button.description": "使用鼠标侧键、中键或自定义按键触发语音输入，支持基于 udev 的设备自动发现与热插拔。",
   "provider.openai-compatible.batch.title": "OpenAI 兼容（非流式）",
   "provider.openai-compatible.batch.description": "通过兼容 OpenAI 的 /v1/audio/transcriptions 接口调用云端 ASR。",
   "provider.openai-compatible.streaming.title": "OpenAI 兼容（流式）",

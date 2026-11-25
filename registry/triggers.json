@@ -32,6 +32,30 @@
       "version": "2.1.4",
       "sha256": "ee66fc08c3fe1fd965224e62fc03abe3d1544cf2ec38d3b21b3cba34e591be5d",
       "vinput_version": ">= 2.0.0"
+    },
+    {
+      "id": "trigger.vinput.mouse_button",
+      "short_id": "mouse-button",
+      "command": "python3",
+      "script_urls": [
+        "https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/triggers/vinput/mouse_button/entry.py",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/triggers/vinput/mouse_button/entry.py",
+        "https://ghfast.top/https://raw.githubusercontent.com/fcitx5-vinput/vinput-registry/main/resources/triggers/vinput/mouse_button/entry.py"
+      ],
+      "readme_url": "https://github.com/fcitx5-vinput/vinput-registry/blob/main/resources/triggers/vinput/mouse_button/README.md",
+      "envs": [
+        {
+          "name": "VINPUT_TRIGGER_BUTTON",
+          "required": false
+        },
+        {
+          "name": "VINPUT_TRIGGER_MODE",
+          "required": false
+        }
+      ],
+      "version": "1.0.0",
+      "sha256": "fc6530e849cc0ef6b7885b6b40cd4ba36a724843442f0f8bf546d02220212d5f",
+      "vinput_version": ">= 2.0.0"
     }
   ]
 }
